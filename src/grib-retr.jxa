@@ -17,7 +17,10 @@
     (require (erlang 'as erl)
 	     httpc
 	     inets
-	     grib-def))
+	     grib-def
+	     (joxa-core 'as jxc)
+	     (grib-time 'as gtm)
+	     (string 'as str)))
 
 
 
@@ -33,14 +36,71 @@
   {'cycle runs delay})
 
 
-(defn+ get-cycle (datetime cycle-info)
+(defn+ get-cycle-at (datetime grib-src)
   "Retrieve most recent cycle that can provide GRIB source data for the given timestamp."
-  (jxc/let ({'cycle runs delay} cycle-info
-	    {date {h _m _s}} datetime)
-    (let* (shifted-dt (gtm/shift-by-hours datetime (jxc/- delay))
+  (jxc/let ({date {h _m _s}} datetime)
+    (let* (runs (grib-def/runs grib-src)
+	   delay (grib-def/delay grib-src)
+	   shifted-dt (gtm/shift-by-hours datetime (jxc/- delay))
 	   last-cycle-hr (lists/foldl (fn (x a) (jxc/if (jxc/gte x h) h a)) 'undefined runs))
       {date {last-cycle-hr 0 0}})))
 
-(defn+ cull-cycle (c by-c)
-  (case (erl/> 
 
+
+(defn last-run (run-ndx run-len)
+  "Find the last run given the current run index <run-ndx> and the number of runs per day.
+   Return -1 day shift if going back beyond first run of the day."
+  (jxc/if (erl/> run-ndx 1)
+      {(erl/- run-ndx 1) 0}
+      {run-len -1}))
+
+(defn next-run (run-ndx run-len)
+  "Find the next run given the current run index <run-ndx> and the number of runs per day.
+   Return +1 day shift if going beyond last run of the day."
+  (jxc/if (erl/< run-ndx run-len)
+      {(erl/+ run-ndx 1) run-len}
+      {1 1}))
+
+
+(defn+ shift-cycle-by (cycle run-ndx run-len runs delta)
+  "Shift the cycle <cycle> at the run ndx <run-ndx> of the day <delta> cycles into the future
+   (if <delta> is positive) or into the past (<delta> is negative)."
+  (case delta
+	(0 cycle)
+	(d (when (erl/> d 0))
+	   (jxc/let ({next-ndx day-delta} (next-run run-ndx run-len))
+	      (shift-cycle-by (gtm/shift-by-days (gtm/set-hour cycle (lists/nth next-ndx runs)) day-delta)
+			      next-ndx run-len runs (jxc/decr delta))))
+	(d (when (erl/< d 0))
+	   (jxc/let ({last-ndx day-delta} (last-run run-ndx run-len))
+	      (shift-cycle-by (gtm/shift-by-days (gtm/set-hour cycle (lists/nth last-ndx runs)) day-delta)
+			      last-ndx run-len runs (jxc/incr delta))))))
+	       
+
+
+(defn+ shift-cycle-by (cycle delta grib-src)
+  "Find a cycle <delta> steps into the past if <delta> is negative or into the future if <delta> is positive.
+   The function requires the run scheduling per day contained in the <grib-src> info structure."
+  (jxc/let ({_date, {h _m _s}} cycle)
+   (let* (runs (grib-def/runs grib-src)
+          run-ndx (str/str h runs)
+	  run-len (erl/length runs))
+     (shift-cycle-by cycle run-ndx run-len runs delta))))
+
+ 
+
+(defn+ cull-cycle (c by-c)
+  "Ensure cycle <c> is not later than cycle <by-c>"
+  (jxc/if (erl/> c by-c) by-c c))
+  
+
+(defn+ compute-manifest (from to grib-src at-time delta)
+  "Compute files to be downloaded from source <grib-src> that cover a time span
+   between <from> and <to> (inclusive) as available at time <at-time>, also skip
+   <delta> last cycles - this can be used to prevent use of a possibly incomplete
+   cycle."
+  (let* (latest-cycle (get-cycle-at at-time grib-src)
+	 curr-cycle (shift-cycle-by latest-cycle delta grib-src))
+    ;;FIXME: add manifest computing here
+    []))
+	 

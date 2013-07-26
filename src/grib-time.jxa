@@ -5,7 +5,19 @@
 
 
 (defn+ shift-by-hours (datetime hrs)
+  "Shift an erlang <datetime> by <hrs> hours, positive -> future, negative -> past."
   (let* (gs (cal/datetime-to-gregorian-seconds datetime))
     (cal/gregorian-seconds-to-datetime (jxc/- gs (erl/* hrs 3600)))))
+
+
+(defn+ shift-by-days (datetime d)
+  "Shift an erlang <datetime> by <d> days, positive -> future, negaive -> past."
+  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
+    (cal/gregorian-seconds-to-datetime (jxc/- gs (erl/* d 86400)))))
+
+(defn+ set-hour (datetime new-h)
+  "Set the hour of erlang datetime <datetime> to <h>."
+  (jxc/let ({date, {h m s}} datetime)
+    {date {new-h m s}}))
 
 
