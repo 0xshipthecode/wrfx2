@@ -1,0 +1,46 @@
+(ns grib-def
+    (use joxa-records))
+
+; runs - list of hours when runs are started, e.g. [0 12]
+; delay - no. of hours it takes for the files to be availble for d/l after run start
+; url-prefix - the fixed part of the URL for file retrieval
+; name-fun   - a function that accepts cycle time (erlang datetime) and file index (integer) and returns
+;              the second part of the download URL
+; vtable-file - the VTABLE file that should be used to process the GRIB files from this source
+; domain - the storage domain
+; nl-keys - the namelist keys that must be inserted into WPS namelist to correctly handle the GRIB data
+; file-index - a list of integer hour delays (post-run) at which files are available
+(defrecord+ runs delay url-prefix name-fun vtable-file domain nl-keys file-index)
+
+
+(ns grib-retr
+    (require (erlang 'as erl)
+	     httpc
+	     inets
+	     grib-def))
+
+
+
+(defn+ start ()
+  (inets/start))
+
+
+; runs is a list of hours when a run occurrs, e.g. [0,6,12,18]
+; delay is an integer number of hours after the cycle time when the data
+; is expected to be available
+(defn+ make-grib-info (runs delay)
+  "Construct a definition of a grib source. Only contains cycle information."
+  {'cycle runs delay})
+
+
+(defn+ get-cycle (datetime cycle-info)
+  "Retrieve most recent cycle that can provide GRIB source data for the given timestamp."
+  (jxc/let ({'cycle runs delay} cycle-info
+	    {date {h _m _s}} datetime)
+    (let* (shifted-dt (gtm/shift-by-hours datetime (jxc/- delay))
+	   last-cycle-hr (lists/foldl (fn (x a) (jxc/if (jxc/gte x h) h a)) 'undefined runs))
+      {date {last-cycle-hr 0 0}})))
+
+(defn+ cull-cycle (c by-c)
+  (case (erl/> 
+

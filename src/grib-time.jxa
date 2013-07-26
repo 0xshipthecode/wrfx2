@@ -1,0 +1,11 @@
+(ns grib-time
+    (require (erlang 'as erl)
+             (joxa-core 'as jxc)
+	     (calendar 'as cal 'joxify)))
+
+
+(defn+ shift-by-hours (datetime hrs)
+  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
+    (cal/gregorian-seconds-to-datetime (jxc/- gs (erl/* hrs 3600)))))
+
+
