@@ -21,3 +21,16 @@
     {date {new-h m s}}))
 
 
+(defn+ round-hours (datetime how)
+  "Round datetime <datetime> to next hour (if how is 'up) or to last hour (if how is 'down)."
+  (case how
+	('down (jxc/let ({date {h m s}} datetime) {date {h 0 0}}))
+	('up (round-hours (shift-by-hours datetime 1) 'down))))
+
+
+(defn+ hours-between (from to)
+  "Compute the number of whole hours between <from> and <to> assuming
+   that to > from."
+  (let* (s1 (cal/datetime-to-gregorian-seconds from)
+	s2 (cal/datetime-to-gregorian-seconds to))
+    (erl/div (erl/- s2 s1) 3600)))
