@@ -28,11 +28,11 @@
 
 
 
-(defn+ start ()
+(defn start ()
   (inets/start))
 
 
-(defn+ get-cycle-at (datetime delay runs)
+(defn get-cycle-at (datetime delay runs)
   "Retrieve most recent cycle that can provide GRIB source data for the given timestamp."
     (jxc/let ({date {h _m _s}} (gtm/shift-by-hours datetime (jxc/- delay)))
       (case (lists/foldl (fn (x a) (jxc/if (jxc/gte h x) x a)) :undefined runs)
@@ -59,7 +59,7 @@
 	(v (jxc/if (erl/> v 0) 1 -1))))
 
 
-(defn+ shift-cycle-by (cycle run-ndx run-len runs delta)
+(defn shift-cycle-by (cycle run-ndx run-len runs delta)
   "Shift the cycle <cycle> at the run ndx <run-ndx> of the day <delta> cycles into the future
    (if <delta> is positive) or into the past (<delta> is negative)."
   (case delta
@@ -70,7 +70,7 @@
 			      new-ndx run-len runs (erl/+ delta step)))))))
 
 
-(defn+ shift-cycle-by (cycle delta grib-src)
+(defn shift-cycle-by (cycle delta grib-src)
   "Find a cycle <delta> steps into the past if <delta> is negative or into the future if <delta> is positive.
    The function requires the run scheduling per day contained in the <grib-src> info structure."
   (jxc/let ({_date, {h _m _s}} cycle)
@@ -80,11 +80,11 @@
      (shift-cycle-by cycle run-ndx run-len runs delta))))
  
 
-(defn+ cull-cycle (c by-c)
+(defn cull-cycle (c by-c)
   "Ensure cycle <c> is not later than cycle <by-c>"
   (jxc/if (erl/> c by-c) by-c c))
 
-(defn+ forecast-hour (h grib-src)
+(defn forecast-hour (h grib-src)
   "Returns the highest file hour that is smaller than <h> for grib source <grib-src>."
   (case (lists/dropwhile (fn (x) (erl/< x h)) (grib-def/file-hours grib-src))
         ([] :beyond-end)
