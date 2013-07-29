@@ -1,5 +1,5 @@
 
-all: compile build-test
+all: compile
 
 
 BEAMFILES = ebin/grib-time.beam \

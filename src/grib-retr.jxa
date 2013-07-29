@@ -1,6 +1,7 @@
 (ns grib-def
     (use joxa-records))
 
+; name - an identifier of the grib definition
 ; runs - list of hours when runs are started, e.g. [0 12]
 ; delay - no. of hours it takes for the files to be availble for d/l after run start
 ; url-prefix - the fixed part of the URL for file retrieval
@@ -10,8 +11,7 @@
 ; domain - the storage domain
 ; file-hours - a list of hours (from run time) for which grib files are available
 ; nl-keys - the namelist keys that must be inserted into WPS namelist to correctly handle the GRIB data
-; file-index - a list of integer hour delays (post-run) at which files are available
-(defrecord+ runs delay url-prefix name-fun vtable-file domain file-hours nl-keys file-index)
+(defrecord+ name runs delay url-prefix name-fun vtable-file domain file-hours nl-keys)
 
 
 (ns grib-retr
@@ -20,10 +20,11 @@
 	     inets
 	     grib-def
 	     lists
-	     (joxa-lists 'as jxl)
-	     (joxa-core 'as jxc)
-	     (grib-time 'as gtm)
-	     (string 'as str)))
+	     (io_lib :as iol)
+	     (joxa-lists :as jxl)
+	     (joxa-core :as jxc)
+	     (grib-time :as gtm)
+	     string))
 
 
 
@@ -31,14 +32,14 @@
   (inets/start))
 
 
-(defn+ get-cycle-at (datetime grib-src)
+(defn+ get-cycle-at (datetime delay runs)
   "Retrieve most recent cycle that can provide GRIB source data for the given timestamp."
-  (jxc/let ({date {h _m _s}} datetime)
-    (let* (runs (grib-def/runs grib-src)
-	   delay (grib-def/delay grib-src)
-	   shifted-dt (gtm/shift-by-hours datetime (jxc/- delay))
-	   last-cycle-hr (lists/foldl (fn (x a) (jxc/if (jxc/gte x h) h a)) 'undefined runs))
-      {date {last-cycle-hr 0 0}})))
+    (jxc/let ({date {h _m _s}} (gtm/shift-by-hours datetime (jxc/- delay)))
+      (case (lists/foldl (fn (x a) (jxc/if (jxc/gte h x) x a)) :undefined runs)
+	    ; if all of the runs on the same day are after our request, try again with
+	    ; datetime an hour before
+	    (:undefined (get-cycle-at (gtm/shift-by-hours datetime -1) delay runs))
+	    (last-cycle-hr {date {last-cycle-hr 0 0}}))))
 
 
 (defn+ move-cycle (run-ndx run-len by)
@@ -74,7 +75,7 @@
    The function requires the run scheduling per day contained in the <grib-src> info structure."
   (jxc/let ({_date, {h _m _s}} cycle)
    (let* (runs (grib-def/runs grib-src)
-          run-ndx (str/str h runs)
+          run-ndx (string/chr runs h)
 	  run-len (erl/length runs))
      (shift-cycle-by cycle run-ndx run-len runs delta))))
  
@@ -83,9 +84,11 @@
   "Ensure cycle <c> is not later than cycle <by-c>"
   (jxc/if (erl/> c by-c) by-c c))
 
-(defn forecast-hour (h grib-src)
+(defn+ forecast-hour (h grib-src)
   "Returns the highest file hour that is smaller than <h> for grib source <grib-src>."
-  (jxl/hd (lists/dropwhile (fn (x) (erl/> x h)) (lists/reverse (grib-def/file-hours grib-src)))))
+  (case (lists/dropwhile (fn (x) (erl/< x h)) (grib-def/file-hours grib-src))
+        ([] :beyond-end)
+	(rest (jxl/hd rest))))
 
 
 (defn build-file-list (now to-adj latest-cycle cov-from cov-to last-ref grib-src files)
@@ -93,14 +96,19 @@
   (case (erl/> to-adj cov-to)
    (:true
     (let* (next-now (gtm/shift-by-hours now 1)
-	   cycle (cull-cycle (get-cycle-at now grib-src) latest-cycle)
+	   cycle (cull-cycle (get-cycle-at now 0 (grib-def/runs grib-src)) latest-cycle)
 	   fc-hr (forecast-hour (gtm/hours-between cycle now) grib-src))
-      (case last-ref
-	    ({cycle fc-hr} (build-file-list next-now to-adj latest-cycle cov-from cov-to last-ref grib-src files))
+;      (io/format "now ~p cycle ~p fc-hr ~p~n" [now cycle fc-hr])
+      (case {cycle fc-hr}
+	    ({_ :beyond-end} :out-of-range)
+	    (last-ref (build-file-list next-now to-adj latest-cycle cov-from cov-to last-ref grib-src files))
 	    (new-last-ref
 	     ; we have a new file reference that must be appended to the file list
-	     (let* (new-file ((grib-def/name-fun grib-src) cycle fc-hr))
-	       (build-file-list next-now to-adj latest-cycle cov-from (gtm/shift-by-hours cycle fc-hr)
+	     (let* (new-file (lists/flatten ((grib-def/name-fun grib-src) cycle fc-hr))
+		    new-time (gtm/shift-by-hours cycle fc-hr))
+	       (build-file-list next-now to-adj latest-cycle 
+				(gtm/min-time cov-from new-time)
+				(gtm/max-time cov-to new-time)
 				new-last-ref grib-src (new-file . files)))))))
    (:false
     {cov-from cov-to files})))
@@ -112,9 +120,28 @@
    between <from> and <to> (inclusive) as available at time <at-time>, also skip
    <delta> last cycles - this can be used to prevent use of a possibly incomplete
    cycle."
-  (let* (cycle-at-time (get-cycle-at at-time grib-src)
+  (let* (cycle-at-time (get-cycle-at at-time (grib-def/delay grib-src) (grib-def/runs grib-src))
 	 latest-avail-cycle (shift-cycle-by cycle-at-time delta grib-src)
 	 from-adj (gtm/round-hours from :down)
 	 to-adj (gtm/round-hours to :up))
-    (build-file-list from-adj to-adj latest-avail-cycle from-adj (gtm/shift-by-hours from-adj -1) :undefined grib-src [])))
+    (build-file-list from-adj to-adj latest-avail-cycle 
+		     from-adj (gtm/shift-by-hours from-adj -1) :undefined grib-src [])))
 	 
+
+
+(defn+ def-src ()
+  (grib-def/make "nam_218"  ; id
+		 [0 6 12 18]  ; runs
+		 2 ;delay [hrs]
+		 "http://nomads.ncep.noaa.gov/pub/data/nccf/com/nam/prod/"  ; the (fixed) URL prefix
+		 (fn (cyc fc-hr) 
+		     (jxc/let ({{y m d} {hr _m _s}} cyc)
+			      (iol/format "nam.~4..0B~2..0B~2..0B/nam.t~2..0Bz.awphys~2..0B.grb2.tm00"
+					     [y m d hr fc-hr])))   ; the name construction function
+		 "ungrib/Variable_Tables/Vtable.NAM"  ; vtable file consistent with GRIB info
+		 "nam_218"  ; the name of the storage domain
+		 (lists/flatten [(lists/seq 0 36) (lists/map (fn (x) (erl/* x 3)) (lists/seq 13 28))]) ; forecast hours
+		 [{"num_metgrid_levels", [40]}]))
+		 
+		 
+

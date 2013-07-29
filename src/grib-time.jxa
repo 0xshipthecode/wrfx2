@@ -1,5 +1,6 @@
 (ns grib-time
-    (require (erlang 'as erl)
+    (require io
+             (erlang 'as erl)
              (joxa-core 'as jxc)
 	     (calendar 'as cal 'joxify)))
 
@@ -7,13 +8,14 @@
 (defn+ shift-by-hours (datetime hrs)
   "Shift an erlang <datetime> by <hrs> hours, positive -> future, negative -> past."
   (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (jxc/- gs (erl/* hrs 3600)))))
+    (cal/gregorian-seconds-to-datetime (jxc/+ gs (erl/* hrs 3600)))))
 
 
 (defn+ shift-by-days (datetime d)
   "Shift an erlang <datetime> by <d> days, positive -> future, negaive -> past."
   (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (jxc/- gs (erl/* d 86400)))))
+    (cal/gregorian-seconds-to-datetime (jxc/+ gs (erl/* d 86400)))))
+
 
 (defn+ set-hour (datetime new-h)
   "Set the hour of erlang datetime <datetime> to <h>."
@@ -23,14 +25,26 @@
 
 (defn+ round-hours (datetime how)
   "Round datetime <datetime> to next hour (if how is 'up) or to last hour (if how is 'down)."
-  (case how
-	('down (jxc/let ({date {h m s}} datetime) {date {h 0 0}}))
-	('up (round-hours (shift-by-hours datetime 1) 'down))))
+  (case datetime
+	({date {h 0 0}} datetime)
+	({date {h m s}} 
+	 (case how
+	       ('down {date {h 0 0}})
+	       ('up (shift-by-hours {date {h 0 0}} 1))))))
 
 
 (defn+ hours-between (from to)
   "Compute the number of whole hours between <from> and <to> assuming
    that to > from."
   (let* (s1 (cal/datetime-to-gregorian-seconds from)
-	s2 (cal/datetime-to-gregorian-seconds to))
+	 s2 (cal/datetime-to-gregorian-seconds to))
     (erl/div (erl/- s2 s1) 3600)))
+
+
+(defn+ min-time (t1 t2)
+  (jxc/if (erl/< t1 t2) t1 t2))
+
+
+(defn+ max-time (t1 t2)
+  (jxc/if (erl/> t1 t2) t1 t2))
+        
