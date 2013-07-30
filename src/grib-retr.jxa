@@ -129,6 +129,39 @@
 	 
 
 
+(defn stream-file (target file grib-src)
+  "Stream the content <target> prefixed with grib-src/url-prefix to disk to file <file>."
+  (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" target])
+	 file2 (lists/flatten [(grib-def/domain grib-src) "/" file]))
+    (case (httpc/request :get {url []} [] [{:stream, file2}])
+	  ({:ok, {{ver 200 reason} headers body}} (erl/send target :download-complete))
+	  (_ (erl/send target {:download-fail file})))))
+
+
+(defn download-grib-files (manifest curr-dl max-dl grib-src)
+  (let* (myself (erl/self))
+    (case manifest
+	  ([]
+	   (jxc/if (erl/== curr-dl 0) :success
+		   (receive
+		    (:download-complete (download-grib-files [] (jxc/decr curr-dl) max-dl grib-src))
+		    ({:download-fail what} {:failure what}))))
+	  ((next . rest)
+	   (case curr-dl
+		 (max-dl
+		  (receive
+		   (:download-complete (download-grib-files [] (jxc/decr curr-dl) max-dl grib-src))
+		   ({:download-fail what} {:failure what})))
+		 (_
+		  (erl/spawn (fn () (stream-file next myself grib-src)))
+		  (download-grib-files rest (jxc/incr curr-dl) max-dl grib-src)))))))
+
+
+(defn+ download-grib-files (manifest max-concurrent-dl grib-src)
+  "Download a <manifest> of grib files in parallel with <max-concurrent-dl> parallel downloads.from source <grib-src>."
+  (download-grib-files manifest 0 max-concurrent-dl grib-src))
+
+
 (defn+ def-src ()
   (grib-def/make "nam_218"  ; id
 		 [0 6 12 18]  ; runs
