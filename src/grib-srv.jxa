@@ -1,0 +1,46 @@
+(ns grib-srv
+    (require gen_server
+	     grib-retr
+	     inets
+	     (joxa-core :as jxc)))
+
+(defn+ start_link (grib-src stor-dir)
+  (inets/start)
+  (gen_server/start_link {:local :grib-srv} :grib-srv [grib-src stor-dir] []))
+
+;; API
+
+(defn+ retrieve-gribs (from to at-time delta)
+  (gen_server/call :grib-srv {:retrieve-gribs from to at-time delta} :infinity))
+
+
+;; Internal funcrions
+
+(defn retrieve-grib-files (from to at-time delta state)
+  (jxc/let ({grib-src stor-dir} state)
+    (grib-retr/retrieve-gribs from to at-time delta stor-dir grib-src)))
+
+;; gen_server callbacks
+
+(defn+ init (args)
+  (jxc/let ([grib-src stor-dir] args)
+    {:ok {grib-src stor-dir}}))
+
+
+(defn+ handle_call (request from state)
+  (case request
+	({:retrieve-gribs from-time to-time at-time delta}
+	 {:reply (retrieve-grib-files from-time to-time at-time delta state) state})
+	(other {:reply {:error (io/format "message ~p not understood." [other])} state})))
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
