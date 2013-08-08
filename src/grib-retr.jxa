@@ -10,8 +10,9 @@
 ; vtable-file - the VTABLE file that should be used to process the GRIB files from this source
 ; domain - the storage domain
 ; file-hours - a list of hours (from run time) for which grib files are available
+; max-downloads - the maximum number of concurrent downloads to use with the GRIB source
 ; nl-keys - the namelist keys that must be inserted into WPS namelist to correctly handle the GRIB data
-(defrecord+ name runs delay url-prefix name-fun vtable-file domain file-hours nl-keys)
+(defrecord+ name runs delay url-prefix name-fun vtable-file domain file-hours max-downloads nl-keys)
 
 
 (ns grib-retr
@@ -26,12 +27,8 @@
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
 	     (grib-time :as gtm)
-	     string))
-
-
-
-(defn+ start ()
-  (inets/start))
+	     string)
+    (use utils))
 
 
 (defn get-cycle-at (datetime delay runs)
@@ -53,13 +50,6 @@
 	  (nr (when (erl/> new-run run-len)) {(jxc/- new-run run-len) 1})
 	  (nr {nr 0}))))
 		   
-
-(defn sign (val)
-  "Return sign of number, 0 -> 0, x < 0 -> -1, x > 0 -> 1."
-  (case val
-	(0 0)
-	(v (jxc/if (erl/> v 0) 1 -1))))
-
 
 (defn shift-cycle-by (cycle run-ndx run-len runs delta)
   "Shift the cycle <cycle> at the run ndx <run-ndx> of the day <delta> cycles into the future
@@ -100,9 +90,9 @@
     (let* (next-now (gtm/shift-by-hours now 1)
 	   cycle (cull-cycle (get-cycle-at now 0 (grib-def/runs grib-src)) latest-cycle)
 	   fc-hr (forecast-hour (gtm/hours-between cycle now) grib-src))
-;      (io/format "now ~p cycle ~p fc-hr ~p~n" [now cycle fc-hr])
       (case {cycle fc-hr}
 	    ({_ :beyond-end} :out-of-range)
+	    ; the reference is the same as the last reference, no changes in list, move to next forecast hour
 	    (last-ref (build-file-list next-now to-adj latest-cycle cov-from cov-to last-ref grib-src files))
 	    (new-last-ref
 	     ; we have a new file reference that must be appended to the file list
@@ -114,7 +104,6 @@
 				new-last-ref grib-src (new-file . files)))))))
    (:false
     {cov-from cov-to files})))
-	 
   
 
 (defn+ compute-manifest (from to at-time delta grib-src)
@@ -140,31 +129,32 @@
 	  (_ (erl/send target {:download-fail ident})))))
 
 
-
-(defn download-grib-files (manifest curr-dl max-dl storage-dir grib-src)
-  "Download the grib files on the manifest in parallel."
-  (let* (myself (erl/self))
+(defn download-grib-files (manifest curr-dl storage-dir grib-src)
+  "Download the grib files on the manifest in parallel.
+   Returns either :success or {:failure url}"
+  (let* (myself (erl/self)
+	 max-dl (grib-def/max-downloads grib-src))
     (case manifest
 	  ([]
 	   (jxc/if (erl/== curr-dl 0) :success
 		   (receive
-		    (:download-complete (download-grib-files [] (jxc/decr curr-dl) max-dl storage-dir grib-src))
-		    ({:download-fail what} {:failure what}))))
+		    (:download-complete (download-grib-files [] (jxc/decr curr-dl) storage-dir grib-src))
+		    ({:download-fail what} {:failed-download what}))))
 	  ((next . rest)
 	   (case curr-dl
 		 (max-dl
 		  (receive
-		   (:download-complete (download-grib-files manifest (jxc/decr curr-dl) max-dl storage-dir grib-src))
-		   ({:download-fail what} {:failure what})))
+		   (:download-complete (download-grib-files manifest (jxc/decr curr-dl) storage-dir grib-src))
+		   ({:download-fail what} {:failed-download what})))
 		 (_
 		  (io/format "spawning new download for ~p~n" [next])
 		  (erl/spawn (fn () (stream-file myself next storage-dir grib-src)))
-		  (download-grib-files rest (jxc/incr curr-dl) max-dl storage-dir grib-src)))))))
+		  (download-grib-files rest (jxc/incr curr-dl) storage-dir grib-src)))))))
 
 
-(defn+ download-gribs (manifest max-concurrent-dl stor-dir grib-src)
+(defn+ download-gribs (manifest stor-dir grib-src)
   "Download a <manifest> of grib files in parallel with <max-concurrent-dl> parallel downloads.from source <grib-src>."
-  (download-grib-files manifest 0 max-concurrent-dl stor-dir grib-src))
+  (download-grib-files manifest 0 stor-dir grib-src))
 
 
 (defn url-exists? (url)
@@ -175,22 +165,25 @@
 	(_notok :false)))
 
 
-(defn+ gribs-exist-on-server? (manifest grib-src)
-  "Check if a set of gribs exists on the server."
-  (case manifest
-	([] :true)
-	((f . rest)
-	 (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" f]))
-	   (jxc/if (url-exists? url) (gribs-exist-on-server? rest grib-src) :false)))))
-	 
-
-(defn+ find-missing-gribs (manifest grib-src)
-  "Returns a list of GRIB files missing on the server side."
+(defn+ find-unreachable-gribs (manifest grib-src)
+  "Returns a list of GRIB files missing on the server side from the list <manifest>."
   (let* (prefix (grib-def/url-prefix grib-src))
     (lists/filter (fn (f) (erl/not (url-exists? (lists/flatten [prefix "/" f])))) manifest)))
 
 
+(defn+ is-grib-local? (ident stor-dir grib-src)
+  "Check if a GRIB file identified by <ident> from source <grib-src> is cached locally in <stor-dir>."
+  (let* (abs-path (lists/flatten [stor-dir "/" (grib-def/domain grib-src) "/" ident]))
+    (filelib/is-regular abs-path)))
+
+
+(defn+ remove-local-gribs (manifest stor-dir grib-src)
+  "Remove GRIB files from manifest that are already available locally."
+  (lists/filter (fn (x) (erl/not (is-grib-local? x stor-dir grib-src))) manifest))
+
+
 (defn+ def-src ()
+  "Construct a tuple describing the nam_218 grid source on the NOAA nomads server."
   (grib-def/make "nam_218"  ; id
 		 [0 6 12 18]  ; runs
 		 2 ;delay [hrs]
@@ -202,16 +195,22 @@
 		 "ungrib/Variable_Tables/Vtable.NAM"  ; vtable file consistent with GRIB info
 		 "nam_218"  ; the name of the storage domain
 		 (lists/flatten [(lists/seq 0 36) (lists/map (fn (x) (erl/* x 3)) (lists/seq 13 28))]) ; forecast hours
+		 1 ; max concurrent downloads
 		 [{"num_metgrid_levels", [40]}]))
 		 
 
-(defn+ test-dl (from to at-time max-downloads)
-  (let* (grib-src (def-src))
-    (case (compute-manifest from to at-time 0 grib-src)
-	  ({cov-from cov-to manifest} 
-	   (case (find-missing-gribs manifest grib-src)
+(defn+ retrieve-gribs (from to at-time delta stor-dir grib-src)
+  "Computes the GRIB files needed for the simulation covering the time interval <from> to <to>
+   which use <delta> cycles before the last cycle and downloads them from the grib source <grib-src>.
+   Files already available in <stor-dir> are not redownloaded.
+   Returns either :success, :out-of-range, {:missing-gribs list-of-gribs} or {:failed-download url}."
+  (case (compute-manifest from to at-time delta grib-src)
+	({cov-from cov-to manifest}
+	 (let* (gribs-to-dl (remove-local-gribs manifest stor-dir grib-src))
+	   (case (find-unreachable-gribs gribs-to-dl grib-src)
 		 ; if no gribs missing, use this source
-		 ([] (download-gribs manifest max-downloads "." grib-src))
+		 ([] (download-gribs gribs-to-dl stor-dir grib-src))
 		 ; in case of missing gribs, download
-		 (missing-gribs (io/format "missing GRIBs on server ~p" [missing-gribs]))))
-	  (failure failure))))
+		 (missing-gribs {:missing-gribs missing-gribs}))))
+	  ; could not even compute the manifest
+	(:out-of-range :out-of-range)))

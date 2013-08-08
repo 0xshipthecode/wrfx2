@@ -1,8 +1,8 @@
 (ns grib-time
     (require io
-             (erlang 'as erl)
-             (joxa-core 'as jxc)
-	     (calendar 'as cal 'joxify)))
+             (erlang :as erl)
+             (joxa-core :as jxc)
+	     (calendar :as cal :joxify)))
 
 
 (defn+ shift-by-hours (datetime hrs)
@@ -24,13 +24,13 @@
 
 
 (defn+ round-hours (datetime how)
-  "Round datetime <datetime> to next hour (if how is 'up) or to last hour (if how is 'down)."
+  "Round datetime <datetime> to next hour (if how is :up) or to last hour (if how is :down)."
   (case datetime
 	({date {h 0 0}} datetime)
 	({date {h m s}} 
 	 (case how
-	       ('down {date {h 0 0}})
-	       ('up (shift-by-hours {date {h 0 0}} 1))))))
+	       (:down {date {h 0 0}})
+	       (:up (shift-by-hours {date {h 0 0}} 1))))))
 
 
 (defn+ hours-between (from to)
@@ -42,9 +42,10 @@
 
 
 (defn+ min-time (t1 t2)
+  "Find the earlier time from the two datetimes <t1> and <t2>."
   (jxc/if (erl/< t1 t2) t1 t2))
 
 
 (defn+ max-time (t1 t2)
+  "Find the later time from the two datetimes <t1> and <t2>."
   (jxc/if (erl/> t1 t2) t1 t2))
-        
