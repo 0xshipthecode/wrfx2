@@ -1,0 +1,80 @@
+(ns plist
+    (require lists io file
+	     (joxa-core :as jxc)
+	     (erlang :as erl)))
+
+
+
+(defn+ new ()
+  "Create an empty property list."
+  [])
+
+
+(defn+ keys (ps)
+  "Retrieve all keys from the property list <ps>."
+  (lists/map (fn (x) (jxc/let ({k v} x) k)) ps))
+
+
+(defn+ set (k v ps)
+  "Set the key <k> to map to value <v> in the new property list <ps>."
+  (case ps
+	([] [{k v}])
+	(({k _oldv} . rest) ({k v} . rest))
+	((prop . rest) (prop . (set k v rest)))))
+
+
+(defn+ get (k ps)
+  "Retrieve the value associated with key <k> in the property list <ps>.
+   case exception arises if key does not exist."
+  (case ps
+	(({k v} . _rest) v)
+	((_other . rest) (get k rest))))
+
+(defn+ get-all (ks ps)
+  "Retrieve the list values associated with property keys <ks> in the list <ps>."
+  (lists/map (fn (k) (get k ps)) ks))
+
+
+(defn+ contains (k ps)
+  "Returns true if the property list <ps> contains <k>, false otherwise."
+  (case ps
+	([] :false)
+	((k . _rest) :true)
+	((other . rest) (contains k rest))))
+
+(defn+ contains-all (ks ps)
+  "Returns true if all keys <ks> are contained in the property list <ps>."
+  (lists/foldl (fn (k a) (erl/and (contains k ps) a)) :true ks))
+
+
+(defn+ remove (k ps)
+  "Remove the key-value pair with key <k> from the property list <ps>."
+  (case ps
+	([] [])
+	(({k _v} . rest) rest)
+	((other . rest) (other . (remove k rest)))))
+
+
+(defn+ update-with (new-ps ps)
+  "Update the property list <ps> with the properties in <new-ps>,
+   in case of a collision, values in <new-ps> have a priority."
+  (lists/foldl (fn (x aps) (jxc/let ({k v} x) (set k v aps))) ps new-ps))
+
+
+(defn+ sub-list (ks ps)
+  "Make a sub-list of only those properties with keys that are in <ks>."
+  (lists/filter (fn (x) (jxc/let ({k v} x) (lists/member k ks))) ps))
+
+
+(defn+ store (file ps)
+  "Write the property list <ps> to file <file> in human readable format."
+  (jxc/let ({:ok dev} (file/open file [:write]))
+	   (lists/map (fn (x) (io/format dev "~p.~n" [x])) ps)
+	   (file/close dev)))
+
+
+(defn+ load (file)
+  "Load a property list from the file <file>."
+  (case (file/consult file)
+	({:ok ps} ps)
+	(failure failure)))

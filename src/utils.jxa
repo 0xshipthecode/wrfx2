@@ -1,0 +1,11 @@
+(ns utils
+    (require (erlang :as erl)
+	     (joxa-core :as jxc)))
+
+(defn+ sign (val)
+  "Return sign of number, 0 -> 0, x < 0 -> -1, x > 0 -> 1."
+  (case val
+	(0 0)
+	(v (jxc/if (erl/> v 0) 1 -1))))
+
+
