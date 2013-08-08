@@ -20,6 +20,8 @@
 	     inets
 	     grib-def
 	     lists
+	     timer
+	     (filelib :joxify)
 	     (io_lib :as iol)
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
@@ -28,7 +30,7 @@
 
 
 
-(defn start ()
+(defn+ start ()
   (inets/start))
 
 
@@ -115,7 +117,7 @@
 	 
   
 
-(defn+ compute-manifest (from to grib-src at-time delta)
+(defn+ compute-manifest (from to at-time delta grib-src)
   "Compute files to be downloaded from source <grib-src> that cover a time span
    between <from> and <to> (inclusive) as available at time <at-time>, also skip
    <delta> last cycles - this can be used to prevent use of a possibly incomplete
@@ -126,48 +128,74 @@
 	 to-adj (gtm/round-hours to :up))
     (build-file-list from-adj to-adj latest-avail-cycle 
 		     from-adj (gtm/shift-by-hours from-adj -1) :undefined grib-src [])))
-	 
 
 
-(defn stream-file (target file grib-src)
-  "Stream the content <target> prefixed with grib-src/url-prefix to disk to file <file>."
-  (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" target])
-	 file2 (lists/flatten [(grib-def/domain grib-src) "/" file]))
-    (case (httpc/request :get {url []} [] [{:stream, file2}])
-	  ({:ok, {{ver 200 reason} headers body}} (erl/send target :download-complete))
-	  (_ (erl/send target {:download-fail file})))))
+(defn stream-file (target ident storage-dir grib-src)
+  "Stream the content <ident> prefixed with grib-src/url-prefix to disk to file <storage-dir>/<ident>."
+  (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" ident])
+	 abs-path (lists/flatten [storage-dir "/" (grib-def/domain grib-src) "/" ident]))
+    (filelib/ensure-dir abs-path)
+    (case (httpc/request :get {url []} [] [{:stream, abs-path}])
+	  ({:ok, :saved_to_file} (erl/send target :download-complete))
+	  (_ (erl/send target {:download-fail ident})))))
 
 
-(defn download-grib-files (manifest curr-dl max-dl grib-src)
+
+(defn download-grib-files (manifest curr-dl max-dl storage-dir grib-src)
+  "Download the grib files on the manifest in parallel."
   (let* (myself (erl/self))
     (case manifest
 	  ([]
 	   (jxc/if (erl/== curr-dl 0) :success
 		   (receive
-		    (:download-complete (download-grib-files [] (jxc/decr curr-dl) max-dl grib-src))
+		    (:download-complete (download-grib-files [] (jxc/decr curr-dl) max-dl storage-dir grib-src))
 		    ({:download-fail what} {:failure what}))))
 	  ((next . rest)
 	   (case curr-dl
 		 (max-dl
 		  (receive
-		   (:download-complete (download-grib-files [] (jxc/decr curr-dl) max-dl grib-src))
+		   (:download-complete (download-grib-files manifest (jxc/decr curr-dl) max-dl storage-dir grib-src))
 		   ({:download-fail what} {:failure what})))
 		 (_
-		  (erl/spawn (fn () (stream-file next myself grib-src)))
-		  (download-grib-files rest (jxc/incr curr-dl) max-dl grib-src)))))))
+		  (io/format "spawning new download for ~p~n" [next])
+		  (erl/spawn (fn () (stream-file myself next storage-dir grib-src)))
+		  (download-grib-files rest (jxc/incr curr-dl) max-dl storage-dir grib-src)))))))
 
 
-(defn+ download-grib-files (manifest max-concurrent-dl grib-src)
+(defn+ download-gribs (manifest max-concurrent-dl stor-dir grib-src)
   "Download a <manifest> of grib files in parallel with <max-concurrent-dl> parallel downloads.from source <grib-src>."
-  (download-grib-files manifest 0 max-concurrent-dl grib-src))
+  (download-grib-files manifest 0 max-concurrent-dl stor-dir grib-src))
+
+
+(defn url-exists? (url)
+  "Checks if a URL exists."
+  (io/format "checking existence of ~p~n" [url])
+  (case (httpc/request :head {url []} [] [])
+	({:ok {{_ 200 _} _ _}} :true)
+	(_notok :false)))
+
+
+(defn+ gribs-exist-on-server? (manifest grib-src)
+  "Check if a set of gribs exists on the server."
+  (case manifest
+	([] :true)
+	((f . rest)
+	 (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" f]))
+	   (jxc/if (url-exists? url) (gribs-exist-on-server? rest grib-src) :false)))))
+	 
+
+(defn+ find-missing-gribs (manifest grib-src)
+  "Returns a list of GRIB files missing on the server side."
+  (let* (prefix (grib-def/url-prefix grib-src))
+    (lists/filter (fn (f) (erl/not (url-exists? (lists/flatten [prefix "/" f])))) manifest)))
 
 
 (defn+ def-src ()
   (grib-def/make "nam_218"  ; id
 		 [0 6 12 18]  ; runs
 		 2 ;delay [hrs]
-		 "http://nomads.ncep.noaa.gov/pub/data/nccf/com/nam/prod/"  ; the (fixed) URL prefix
-		 (fn (cyc fc-hr) 
+		 "http://nomads.ncep.noaa.gov/pub/data/nccf/com/nam/prod"  ; the URL prefix
+		 (fn (cyc fc-hr)
 		     (jxc/let ({{y m d} {hr _m _s}} cyc)
 			      (iol/format "nam.~4..0B~2..0B~2..0B/nam.t~2..0Bz.awphys~2..0B.grb2.tm00"
 					     [y m d hr fc-hr])))   ; the name construction function
@@ -176,5 +204,14 @@
 		 (lists/flatten [(lists/seq 0 36) (lists/map (fn (x) (erl/* x 3)) (lists/seq 13 28))]) ; forecast hours
 		 [{"num_metgrid_levels", [40]}]))
 		 
-		 
 
+(defn+ test-dl (from to at-time max-downloads)
+  (let* (grib-src (def-src))
+    (case (compute-manifest from to at-time 0 grib-src)
+	  ({cov-from cov-to manifest} 
+	   (case (find-missing-gribs manifest grib-src)
+		 ; if no gribs missing, use this source
+		 ([] (download-gribs manifest max-downloads "." grib-src))
+		 ; in case of missing gribs, download
+		 (missing-gribs (io/format "missing GRIBs on server ~p" [missing-gribs]))))
+	  (failure failure))))
