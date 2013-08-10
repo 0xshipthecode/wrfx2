@@ -6,7 +6,8 @@ BEAMFILES = ebin/utils.beam \
 	    ebin/plist.beam \
 	    ebin/grib-time.beam \
 	    ebin/grib-retr.beam \
-	    ebin/grib-srv.beam
+	    ebin/grib-srv.beam \
+	    ebin/grib-man.beam
 
 
 ebin/%.beam: src/%.jxa
