@@ -2,9 +2,9 @@
 all: compile
 
 
-BEAMFILES = ebin/utils.beam \
+BEAMFILES = ebin/math-utils.beam \
 	    ebin/plist.beam \
-	    ebin/grib-time.beam \
+	    ebin/time-arith.beam \
 	    ebin/grib-retr.beam \
 	    ebin/grib-srv.beam \
 	    ebin/grib-man.beam
