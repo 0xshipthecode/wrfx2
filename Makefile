@@ -4,6 +4,7 @@ all: compile
 
 BEAMFILES = ebin/math-utils.beam \
 	    ebin/plist.beam \
+	    ebin/msglog.beam \
 	    ebin/time-arith.beam \
 	    ebin/grib-retr.beam \
 	    ebin/grib-srv.beam \

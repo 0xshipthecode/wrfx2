@@ -27,6 +27,7 @@
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
 	     (time-arith :as tma)
+	     msglog
 	     string)
     (use math-utils))
 
@@ -186,7 +187,7 @@
   (lists/filter (fn (x) (erl/not (is-grib-local? x stor-dir grib-src))) manifest))
 
 
-(defn+ retrieve-gribs (from to at-time delta stor-dir grib-src)
+(defn+ retrieve-gribs (from to at-time delta stor-dir grib-src log-func)
   "Computes the GRIB files needed for the simulation covering the time interval <from> to <to>
    which use <delta> cycles before the last cycle and downloads them from the grib source <grib-src>.
    Files already available in <stor-dir> are not redownloaded.
@@ -194,15 +195,28 @@
                   :out-of-range,
                   {:missing-gribs list-of-gribs}
                   {:failed-download url}."
+  (log-func :info "grib-retr (~p) -> have request with from ~p to ~p at-time ~p delta ~p stor-dir ~p"
+	    (grib-def/name grib-src) from to at-time delta stor-dir)
   (case (compute-manifest from to at-time delta grib-src)
 	({cov-from cov-to manifest}
+	 (log-func :info "grib-retr (~p) -> manifest has ~p files covering from ~p to ~p"
+		   (grib-def/name grib-src) (erl/length manifest) cov-from cov-to)
 	 (let* (gribs-to-dl (remove-local-gribs manifest stor-dir grib-src))
 	   (case (find-unreachable-gribs gribs-to-dl grib-src)
 		 ; if no gribs missing, use this source
-		 ([] (case (download-gribs gribs-to-dl stor-dir grib-src)
+		 ([] 
+		  (log-func :info "grib-retr (~p) -> downloading ~p files now"
+			    (grib-def/name grib-src) (erl/length gribs-to-dl))
+		  (case (download-gribs gribs-to-dl stor-dir grib-src)
 			   (:success {:success {cov-from cov-to manifest}})
 			   (failure failure)))
 		 ; in case of missing gribs, download
-		 (missing-gribs {:missing-gribs missing-gribs}))))
+		 (missing-gribs 
+		  (log-func :warn "grib-retr (~p) -> source cannot satisfy request, have ~p missing gribs."
+			    (grib-def/name grib-src) (erl/length missing-gribs))
+		  {:missing-gribs missing-gribs}))))
 	  ; could not even compute the manifest
-	(:out-of-range :out-of-range)))
+	(:out-of-range
+	 (log-func :warn "grib-retr (~p) -> cannot find GRIB files to satisfy the request from ~p to ~p"
+		   (grib-def/name grib-src) from to)
+	 :out-of-range)))
