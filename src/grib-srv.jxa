@@ -3,7 +3,7 @@
 	     grib-retr
 	     (joxa-core :as jxc)))
 
-(defn+ start_link (grib-src stor-dir)
+(defn+ start-link (grib-src stor-dir)
   ; start a new GRIB server and return the PID
   (gen_server/start_link :grib-srv [grib-src stor-dir] []))
 
