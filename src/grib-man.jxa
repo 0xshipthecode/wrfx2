@@ -1,6 +1,7 @@
 (ns grib-man
     (require (erlang :as erl)
 	     (joxa-core :as jxc)
+	     file
 	     io
 	     lists
 	     dict
@@ -10,16 +11,20 @@
 	     grib-def))
 
 
-(defn start-servers (grib-srcs stor-dir)
+(defn start-grib-servers (grib-srcs stor-dir)
   "Start one server per GRIB source and return a dictionary mapping
    GRIB source names to PIDs of the GRIB servers."
   (lists/foldl (fn (gs d) (dict/store (grib-def/name gs) (grib-srv/start_link gs stor-dir) d)) (dict/new) grib-srcs))
+
+(defn reload-grib-sources ()
+  "Returns a list of new GRIB sources loaded from the file etc/grib.sources."
+  (file/consult "etc/grib.sources"))
 
 
 (defn+ start_link (grib-srcs stor-dir)
   "Start the GRIB server manager that routes requests to appropriate GRIB servers."
   (inets/start)
-  (gen_server/start_link {:local :grib-man} :grib-man [(start-servers grib-srcs stor-dir) grib-srcs stor-dir] []))
+  (gen_server/start_link {:local :grib-man} :grib-man [(start-grib-servers grib-srcs stor-dir) grib-srcs stor-dir] []))
 
 ;; API
 
@@ -40,8 +45,10 @@
 
 
 (defn find-grib-src (name grib-srcs)
-  "Find a grib source by name <name> in the list of grib sources <grib-src>."
+  "Find a grib source by name <name> in the list of grib sources <grib-src>,
+   returns not-found if no such grib source."
   (case grib-srcs
+	([] :not-found)
 	((gs . rest)
 	 (case (grib-def/name gs)
 	       (name gs)
@@ -54,12 +61,26 @@
 
 
 (defn+ handle_call (request from state)
+  "Handle a call request (synch request/reply)."
   (jxc/let ([srv-map grib-srcs stor-dir] state)
   (case request
+	; request to retrieve GRIB files
 	({:retrieve-gribs src-name from-time to-time at-time delta}
 	 {:reply (retrieve-grib-files src-name from-time to-time at-time delta srv-map) state})
+	; find and return a grib source
+	({:find-grib-src src-name}
+	 {:reply (find-grib-src src-name grib-srcs) state})
+	; reload grib sources file - send kill messages to all current GRIB src and create new ones
+	(:reload-grib-src
+	 (case (reload-grib-sources)
+	       (:error {:reply :error state})
+	       (new-grib-srcs
+		(let* (new-srv-map (start-grib-servers new-grib-srcs stor-dir))
+		  ; send termination requests to all gen_servers
+		  (dict/fold (fn (k v a) (gen_server/call v :stop-grib-srv) :ok) :ok srv-map)
+		  {:reply :ok [new-srv-map new-grib-srcs stor-dir]}))))
 	; catch-all reply indicating failure, should be sent to logger
-	(other {:reply {:error (io/format "message ~p not understood." [other])} state})))
+	(other {:reply {:error (io/format "message ~p not understood." [other])} state}))))
 
 
 (defn+ handle_cast (msg state)
