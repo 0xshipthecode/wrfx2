@@ -1,4 +1,4 @@
-(ns grib-time
+(ns time-arith
     (require io
              (erlang :as erl)
              (joxa-core :as jxc)
