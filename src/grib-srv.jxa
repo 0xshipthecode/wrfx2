@@ -3,38 +3,36 @@
 	     grib-retr
 	     (joxa-core :as jxc)))
 
-(defn+ start-link (grib-src stor-dir)
+
+(defn+ start-link (grib-src stor-dir log-f)
   ; start a new GRIB server and return the PID
-  (gen_server/start_link :grib-srv [grib-src stor-dir] []))
+  (gen_server/start_link :grib-srv [grib-src stor-dir log-f] []))
 
 ;; API
 
-(defn+ retrieve-gribs (srv-pid from to at-time delta)
-  (gen_server/call srv-pid {:retrieve-gribs from to at-time delta} :infinity))
+(defn+ retrieve-gribs (srv-pid from to at-time delta log-f)
+  (gen_server/call srv-pid {:retrieve-gribs from to at-time delta log-f} :infinity))
 
 
 ;; Internal funcrions
 
-(defn retrieve-grib-files (from to at-time delta state)
-  (jxc/let ({grib-src stor-dir} state)
-    (grib-retr/retrieve-gribs from to at-time delta stor-dir grib-src)))
-
 ;; gen_server callbacks
 
 (defn+ init (args)
-  (jxc/let ([grib-src stor-dir] args)
-    {:ok {grib-src stor-dir}}))
-
+    {:ok args})
 
 (defn+ handle_call (request from state)
-  (case request
-	({:retrieve-gribs from-time to-time at-time delta}
-	 ; GRIB files retrieved here
-	 {:reply (retrieve-grib-files from-time to-time at-time delta state) state})
-	(:stop-grib-srv 
-	 ; here a termination must be started
-	 {:stop :normal :ok state})
-	(other {:reply {:error (io/format "message ~p not understood." [other])} state})))
+  (jxc/let ([grib-src stor-dir log-f] state)
+   (case request
+	 ({:retrieve-gribs from-time to-time at-time delta}
+	  ; GRIB files retrieved here
+	  {:reply (grib-retr/retrieve-gribs from-time to-time at-time delta stor-dir grib-src log-f) state})
+	 (:stop-grib-srv 
+	  ; here a termination must be started
+	  {:stop :normal :ok state})
+	 (other 
+	  (log-f :flash ["grib-srv: message ~p not understood, fix it!" other])
+	  {:reply :invalid-request state}))))
 
 (defn+ handle_cast (msg state)
   {:noreply state})

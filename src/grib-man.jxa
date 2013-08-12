@@ -10,6 +10,7 @@
 	     gen_server
 	     grib-srv
 	     grib-def
+	     msglog
 	     (erl_scan :joxify)
 	     (erl_parse :joxify)
 	     (erl_eval :joxify)))
@@ -49,13 +50,16 @@
 	  (other {:error "Top-level expression is not a list."}))))
 
 
-(defn+ start-link (stor-dir)
+(defn+ start-link (stor-dir log-f)
   "Start the GRIB server manager that routes requests to appropriate GRIB servers."
   (inets/start)
-  (gen_server/start_link {:local :grib-man} :grib-man [(dict/new) [] stor-dir] [])
+  (gen_server/start_link {:local :grib-man} :grib-man [(dict/new) (dict/new) stor-dir log-f] [])
   (reload-grib-sources))
 
 ;; API
+
+(defn+ get-srv-map ()
+  (gen_server/call :grib-man :get-srv-map))
 
 (defn+ find-grib-server (src-name)
   "Return the pid of the GRIB server handling the GRIB source named <src-name>."
@@ -71,28 +75,23 @@
 	(:error :no-such-source)))
 
 
-(defn+ retrieve-gribs (src-name from to at-time delta)
+(defn+ retrieve-gribs (src-name from to at-time delta timeout)
   "Submits a GRIB retrieval request to the GRIB server stored under name <src-name>.  The retrieved GRIB
    files are to cover the time interval from <from> to <to> and be as fresh as possible at time <at-time>.
    Optionally an earlier cycle can be requested by setting delta > 0."
-  (case (find-grib-server src-name)
-	({:ok grib-srv-pid}
-	 (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta}))
-	(:error
-	 :no-such-server)))
+  (let* (log-f (gen_server/call :grib-man :get-log-function))
+    (case (find-grib-server src-name)
+	  (:no-such-server :no-such-server)
+	  (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta} timeout)))))
 
 
 ;; Internal functions
 
-(defn start-grib-server (grib-src stor-dir)
-  (case (grib-srv/start-link grib-src stor-dir)
-	({:ok pid} pid)))
-
-
-(defn start-grib-servers (grib-srcs stor-dir)
+(defn start-grib-servers (grib-srcs stor-dir log-f)
   "Start a GRIB server for each dictionary entry in <grib-srcs>."
-  (dict/fold (fn (grib-src-name grib-src d) (dict/store grib-src-name (start-grib-server grib-src stor-dir) d))
-	     (dict/new) grib-srcs))
+  (let* (start-one (fn (grib-src stor-dir log-f) (case (grib-srv/start-link grib-src stor-dir log-f) ({:ok pid} pid))))
+    (dict/fold (fn (grib-src-name grib-src d) (dict/store grib-src-name (start-one grib-src stor-dir log-f) d))
+	     (dict/new) grib-srcs)))
 
 ;; gen_server callbacks
 
@@ -102,8 +101,10 @@
 
 (defn+ handle_call (request from state)
   "Handle a call request (synch request/reply)."
-  (jxc/let ([srv-map grib-srcs stor-dir] state)
+  (jxc/let ([srv-map grib-srcs stor-dir log-f] state)
   (case request
+	(:get-log-function {:reply log-f state})
+	(:get-srv-map {:reply srv-map state})
 	; find the PID of the gen_server managing GRIB source src-name
 	({:find-grib-server src-name}
 	 {:reply (dict/find src-name srv-map) state})
@@ -112,13 +113,15 @@
 	 {:reply (dict/find src-name grib-srcs) state})
 	; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
 	({:restart-grib-servers new-grib-src-list}
+	 (log-f :info ["grib-man/handle_call: restarting GRIB servers."])
 	 (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-def/name x) x d)) (dict/new) new-grib-src-list)
-		new-srv-map (start-grib-servers new-grib-srcs stor-dir))
+		new-srv-map (start-grib-servers new-grib-srcs stor-dir log-f))
 	   ; send termination requests to all current gen_servers
 	   (dict/fold (fn (k v a) (gen_server/call v :stop-grib-srv) :ok) :ok srv-map)
-	   {:reply :ok [new-srv-map new-grib-srcs stor-dir]}))
+	   {:reply :ok [new-srv-map new-grib-srcs stor-dir log-f]}))
 	; catch-all reply indicating failure, should be sent to logger
-	(other {:reply {:error (io/format "message ~p not understood." [other])} state}))))
+	(other (log-f :warn ["grib-man/handle_call: message ~p not understood." other])
+	       {:reply :invalid-request state}))))
 
 
 (defn+ handle_cast (msg state)
