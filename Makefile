@@ -8,7 +8,8 @@ BEAMFILES = ebin/math-utils.beam \
 	    ebin/time-arith.beam \
 	    ebin/grib-retr.beam \
 	    ebin/grib-srv.beam \
-	    ebin/grib-man.beam
+	    ebin/grib-man.beam \
+	    ebin/grib-app.beam
 
 
 ebin/%.beam: src/%.jxa
