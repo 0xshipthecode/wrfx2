@@ -1,7 +1,7 @@
 (ns msglog
     (require io 
 	     file
-	     (erlang :as erl)
+	     (erlang :as erl :joxify)
 	     (joxa-core :as jxc)
 	     (calendar :joxify)
 	     (io_lib :as iol)))
@@ -16,7 +16,8 @@
 	(:flash "FLASH")))
 
 
-(defn level-number (level)
+(defn+ level-number (level)
+  "Return a number that represents the level <level>."
   (case level
 	(:info 0)
 	(:warn 1)
@@ -24,7 +25,10 @@
 	(:flash 3)))
 
 
-;; send a message to the log with a given level
+(defn+ log-msg (pid level msg)
+  (erl/send pid {:msg level msg})
+  :ok)
+
 (defn+ log-msg (pid level msg &rest args)
   (erl/send pid {:msg level (iol/format msg args)})
   :ok)
@@ -32,8 +36,14 @@
 (defn+ make-log-func (pid)
   "Construct and return a function that sends messages to
    the message log <pid>.  The function has the signature
-   (log-function level msg &rest args)."
-  (fn (level msg &rest args) (log-msg pid level msg args)))
+   (log-function level &rest msg-args)."
+  (fn (level args)
+      (case args
+	    ([msg] (when (erl/is-list msg)) (erl/send pid {:msg level msg}))
+	    ((msg . rest) (when (erl/is-list msg)) 
+	     (erl/send pid {:msg level (iol/format msg rest)}))
+	    (gibberish (erl/send pid {:msg :flash (iol/format "INVALID message [~p], fix this!" [gibberish])})))))
+
 
 (defn+ info (pid msg &rest args)
   (erl/send pid {:msg :info (iol/format msg args)})
@@ -78,12 +88,12 @@
 	  ({:stdio level-num}
 	   (when (jxc/gte msg-level-num level-num))
 	   (io/format text))
-	({:device dev level-num} 
-	 (when (jxc/gte msg-level-num level-num))
-	 (io/format dev text []))
-	({:relay pid level-num}
-	 (when (jxc/gte msg-level-num level-num))
-	 (erl/send pid {:msg text})))))
+	  ({:device dev level-num} 
+	   (when (jxc/gte msg-level-num level-num))
+	   (io/format dev text []))
+	  ({:relay pid level-num}
+	   (when (jxc/gte msg-level-num level-num))
+	   (erl/send pid {:msg text})))))
 
 
 ;; relay the eof message to all targets
@@ -104,7 +114,7 @@
   (receive
    ({:msg level text}
     ; construct a log text & route message at the given level
-    (let* (log-text [log-n "-" (level-string level) " [" (timestamp) "] -> " text "\n"])
+    (let* (log-text [log-n " @ " (level-string level) " [" (timestamp) "] -> " text "\n"])
       (lists/map (fn (tgt) (route-message tgt level log-text)) targets)
       (log-loop log-n targets)))
    (:eof
@@ -121,3 +131,13 @@
   (erl/spawn (fn () (log-loop log-n targets))))
 
 
+(defn+ make-target (type level param)
+  (let* (level-num (level-number level))
+    (case type
+	  ; for devices, param is the file name
+	  (:device
+	   (case (file/open param [:write])
+		 ({:ok dev} {:device dev level-num})
+		 (error :failed)))
+	  ; for relays param is the pid
+	  (:relay {:relay param level-num}))))
