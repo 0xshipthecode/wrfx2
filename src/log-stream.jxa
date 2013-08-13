@@ -1,4 +1,4 @@
-(ns msglog
+(ns log-stream
     (require io 
 	     file
 	     (erlang :as erl :joxify)

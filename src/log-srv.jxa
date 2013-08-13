@@ -5,7 +5,7 @@
            gen_server
            (erlang :as erl :joxify)
            (joxa-core :as jxc)
-           msglog))
+           log-stream))
 
 ;; API
 
@@ -23,7 +23,7 @@
 (defn+ get-log-f (log-name)
   "Retrieve a logging function for log <log-name>."
   (let* (log-pid (get-log log-name))
-    (msglog/make-log-func log-name)))
+    (log-stream/make-log-func log-name)))
 
 (defn+ start-link (log-dir)
   ; start a new logging server and return the PID
@@ -43,13 +43,13 @@
    (case request
 	 ({:create-log log-name additional-targets} 
     (let* (fname (filename/join [log-dir (erl/++ log-name ".log")])
-           main-tgt (msglog/make-target :device :info fname)
-           log-pid (msglog/start-log log-name (main-tgt . additional-targets)) )
+           main-tgt (log-stream/make-target :device :info fname)
+           log-pid (log-stream/start-log log-name (main-tgt . additional-targets)) )
     {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
    ({:get-log-pid log-name}
     {:reply (dict/find log-name log-map) state})
    (other
-	  (msglog/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
+	  (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
 	  {:reply :invalid-request state}))))
 
 (defn+ handle_cast (msg state)

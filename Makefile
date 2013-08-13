@@ -4,12 +4,12 @@ all: compile
 
 BEAMFILES = ebin/math-utils.beam \
 	    ebin/plist.beam \
-	    ebin/msglog.beam \
-	    ebin/time-arith.beam \
+        ebin/time-arith.beam \
 	    ebin/grib-retr.beam \
 	    ebin/grib-srv.beam \
 	    ebin/grib-man.beam \
-        ebin/log-srv.beam \
+        ebin/log-stream.beam \
+	    ebin/log-srv.beam \
 	    ebin/grib-app.beam
 
 

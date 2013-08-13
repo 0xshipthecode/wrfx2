@@ -10,7 +10,6 @@
 	     gen_server
 	     grib-srv
 	     grib-def
-	     msglog
 	     (erl_scan :joxify)
 	     (erl_parse :joxify)
 	     (erl_eval :joxify)))

@@ -27,7 +27,6 @@
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
 	     (time-arith :as tma)
-	     msglog
 	     string)
     (use math-utils))
 

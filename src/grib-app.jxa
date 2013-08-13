@@ -1,6 +1,5 @@
 (ns grib-app
     (require grib-man
-	     msglog
        log-srv
        (joxa-core :as jxc)))
 
