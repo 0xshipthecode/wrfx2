@@ -1,12 +1,13 @@
 (ns grib-app
     (require grib-man
-	     msglog))
-
+	     msglog
+       log-srv
+       (joxa-core :as jxc)))
 
 
 (defn+ start (stor-dir)
-  (let* (log-pid (msglog/start-log "grib-system" [(msglog/make-target :device :info "log/grib-system.log")])
-	 log-f   (msglog/make-log-func log-pid))
-    (grib-man/start-link stor-dir log-f)))
+  (log-srv/start-link "log")
+  (log-srv/create-log "grib-system" [])
+  (grib-man/start-link stor-dir (log-srv/get-log-f "grib-system")))
 
 		 

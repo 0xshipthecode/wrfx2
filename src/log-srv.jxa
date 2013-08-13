@@ -16,7 +16,14 @@
 
 (defn+ get-log (log-name)
   "Retrieve the PID associated with the log <log-name>."
-  (gen_server/call :log-srv {:get-log-pid log-name}))
+  (case (gen_server/call :log-srv {:get-log-pid log-name})
+    ({:ok log-pid} log-pid)
+    (error (erl/throw "invalid log name"))))
+
+(defn+ get-log-f (log-name)
+  "Retrieve a logging function for log <log-name>."
+  (let* (log-pid (get-log log-name))
+    (msglog/make-log-func log-name)))
 
 (defn+ start-link (log-dir)
   ; start a new logging server and return the PID
