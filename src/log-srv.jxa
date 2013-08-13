@@ -1,0 +1,59 @@
+(ns log-srv
+  (require io
+           dict
+           filename
+           gen_server
+           (erlang :as erl :joxify)
+           (joxa-core :as jxc)
+           msglog))
+
+;; API
+
+(defn+ create-log (log-name additional-targets)
+  "Create a new log stream with name <log-name> that is sent to log-dir/log-name.log
+   and also to any <additional-targets>."
+  (gen_server/call :log-srv {:create-log log-name additional-targets}))
+
+(defn+ get-log (log-name)
+  "Retrieve the PID associated with the log <log-name>."
+  (gen_server/call :log-srv {:get-log-pid log-name}))
+
+(defn+ start-link (log-dir)
+  ; start a new logging server and return the PID
+  (gen_server/start_link {:local :log-srv} :log-srv [log-dir (dict/new)] [])
+  (create-log "system" []))
+
+
+;; Internal funcrions
+
+;; gen_server callbacks
+
+(defn+ init (args)
+    {:ok args})
+
+(defn+ handle_call (request from state)
+  (jxc/let ([log-dir log-map] state)
+   (case request
+	 ({:create-log log-name additional-targets} 
+    (let* (fname (filename/join [log-dir (erl/++ log-name ".log")])
+           main-tgt (msglog/make-target :device :info fname)
+           log-pid (msglog/start-log log-name (main-tgt . additional-targets)) )
+    {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
+   ({:get-log-pid log-name}
+    {:reply (dict/find log-name log-map) state})
+   (other
+	  (msglog/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
+	  {:reply :invalid-request state}))))
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+
