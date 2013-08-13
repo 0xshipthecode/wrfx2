@@ -9,6 +9,7 @@ BEAMFILES = ebin/math-utils.beam \
 	    ebin/grib-retr.beam \
 	    ebin/grib-srv.beam \
 	    ebin/grib-man.beam \
+        ebin/log-srv.beam \
 	    ebin/grib-app.beam
 
 
