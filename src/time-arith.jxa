@@ -33,12 +33,22 @@
 	       (:up (shift-by-hours {date {h 0 0}} 1))))))
 
 
+(defn+ seconds-between (from to)
+  "Compute seconds between two datetimes."
+  (let* (from-s (cal/datetime-to-gregorian-seconds from)
+         to-s (cal/datetime-to-gregorian-seconds to))
+    (erl/- to-s from-s)))
+
+
 (defn+ hours-between (from to)
   "Compute the number of whole hours between <from> and <to> assuming
    that to > from."
-  (let* (s1 (cal/datetime-to-gregorian-seconds from)
-	 s2 (cal/datetime-to-gregorian-seconds to))
-    (erl/div (erl/- s2 s1) 3600)))
+   (erl/div (seconds-between from to) 3600))
+
+
+(defn+ seconds-elapsed-from (from)
+  "Compute number of seconds elapsed from <from>.  Useful for measuring time intervals."
+  (seconds-between from (cal/local-time)))
 
 
 (defn+ min-time (t1 t2)
@@ -49,3 +59,10 @@
 (defn+ max-time (t1 t2)
   "Find the later time from the two datetimes <t1> and <t2>."
   (jxc/if (erl/> t1 t2) t1 t2))
+
+(defn+ gregorian-seconds-now ()
+  "Retrieve seconds since epoch."
+  (cal/datetime-to-gregorian-seconds (cal/local-time)))
+
+
+
