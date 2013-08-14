@@ -16,18 +16,14 @@
 
 
 (ns grib-retr
-    (require (erlang 'as erl)
-	     httpc
-	     inets
-	     grib-def
-	     lists
-	     timer
+    (require httpc lists filename string
+       grib-def
+       (erlang :as erl)
        (calendar :joxify)
 	     (filelib :joxify)
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
-	     (time-arith :as tma)
-	     string)
+	     (time-arith :as tma))
     (use math-utils))
 
 
@@ -215,7 +211,7 @@
 			   (:success 
           (log-func :info ["grib-retr (~p) -> all ~p files downloaded succesfully, returning manifest covering ~w to ~w with ~p files"
                        (grib-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
-         {:success {cov-from cov-to manifest}})
+         {:success {cov-from cov-to (lists/map (fn (x) (filename/join stor-dir x)) manifest)}})
 			    (failure failure)))
 		 ; in case of missing gribs, download
 		 (missing-gribs 
