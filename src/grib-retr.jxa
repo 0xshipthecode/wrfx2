@@ -22,8 +22,8 @@
 	     grib-def
 	     lists
 	     timer
+       (calendar :joxify)
 	     (filelib :joxify)
-	     (io_lib :as iol)
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
 	     (time-arith :as tma)
@@ -119,51 +119,56 @@
 		     from-adj (tma/shift-by-hours from-adj -1) :undefined grib-src [])))
 
 
-(defn stream-file (target ident storage-dir grib-src)
+(defn stream-file (target ident storage-dir grib-src log-f)
   "Stream the content <ident> prefixed with grib-src/url-prefix to disk to file <storage-dir>/<ident>."
   (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" ident])
-	 abs-path (lists/flatten [storage-dir "/" (grib-def/domain grib-src) "/" ident]))
+      	 abs-path (lists/flatten [storage-dir "/" (grib-def/domain grib-src) "/" ident])
+         start-time (calendar/local-time))
     (filelib/ensure-dir abs-path)
+    (log-f :info ["grib-retr (~p) -> downloading ~p to ~p." (grib-def/name grib-src) ident abs-path])
     (case (httpc/request :get {url []} [] [{:stream, abs-path}])
-	  ({:ok, :saved_to_file} (erl/send target :download-complete))
-	  (_ (erl/send target {:download-fail ident})))))
+	  ({:ok, :saved_to_file} 
+      (log-f :info ["grib-retr (~p) -> finished downloading ~p after ~p seconds"
+              (grib-def/name grib-src) ident (tma/seconds-elapsed-from start-time)])
+      (erl/send target {:download-complete (erl/self)}))
+	  (error 
+      (log-f :info ["grib-retr (~p) -> failed to download downloading ~p after ~p seconds with error ~p"
+              (grib-def/name grib-src) ident (tma/seconds-elapsed-from start-time) error])
+      (erl/send target {:download-fail (erl/self) ident})))))
 
 
-
-;(defspec await-next-result ((erl/list) (erl/integer) (erl/list) (erl/tuple)) (erl/any))
-
-(defn download-grib-files (manifest curr-dl storage-dir grib-src)
+(defn download-grib-files (manifest dl-pids storage-dir grib-src log-func)
   "Download the grib files on the manifest in parallel.
    Returns either :success or {:failure url}"
   (let* (myself (erl/self)
-	 max-dl (grib-def/max-downloads grib-src)
-	 await-next-result (fn (manifest curr-dl storage-dir grib-src)
-			       (receive
-				(:download-complete
-				 (download-grib-files manifest (jxc/decr curr-dl) storage-dir grib-src))
-				({:download-fail what}
-				 {:failed-download what}))))
+         max-dl (grib-def/max-downloads grib-src)
+	       await-next-result (fn (manifest dl-pids storage-dir grib-src log-func)
+			                       (receive
+                 	      			({:download-complete pid}
+                				        (download-grib-files manifest (lists/delete pid dl-pids)
+                                                     storage-dir grib-src log-func))
+                    				({:download-fail pid what}
+                             ; TODO: other downloads should be cancelled probably?
+                      			 {:failed-download what}))))
     (case manifest
-	  ([]
-	   (jxc/if (zero? curr-dl)
-		   :success
-		   (await-next-result manifest curr-dl storage-dir grib-src)))
-	  ((next . rest)
-	   (jxc/if (erl/< curr-dl max-dl)
-		   (do
-		    (erl/spawn (fn () (stream-file myself next storage-dir grib-src)))
-		    (download-grib-files rest (jxc/incr curr-dl) storage-dir grib-src))
-		   (await-next-result manifest curr-dl storage-dir grib-src))))))
+  	  ([]
+	     (jxc/if (empty? dl-pids)
+		     :success
+		     (await-next-result manifest dl-pids storage-dir grib-src log-func)))
+  	  ((next . rest)
+	     (jxc/if (erl/< (erl/length dl-pids) max-dl)
+		     (let* (new-pid (erl/spawn (fn () (stream-file myself next storage-dir grib-src log-func))))
+  		     (download-grib-files rest (new-pid . dl-pids) storage-dir grib-src log-func))
+  		   (await-next-result manifest dl-pids storage-dir grib-src log-func))))))
 
 
-(defn+ download-gribs (manifest stor-dir grib-src)
+(defn+ download-gribs (manifest stor-dir grib-src log-func)
   "Download a <manifest> of grib files in parallel with <max-concurrent-dl> parallel downloads.from source <grib-src>."
-  (download-grib-files manifest 0 stor-dir grib-src))
+  (download-grib-files manifest [] stor-dir grib-src log-func))
 
 
 (defn url-exists? (url)
   "Checks if a URL exists."
-  (io/format "checking existence of ~p~n" [url])
   (case (httpc/request :head {url []} [] [])
 	({:ok {{_ 200 _} _ _}} :true)
 	(_notok :false)))
@@ -194,29 +199,31 @@
                   :out-of-range,
                   {:missing-gribs list-of-gribs}
                   {:failed-download url}."
-  (log-func :info ["grib-retr (~p) -> have request with from ~p to ~p at-time ~p delta ~p stor-dir ~p"
+  (log-func :info ["grib-retr (~p) -> have request with from ~w to ~w at-time ~w delta ~p stor-dir ~p"
 	    (grib-def/name grib-src) from to at-time delta stor-dir])
   (case (compute-manifest from to at-time delta grib-src)
 	({cov-from cov-to manifest}
-	 (log-func :info ["grib-retr (~p) -> manifest has ~p files covering from ~p to ~p"
+	 (log-func :info ["grib-retr (~p) -> manifest has ~p files covering from ~w to ~w"
 		   (grib-def/name grib-src) (erl/length manifest) cov-from cov-to])
-	 (io/format "manifest is ~p~n" [manifest])
 	 (let* (gribs-to-dl (remove-local-gribs manifest stor-dir grib-src))
 	   (case (find-unreachable-gribs gribs-to-dl grib-src)
 		 ; if no gribs missing, use this source
 		 ([] 
 		  (log-func :info ["grib-retr (~p) -> downloading ~p files now"
 			    (grib-def/name grib-src) (erl/length gribs-to-dl)])
-		  (case (download-gribs gribs-to-dl stor-dir grib-src)
-			   (:success {:success {cov-from cov-to manifest}})
-			   (failure failure)))
+		  (case (download-gribs gribs-to-dl stor-dir grib-src log-func)
+			   (:success 
+          (log-func :info ["grib-retr (~p) -> all ~p files downloaded succesfully, returning manifest covering ~w to ~w with ~p files"
+                       (grib-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
+         {:success {cov-from cov-to manifest}})
+			    (failure failure)))
 		 ; in case of missing gribs, download
 		 (missing-gribs 
-		  (log-func :warn ["grib-retr (~p) -> source cannot satisfy request, have ~p missing gribs."
+		  (log-func :warn ["grib-retr (~p) -> source cannot satisfy request at this time, there are ~p missing gribs."
 			    (grib-def/name grib-src) (erl/length missing-gribs)])
 		  {:missing-gribs missing-gribs}))))
 	  ; could not even compute the manifest
 	(:out-of-range
-	 (log-func :warn ["grib-retr (~p) -> cannot find GRIB files to satisfy the request from ~p to ~p"
+	 (log-func :warn ["grib-retr (~p) -> source cannot satisfy the request from ~w to ~w"
 		   (grib-def/name grib-src) from to])
 	 :out-of-range)))
