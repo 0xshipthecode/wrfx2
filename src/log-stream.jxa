@@ -1,6 +1,5 @@
 (ns log-stream
-    (require io 
-	     file
+    (require io file lists
 	     (erlang :as erl :joxify)
 	     (joxa-core :as jxc)
 	     (calendar :joxify)
@@ -39,9 +38,9 @@
    (log-function level &rest msg-args)."
   (fn (level args)
       (case args
-	    ([msg] (when (erl/is-list msg)) (erl/send pid {:msg level msg}))
+	    ([msg] (when (erl/is-list msg)) (erl/send pid {:msg level (lists/flatten msg)}))
 	    ((msg . rest) (when (erl/is-list msg)) 
-	     (erl/send pid {:msg level (iol/format msg rest)}))
+	     (erl/send pid {:msg level (lists/flatten (iol/format msg rest))}))
 	    (gibberish (erl/send pid {:msg :flash (iol/format "INVALID message [~p], fix this!" [gibberish])})))))
 
 
@@ -79,21 +78,17 @@
 		    [yr mon day hr min sec])))
 
 
-
 (defn route-message (tgt msg-level text)
   "Relay message <text> at message level <msg-level> to target <tgt> if
    the message level is higher than or equal to the target stream level."
   (let* (msg-level-num (level-number msg-level))
     (case tgt
-	  ({:stdio level-num}
-	   (when (jxc/gte msg-level-num level-num))
-	   (io/format text))
-	  ({:device dev level-num} 
-	   (when (jxc/gte msg-level-num level-num))
-	   (io/format dev text []))
-	  ({:relay pid level-num}
-	   (when (jxc/gte msg-level-num level-num))
-	   (erl/send pid {:msg text})))))
+  	  ({:stdio level-num}
+	    (jxc/if (jxc/gte msg-level-num level-num) (io/format text) :ok))
+  	  ({:device dev level-num}
+  	   (jxc/if (jxc/gte msg-level-num level-num) (io/format dev text []) :ok))
+  	  ({:relay pid level-num}
+  	   (jxc/if (jxc/gte msg-level-num level-num) (erl/send pid {:msg msg-level text}) :ok)))))
 
 
 ;; relay the eof message to all targets

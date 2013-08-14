@@ -12,7 +12,13 @@
 (defn+ create-log (log-name additional-targets)
   "Create a new log stream with name <log-name> that is sent to log-dir/log-name.log
    and also to any <additional-targets>."
-  (gen_server/call :log-srv {:create-log log-name additional-targets}))
+  (gen_server/call :log-srv {:create-log log-name :info additional-targets}))
+
+(defn+ create-log (log-name min-priority additional-targets)
+  "Create a new log stream with name <log-name> that is sent to log-dir/log-name.log
+   and only routes messages with the given minimum priority."
+   (gen_server/call :log-srv {:create-log log-name min-priority additional-targets}))
+
 
 (defn+ get-log (log-name)
   "Retrieve the PID associated with the log <log-name>."
@@ -20,14 +26,27 @@
     ({:ok log-pid} log-pid)
     (error (erl/throw "invalid log name"))))
 
+
 (defn+ get-log-f (log-name)
   "Retrieve a logging function for log <log-name>."
   (let* (log-pid (get-log log-name))
-    (log-stream/make-log-func log-name)))
+    (log-stream/make-log-func log-pid)))
+
 
 (defn+ start-link (log-dir)
-  ; start a new logging server and return the PID
-  (gen_server/start_link {:local :log-srv} :log-srv [log-dir (dict/new)] [])
+  "Start the logging server and construct default log streams:
+     'system' for general system messages
+     'wrfx-errors' for all error messages (added as a target to all log streams)
+     'wrfx-flash' for all flash priority messages (added as a target to all log streams)."
+  ; ***** the logs wrfx_error and wrfx_flash *****
+  ; MUST be created and is added as a :relay target to subsequently created logs
+  (let* (err-file (filename/join log-dir "wrfx-errors.log")
+         err-log (log-stream/start-log "wrfx-errors" [(log-stream/make-target :device :error err-file)])
+         flash-file (filename/join log-dir "wrfx-flash.log")
+         flash-log (log-stream/start-log "wrfx-flash" [(log-stream/make-target :device :flash flash-file)]))
+    (gen_server/start_link {:local :log-srv} :log-srv [log-dir (dict/new)] [])
+    (gen_server/call :log-srv {:add-log-internal "wrfx-errors" err-log})
+    (gen_server/call :log-srv {:add-log-internal "wrfx-flash" flash-log}))
   (create-log "system" []))
 
 
@@ -41,10 +60,14 @@
 (defn+ handle_call (request from state)
   (jxc/let ([log-dir log-map] state)
    (case request
-	 ({:create-log log-name additional-targets} 
+   ({:add-log-internal log-name log-pid}
+    {:reply :ok [log-dir (dict/store log-name log-pid log-map)]})
+	 ({:create-log log-name min-priority additional-targets} 
     (let* (fname (filename/join [log-dir (erl/++ log-name ".log")])
-           main-tgt (log-stream/make-target :device :info fname)
-           log-pid (log-stream/start-log log-name (main-tgt . additional-targets)) )
+           main-tgt (log-stream/make-target :device min-priority fname)
+           err-tgt (log-stream/make-target :relay :error (dict/fetch "wrfx-errors" log-map))
+           flash-tgt (log-stream/make-target :relay :flash (dict/fetch "wrfx-flash" log-map))
+           log-pid (log-stream/start-log log-name (main-tgt . (err-tgt . additional-targets))))
     {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
    ({:get-log-pid log-name}
     {:reply (dict/find log-name log-map) state})
@@ -59,6 +82,8 @@
   {:noreply state})
 
 (defn+ terminate (reason state)
+  (jxc/let ([log-dir log-map] state)
+    (dict/map (fn (_ v) (log-stream/close-log v)) log-map))
   :ok)
 
 (defn+ code_change (old-vsn state extra)
