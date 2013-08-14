@@ -15,3 +15,11 @@
   (case val
 	(0 :true)
 	(_ :false)))
+
+
+(defn+ empty? (lst)
+  "Check if list is empty."
+  (case lst
+    ([] :true)
+    (_ :false)))
+
