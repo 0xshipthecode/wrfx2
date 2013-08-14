@@ -4,9 +4,8 @@
        (joxa-core :as jxc)))
 
 
-(defn+ start (stor-dir)
+(defn+ start ()
   (log-srv/start-link "log")
   (log-srv/create-log "grib-system" [])
-  (grib-man/start-link stor-dir (log-srv/get-log-f "grib-system")))
+  (grib-man/start-link "gribs" (log-srv/get-log-f "grib-system")))
 
-		 
