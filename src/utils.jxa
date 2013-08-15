@@ -1,4 +1,4 @@
-(ns math-utils
+(ns utils 
     (require (erlang :as erl)
 	     (joxa-core :as jxc)))
 

@@ -24,7 +24,7 @@
 	     (joxa-lists :as jxl)
 	     (joxa-core :as jxc)
 	     (time-arith :as tma))
-    (use math-utils))
+    (use utils))
 
 
 (defn get-cycle-at (datetime delay runs)
