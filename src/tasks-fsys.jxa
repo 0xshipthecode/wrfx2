@@ -1,0 +1,19 @@
+(ns tasks-fsys
+    (require (file :joxify)
+	           (lists :joxify)
+	           (string :joxify :as str))
+    (use (utils :only (wait-for-file/3 fmt-error/2 fmt-success/2))))
+
+
+(defn+ create-dir (dir)
+  "Create a directory <dir>.  The parent directory of <dir> must exist."
+  (case (file/make-dir dir)
+	(:ok              (fmt-success "directory [~s] created" dir))
+	({:error :eexist} (fmt-success "directory [~s] already exists" dir))
+	({:error reason}  (fmt-error "failed to create-dir [~s] with error ~p" dir reason))))
+
+
+(defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
+  ;; forward call to utility module
+  (wait-for-file file-name timeout file-wait-chunk-ms))
+
