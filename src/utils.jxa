@@ -3,6 +3,7 @@
              erl_scan erl_parse erl_eval
              (file :joxify)
              (string :as str)
+             (io_lib :as iol)
              (erlang :as erl :joxify)
       	     (joxa-core :as jxc)))
 
@@ -27,6 +28,16 @@
   (case lst
     ([] :true)
     (_ :false)))
+
+(defn+ critical-check (succ-result func fail-msg)
+  "The function <func> must succeed, i.e return the result <succ-result>. If not
+   the message <fail-msg> is written to file 'critical_failure.log' in the root directory
+   the system and an exception is thrown."
+  (case (func)
+    (succ-result :ok)
+    (other
+      (file/write-file "critical_failure.log" file-msg) 
+      (erl/throw (iol/format "Critical function FAILURE: ~p" [fail-msg]))))) 
 
 
 ;; define a macro that matches an arbitrary structure to
