@@ -1,6 +1,11 @@
 (ns utils 
-    (require (erlang :as erl)
-	     (joxa-core :as jxc)))
+    (require lists io_lib filelib timer
+             erl_scan erl_parse erl_eval
+             (file :joxify)
+             (string :as str)
+             (erlang :as erl :joxify)
+      	     (joxa-core :as jxc)))
+
 
 (defn+ sign (val)
   "Return sign of number, 0 -> 0, x < 0 -> -1, x > 0 -> 1."
@@ -22,4 +27,101 @@
   (case lst
     ([] :true)
     (_ :false)))
+
+
+;; define a macro that matches an arbitrary structure to
+;; a single function argument
+(defmacro+ fnm1 (args body)
+  (let* (arg (jxc/gensym))
+    `(fn (~arg) (jxc/let (~args ~arg) ~body))))
+
+
+;; format a task error tuple
+;; str and args are passed to a io_lib/format call
+(defn+ fmt-error (str &rest args)
+  {:failure (lists/flatten (io_lib/format str args))})
+
+
+;; format a task success tuple
+;; str and args are passed to a io_lib/format call
+(defn+ fmt-success (str &rest args)
+  {:success (lists/flatten (io_lib/format str args))})
+
+
+;; opens file file-name with mode mode and
+;; passes the device to func/1
+;; after function is executed, the device is closed
+;; TODO: try/catch block should be added
+(defn+ with-file (file-name mode func)
+  (case (file/open file-name mode)
+	({:ok device}
+	 (let* (res (func device))
+	   (file/close device)
+	   {:success res}))
+	({:error reason} {:failure reason})))
+
+
+;; read in a file that contains a single integer
+;; return the integer or :invalid if the file was unreadable for any reason
+(defn+ read-int-from-file (fqn)
+    (case (file/read_file fqn)
+	  ({:ok data} 
+	   (let* (stripped (str/strip (erl/binary_to_list data) :right 10))
+	     (erl/list_to_integer stripped)))
+	  ({:error reason} 
+	   :invalid)))
+
+
+(defn+ read-ints-from-file (fqn)
+  (case (file/read-file fqn)
+    ({:ok data}
+      (let* (tokens (str/tokens data " \n"))
+        (lists/map (fn (x) (erl/list-to-integer (erl/binary-to-list x))) tokens)))
+    ({:error reason}
+     :invalid)))
+
+
+
+;; sends a message to multiple targets
+(defn+ multicast (msg targets)
+  "Send a message <msg> to a list of targets <targets>."
+  (lists/foreach (fn (tgt) (erl/send tgt msg)) targets))
+
+
+;; use of this macro requires the namespace erlang is required
+(defmacro+ async-send-me (f)
+  "Execute function f in a new process and send myself the result."
+  (let* (myself (jxc/gensym))
+    `(let* (~myself (erlang/self))
+       (erl/spawn (fn () (erl/send ~myself ~f))))))
+
+
+;; execute the task in a separate process and send result
+;; to given target process
+(defn+ async-send-to (tgt f)
+  `(erl/spawn (fn () (erl/send ~tgt ~f))))
+
+
+;; keep waiting for a file to appear for a defined time
+;; or infinitely (it timeout is :infinite)
+;; this code checks every file-wait-chunk-ms milliseconds whether
+;; the file has appeared
+(defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
+  "Wait for a file to appear on the filesystem."
+  (jxc/if (jxc/or (erl/== timeout 'infinite) (erl/> timeout 0))
+          (jxc/if (filelib/is_file file-name)
+	          {:success file-name}
+	          (do (timer/sleep file-wait-chunk-ms)
+	              (wait-for-file file-name (erl/- timeout file-wait-chunk-ms) file-wait-chunk-ms)))
+          {:failure :timeout}))
+
+
+(defn+ eval-erlang (str env)
+  "Evaluate an erlang expression <str> in the environment <env>."
+  (case (erl_scan/string str)
+    ({:ok scanned _} 
+	    (case (erl_parse/parse_exprs scanned)
+        ({:ok parsed} (erl_eval/exprs parsed env))
+        ({:error info} {:parse-error info})))
+      ({:error err-info err-loc} {:scan-error err-info err-loc})))
 
