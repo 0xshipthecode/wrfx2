@@ -10,6 +10,7 @@ BEAMFILES = ebin/utils.beam \
         ebin/grib-man.beam \
         ebin/log-stream.beam \
         ebin/log-srv.beam \
+	ebin/task-exec.beam \
         ebin/grib-app.beam
 
 
