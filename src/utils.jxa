@@ -1,3 +1,20 @@
+;    Second generation WRF execution platform services.
+;    Copyright (C) 2013 Martin Vejmelka
+;
+;    This program is free software; you can redistribute it and/or modify
+;    it under the terms of the GNU General Public License as published by
+;    the Free Software Foundation; either version 2 of the License, or
+;    (at your option) any later version.
+
+;    This program is distributed in the hope that it will be useful,
+;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;    GNU General Public License for more details.
+
+;    You should have received a copy of the GNU General Public License along
+;    with this program; if not, write to the Free Software Foundation, Inc.,
+;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 (ns utils 
     (require lists io_lib filelib timer
              erl_scan erl_parse erl_eval
@@ -28,6 +45,14 @@
   (case lst
     ([] :true)
     (_ :false)))
+
+
+(defn+ str-to-num (lst)
+  "Convert string <lst> to a number.  First tries float, then integer.
+   Throws a badarg exception if string is not a number."
+  (try* (erl/list-to-float lst)
+    (catch (type body) (erl/list-to-integer lst))))
+
 
 (defn+ critical-check (succ-result func fail-msg)
   "The function <func> must succeed, i.e return the result <succ-result>. If not
@@ -92,7 +117,6 @@
      :invalid)))
 
 
-
 ;; sends a message to multiple targets
 (defn+ multicast (msg targets)
   "Send a message <msg> to a list of targets <targets>."
@@ -135,4 +159,34 @@
         ({:ok parsed} (erl_eval/exprs parsed env))
         ({:error info} {:parse-error info})))
       ({:error err-info err-loc} {:scan-error err-info err-loc})))
+
+
+(defn pmap (func workers max-workers lst res-list)
+  (let* (me (erl/self)
+         wait-for-result (fn (func workers max-workers lst res-list)
+                            (receive
+                              ({:done pid res} (pmap func (lists/delete pid workers) max-workers
+                                               lst (res . res-list))))))
+  (case lst
+    ([] (case workers
+          ([] res-list)
+          (_notempty (wait-for-result func workers max-workers [] res-list))))
+    ((task . rest)
+        (jxc/if (erl/< (erl/length workers) max-workers)
+          (let* (pid (erl/spawn (fn () (erl/send me {:done (erl/self) (func task)}))))
+            (pmap func (pid . workers) max-workers rest res-list))
+          (wait-for-result func workers max-workers lst res-list))))))
+
+
+(defn+ pmap (func max-workers tasks)
+  "A parallel map implementation with limited parallelism, i.e.
+   only <num-workers> functions <func> are executed simultaneously to
+   process the list <tasks>.  The order of <tasks> is not preserved."
+  (pmap func [] max-workers tasks []))
+
+
+(defn+ pmap (func tasks)
+  "A parallel map that uses as many processes as there are tasks in <tasks>
+   to execute the pmap.  The order of tasks is not preserved."
+  (pmap func (erl/length tasks) tasks))
 
