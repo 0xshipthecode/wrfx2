@@ -43,9 +43,8 @@
 
 
 (defn to-number (lst)
-  (case (str/to-float lst)
-    ({:error _} (erl/list-to-integer lst))
-    ({flt _} flt)))
+  (try* (erl/list-to-float lst)
+    (catch (type body) (erl/list-to-integer lst))))
 
 
 (defn+ parse-obs-line (line params)
@@ -53,8 +52,8 @@
          d (dict/from-list (lists/zip params tokens))
          ts {{(get-int "YEAR" d) (get-int "MON" d) (get-int "DAY" d)} {(get-int "HR" d) (get-int "MIN" d) 0}}
          params-only-dict (lists/foldl (fn (k d) (dict/erase k d)) d ["YEAR" "MON" "DAY" "HR" "MIN" "TMZN"])
-         float-params-dict (dict/map (fn (k v) (to-number v)) params-only-dict)) 
-    (dict/store "ts" ts float-params-dict)))
+         float-params-dict (dict/map (fn (k v) (to-number v)) params-only-dict))
+    ({:ts ts} . (dict/to-list float-params-dict))))
 
 
 (defn+ parse-station-data (data)
@@ -62,7 +61,7 @@
   (let* (lines (str/tokens data "\n")
          parms (parse-params (jxl/hd lines))
          obs-lines (jxl/tl lines))
-    [parms (lists/map (fn (x) (parse-obs-line x parms)) obs-lines)]))
+    (lists/map (fn (x) (parse-obs-line x parms)) obs-lines)))
 
 
 (defn+ parse-page-body (body var-list)
