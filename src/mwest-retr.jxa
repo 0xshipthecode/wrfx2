@@ -1,0 +1,84 @@
+(ns mwest-retr
+     (require httpc lists
+              (dict :joxify) 
+              (time-arith :as ta)
+              (erlang :as erl :joxify)
+              (string :as str :joxify)
+              (io_lib :as iol)
+              (joxa-core :as jxc)
+              (joxa-lists :as jxl)
+              (mochiweb_xpath :as xpath)
+              (mochiweb_html :as html)))
+
+;; example URL from the MesoWest website
+;; http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?product=&stn=ESPC2&unit=1&time=GMT&daycalendar=1&day1=22&month1=08&year1=2013&hour1=1&hours=24&output=csv&order=0&TMPF=TMPF&RELH=RELH&SKNT=SKNT&GUST=GUST&DRCT=DRCT&QFLG=QFLG&VOLT=VOLT&FT=FT&FM=FM&TLKE=TLKE&PEAK=PEAK&PDIR=PDIR&PREC=PREC&SINT=SINT&SOLR=SOLR&ITIM=ITIM&UTIM=UTIM&DWPF=DWPF
+
+
+(defn+ make-dl-url (station-code ts var-list num-hours)
+  "Constructs the download URL that retrieves variables in <var-list> for station <station-code> for <num-hours> hours up to time <ts>."
+  (jxc/let ({{y m d} {h _ _}} ts)
+    (lists/flatten [ "http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?unit=1&time=GMT&daycalendar=1&output=csv&order=0"
+                     (iol/format "&stn=~s" [station-code])
+                     (lists/map (fn (x) (iol/format "&~s=~s" [x x])) var-list)
+                     (iol/format "&day1=~p&month1=~p&year1=~p&hour1=~p&hours=~p" [d m y h num-hours]) ])))
+
+
+(defn+ parse-station-info (st-line)
+  (let* (tokens (str/tokens st-line " "))
+    (jxc/let ((st-code . rest) tokens
+              ("RAWS" . ("m" . (height . (lon . (lat . name-lst))))) (lists/reverse rest))
+              [{:code st-code} {:lon lon} {:lat lat}
+               {:name (str/join (lists/reverse name-lst) " ")}
+               {:elevation height}])))
+
+    
+(defn+ parse-params (p-line)
+  "Parses the line PARM = A,B,C,D and returns [A B C D]."
+  (let* (tokens (lists/map (fn (x) (str/strip x)) (str/tokens p-line "=")))
+    (jxc/let (("PARM" . (param-str . [])) tokens)
+       (str/tokens param-str ","))))
+
+(defn get-int (name d)
+  (erl/list-to-integer (dict/fetch name d)))
+
+
+(defn to-number (lst)
+  (case (str/to-float lst)
+    ({:error _} (erl/list-to-integer lst))
+    ({flt _} flt)))
+
+
+(defn+ parse-obs-line (line params)
+  (let* (tokens (lists/map (fn (x) (str/strip x)) (str/tokens line ","))
+         d (dict/from-list (lists/zip params tokens))
+         ts {{(get-int "YEAR" d) (get-int "MON" d) (get-int "DAY" d)} {(get-int "HR" d) (get-int "MIN" d) 0}}
+         params-only-dict (lists/foldl (fn (k d) (dict/erase k d)) d ["YEAR" "MON" "DAY" "HR" "MIN" "TMZN"])
+         float-params-dict (dict/map (fn (k v) (to-number v)) params-only-dict)) 
+    (dict/store "ts" ts float-params-dict)))
+
+
+(defn+ parse-station-data (data)
+  "Parses the parameters/observations part of the return page." 
+  (let* (lines (str/tokens data "\n")
+         parms (parse-params (jxl/hd lines))
+         obs-lines (jxl/tl lines))
+    [parms (lists/map (fn (x) (parse-obs-line x parms)) obs-lines)]))
+
+
+(defn+ parse-page-body (body var-list)
+  (let* (parsed (html/parse body)
+         info-list (xpath/execute "//div/text()" parsed)
+         data-list (xpath/execute "//pre/text()" parsed)
+         st-info (parse-station-info (erl/binary-to-list (jxl/hd info-list)))
+         st-data (parse-station-data (erl/binary-to-list (lists/nth 2 data-list))))
+    {st-info st-data}))
+                     
+
+(defn+ retrieve-station-data (station-code var-list from to)
+  (let* (num-hrs (ta/hours-between from to)
+         url (make-dl-url station-code to var-list num-hrs))
+    (case (httpc/request :get {url []} [] [])
+      ({:ok {{_ 200 _} hdrs body}} (parse-page-body body var-list))
+      ({:ok {{_ http-code reason} _ _}} {:error http-code reason})
+      ({:error reason} {:error reason}))))
+    
