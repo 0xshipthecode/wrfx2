@@ -115,52 +115,31 @@
 		     from-adj (tma/shift-by-hours from-adj -1) :undefined grib-src [])))
 
 
-(defn stream-file (target ident storage-dir grib-src log-f)
-  "Stream the content <ident> prefixed with grib-src/url-prefix to disk to file <storage-dir>/<ident>."
-  (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" ident])
-      	 abs-path (lists/flatten [storage-dir "/" (grib-def/domain grib-src) "/" ident])
-         start-time (calendar/local-time))
-    (filelib/ensure-dir abs-path)
-    (log-f :info ["grib-retr (~p) -> downloading ~p to ~p." (grib-def/name grib-src) ident abs-path])
-    (case (httpc/request :get {url []} [] [{:stream, abs-path}])
-	  ({:ok, :saved_to_file} 
-      (log-f :info ["grib-retr (~p) -> finished downloading ~p after ~p seconds"
-              (grib-def/name grib-src) ident (tma/seconds-elapsed-from start-time)])
-      (erl/send target {:download-complete (erl/self)}))
-	  (error 
-      (log-f :info ["grib-retr (~p) -> failed to download downloading ~p after ~p seconds with error ~p"
-              (grib-def/name grib-src) ident (tma/seconds-elapsed-from start-time) error])
-      (erl/send target {:download-fail (erl/self) ident})))))
+(defn make-stream-func (stor-dir grib-src log-f)
+  "Create a closure that can be mapped over the list of GRIB2 files to download from source <grib-src> and
+   streams them into the directory <stor-dir> and logs progress through <log-f>."
+  (fn (ident)
+    (let* (url (lists/flatten [(grib-def/url-prefix grib-src) "/" ident])
+           abs-path (lists/flatten [stor-dir "/" (grib-def/domain grib-src) "/" ident])
+           start-time (calendar/local-time))
+      (filelib/ensure-dir abs-path)
+      (log-f :info ["grib-retr (~p) -> downloading ~p to ~p." (grib-def/name grib-src) ident abs-path])
+      (case (httpc/request :get {url []} [] [{:stream, abs-path}])
+	      ({:ok, :saved_to_file} 
+          (log-f :info ["grib-retr (~p) -> finished downloading ~p after ~p seconds"
+                 (grib-def/name grib-src) ident (tma/seconds-elapsed-from start-time)])
+          :download-complete)
+	      (error 
+          (log-f :warn ["grib-retr (~p) -> failed to download downloading ~p after ~p seconds with error ~p"
+                 (grib-def/name grib-src) ident (tma/seconds-elapsed-from start-time) error])
+          {:download-fail ident})))))
 
 
-(defn download-grib-files (manifest dl-pids storage-dir grib-src log-func)
-  "Download the grib files on the manifest in parallel.
-   Returns either :success or {:failure url}"
-  (let* (myself (erl/self)
-         max-dl (grib-def/max-downloads grib-src)
-	       await-next-result (fn (manifest dl-pids storage-dir grib-src log-func)
-			                       (receive
-                 	      			({:download-complete pid}
-                				        (download-grib-files manifest (lists/delete pid dl-pids)
-                                                     storage-dir grib-src log-func))
-                    				({:download-fail pid what}
-                             ; TODO: other downloads should be cancelled probably?
-                      			 {:failed-download what}))))
-    (case manifest
-  	  ([]
-	     (jxc/if (empty? dl-pids)
-		     :success
-		     (await-next-result manifest dl-pids storage-dir grib-src log-func)))
-  	  ((next . rest)
-	     (jxc/if (erl/< (erl/length dl-pids) max-dl)
-		     (let* (new-pid (erl/spawn (fn () (stream-file myself next storage-dir grib-src log-func))))
-  		     (download-grib-files rest (new-pid . dl-pids) storage-dir grib-src log-func))
-  		   (await-next-result manifest dl-pids storage-dir grib-src log-func))))))
-
-
-(defn+ download-gribs (manifest stor-dir grib-src log-func)
-  "Download a <manifest> of grib files in parallel with <max-concurrent-dl> parallel downloads.from source <grib-src>."
-  (download-grib-files manifest [] stor-dir grib-src log-func))
+(defn+ download-gribs (manifest stor-dir grib-src log-f)
+  "Downloads grib files identified in <manifest> from grib source <grib-src> and stores them in <stor-dir>.
+   Returns any failed downloads in a list, thus an empty list is returned if the function succeeded."
+  (let* (result-list (pmap (make-stream-func stor-dir grib-src log-f) (grib-def/max-downloads grib-src) manifest))
+        (lists/filter (fn (x) (case x (:download-complete :false) (_ :true))) result-list)))
 
 
 (defn url-exists? (url)
@@ -207,11 +186,11 @@
 		 ([] 
 		  (log-func :info ["grib-retr (~p) -> downloading ~p files now"
 			    (grib-def/name grib-src) (erl/length gribs-to-dl)])
-		  (case (download-gribs gribs-to-dl stor-dir grib-src log-func)
-			   (:success 
+      (case (download-gribs gribs-to-dl stor-dir grib-src log-func)
+        ([]
           (log-func :info ["grib-retr (~p) -> all ~p files downloaded succesfully, returning manifest covering ~w to ~w with ~p files"
-                       (grib-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
-         {:success {cov-from cov-to (lists/map (fn (x) (filename/join stor-dir x)) manifest)}})
+                    (grib-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
+          {:success {cov-from cov-to (lists/map (fn (x) (filename/join stor-dir x)) manifest)}})
 			    (failure failure)))
 		 ; in case of missing gribs, download
 		 (missing-gribs 
@@ -223,3 +202,4 @@
 	 (log-func :warn ["grib-retr (~p) -> source cannot satisfy the request from ~w to ~w"
 		   (grib-def/name grib-src) from to])
 	 :out-of-range)))
+

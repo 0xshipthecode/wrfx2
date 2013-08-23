@@ -9,6 +9,8 @@ BEAMFILES = 	ebin/utils.beam \
             	ebin/grib-srv.beam \
         	ebin/grib-man.beam \
         	ebin/mwest-retr.beam \
+        	ebin/mwest-srv.beam \
+		ebin/ingest-srv.beam \
         	ebin/log-stream.beam \
         	ebin/log-srv.beam \
 		ebin/task-exec.beam \

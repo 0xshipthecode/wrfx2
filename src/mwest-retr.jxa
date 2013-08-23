@@ -1,6 +1,23 @@
+;    Second generation WRF execution platform services.
+;    Copyright (C) 2013 Martin Vejmelka
+;
+;    This program is free software; you can redistribute it and/or modify
+;    it under the terms of the GNU General Public License as published by
+;    the Free Software Foundation; either version 2 of the License, or
+;    (at your option) any later version.
+
+;    This program is distributed in the hope that it will be useful,
+;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;    GNU General Public License for more details.
+
+;    You should have received a copy of the GNU General Public License along
+;    with this program; if not, write to the Free Software Foundation, Inc.,
+;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 (ns mwest-retr
-     (require httpc lists
-              (dict :joxify) 
+     (require httpc lists plist
+              (dict :joxify)
               (time-arith :as ta)
               (erlang :as erl :joxify)
               (string :as str :joxify)
@@ -8,11 +25,12 @@
               (joxa-core :as jxc)
               (joxa-lists :as jxl)
               (mochiweb_xpath :as xpath)
-              (mochiweb_html :as html)))
+              (mochiweb_html :as html)
+              utils))
+
 
 ;; example URL from the MesoWest website
 ;; http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?product=&stn=ESPC2&unit=1&time=GMT&daycalendar=1&day1=22&month1=08&year1=2013&hour1=1&hours=24&output=csv&order=0&TMPF=TMPF&RELH=RELH&SKNT=SKNT&GUST=GUST&DRCT=DRCT&QFLG=QFLG&VOLT=VOLT&FT=FT&FM=FM&TLKE=TLKE&PEAK=PEAK&PDIR=PDIR&PREC=PREC&SINT=SINT&SOLR=SOLR&ITIM=ITIM&UTIM=UTIM&DWPF=DWPF
-
 
 (defn+ make-dl-url (station-code ts var-list num-hours)
   "Constructs the download URL that retrieves variables in <var-list> for station <station-code> for <num-hours> hours up to time <ts>."
@@ -32,31 +50,24 @@
                {:elevation height}])))
 
     
-(defn+ parse-params (p-line)
+(defn parse-params (p-line)
   "Parses the line PARM = A,B,C,D and returns [A B C D]."
   (let* (tokens (lists/map (fn (x) (str/strip x)) (str/tokens p-line "=")))
     (jxc/let (("PARM" . (param-str . [])) tokens)
        (str/tokens param-str ","))))
 
-(defn get-int (name d)
-  (erl/list-to-integer (dict/fetch name d)))
 
-
-(defn to-number (lst)
-  (try* (erl/list-to-float lst)
-    (catch (type body) (erl/list-to-integer lst))))
-
-
-(defn+ parse-obs-line (line params)
-  (let* (tokens (lists/map (fn (x) (str/strip x)) (str/tokens line ","))
+(defn parse-obs-line (line params)
+  (let* (get-int (fn (name d) (erl/list-to-integer (dict/fetch name d)))
+         tokens (lists/map (fn (x) (str/strip x)) (str/tokens line ","))
          d (dict/from-list (lists/zip params tokens))
          ts {{(get-int "YEAR" d) (get-int "MON" d) (get-int "DAY" d)} {(get-int "HR" d) (get-int "MIN" d) 0}}
          params-only-dict (lists/foldl (fn (k d) (dict/erase k d)) d ["YEAR" "MON" "DAY" "HR" "MIN" "TMZN"])
-         float-params-dict (dict/map (fn (k v) (to-number v)) params-only-dict))
-    ({:ts ts} . (dict/to-list float-params-dict))))
+         float-params-dict (dict/map (fn (_k v) (utils/str-to-num v)) params-only-dict))
+    {ts (dict/to-list float-params-dict)}))
 
 
-(defn+ parse-station-data (data)
+(defn parse-station-observations (data)
   "Parses the parameters/observations part of the return page." 
   (let* (lines (str/tokens data "\n")
          parms (parse-params (jxl/hd lines))
@@ -64,20 +75,28 @@
     (lists/map (fn (x) (parse-obs-line x parms)) obs-lines)))
 
 
-(defn+ parse-page-body (body var-list)
+(defn parse-page-body (body var-list)
+  "Parse the <body> of the HTML page returnedfrom the mesowest website and extract variables <var-list>."
   (let* (parsed (html/parse body)
          info-list (xpath/execute "//div/text()" parsed)
          data-list (xpath/execute "//pre/text()" parsed)
          st-info (parse-station-info (erl/binary-to-list (jxl/hd info-list)))
-         st-data (parse-station-data (erl/binary-to-list (lists/nth 2 data-list))))
-    {st-info st-data}))
-                     
+         st-code (plist/get :code st-info)
+         st-obs (parse-station-observations (erl/binary-to-list (lists/nth 2 data-list))))
+    {st-info (lists/map (utils/fnm1 {ts obs} {st-code ts obs}) st-obs)})) 
 
-(defn+ retrieve-station-data (station-code var-list from to)
+
+(defn+ retrieve-station-obs (station-code var-list from to)
+  "Retrieve observations for variables <var-list> of station <station-code> from <from> to <to>."
   (let* (num-hrs (ta/hours-between from to)
          url (make-dl-url station-code to var-list num-hrs))
     (case (httpc/request :get {url []} [] [])
       ({:ok {{_ 200 _} hdrs body}} (parse-page-body body var-list))
       ({:ok {{_ http-code reason} _ _}} {:error http-code reason})
       ({:error reason} {:error reason}))))
-    
+
+
+(defn+ retrieve-stations-obs (station-list var-list from to max-dl log-f)
+  "Retrieve observations for variables <var-list> from <from> to <to> for stations with codes <station-list>." 
+  (utils/pmap (fn (x) (retrieve-station-obs x var-list from to)) max-dl station-list))
+ 

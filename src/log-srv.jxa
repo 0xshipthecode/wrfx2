@@ -49,7 +49,6 @@
     (gen_server/call :log-srv {:add-log-internal "wrfx-flash" flash-log}))
   (create-log "system" []))
 
-
 ;; Internal funcrions
 
 ;; gen_server callbacks
