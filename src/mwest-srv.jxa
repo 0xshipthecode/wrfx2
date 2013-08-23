@@ -1,0 +1,47 @@
+(ns mwest-srv
+    (require gen_server
+	     mwest-retr
+	     (joxa-core :as jxc)))
+
+
+(defn+ start-link (stor-dir log-f)
+  ; start a new GRIB server and return the PID
+  (gen_server/start_link :mwest-srv [stor-dir log-f] []))
+
+;; API
+
+(defn+ retrieve-gribs (srv-pid station-list var-list from to)
+  (gen_server/call srv-pid {:retrieve-raws station-list var-list from to} :infinity))
+
+
+;; Internal functions
+
+;; gen_server callbacks
+
+(defn+ init (args)
+    {:ok args})
+
+(defn+ handle_call (request from state)
+  (jxc/let ([stor-dir log-f] state)
+    (case request
+	    ({:retrieve-obs station-list var-list from-time to-time}
+	    ; RAWS observations retrieved here
+	      {:reply (mwest-retr/retrieve-stations-obs station-list var-list from-time to-time 5 log-f) state})
+	  (:stop-raws-srv 
+	    ; here a termination must be started
+	    {:stop :normal :ok state})
+	  (other 
+	    (log-f :flash ["mwest-srv: message ~p not understood, fix it!" other])
+	      {:reply :invalid-request state}))))
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})

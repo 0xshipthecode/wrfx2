@@ -1,0 +1,182 @@
+;    Second generation WRF execution platform services.
+;    Copyright (C) 2013 Martin Vejmelka
+;
+;    This program is free software; you can redistribute it and/or modify
+;    it under the terms of the GNU General Public License as published by
+;    the Free Software Foundation; either version 2 of the License, or
+;    (at your option) any later version.
+
+;    This program is distributed in the hope that it will be useful,
+;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;    GNU General Public License for more details.
+
+;    You should have received a copy of the GNU General Public License along
+;    with this program; if not, write to the Free Software Foundation, Inc.,
+;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+(ns ingest-srv
+    (require 
+       (erlang :as erl :joxify)
+	     (joxa-core :as jxc)
+	     plist
+	     (file :joxify)
+	     io
+	     lists
+	     (dict :joxify)
+	     inets
+	     gen_server
+	     grib-srv
+	     grib-def
+       utils
+       (erl_eval :joxify)
+       mwest-srv))
+
+
+(defn+ load-grib-def-file ()
+  "Load the GRIB source definition file and scan/parse/evaluate it to retrieve the list
+   of GRIB sources to be handled by the GRIB manager."
+  (case (file/read-file "etc/grib.sources")
+	({:ok content}
+    (case (utils/eval-erlang (erl/binary-to-list content) (erl_eval/new-bindings))
+      ({:value grib-src-list _} grib-src-list)
+			(error error)))
+	  (error error)))
+
+
+(defn+ check-grib-def-file ()
+  "Check whether the GRIB def file contains an appropriate expression."
+  (case (load-grib-def-file)
+	  (values (when (erl/is-list values)) :ok)
+	  (other {:error (io/format "Top-level expression is not a list or error ~p." [other])})))
+
+
+(defn+ reload-grib-sources ()
+  "Reloads the etc/grib.sources file and passes the list of grib sources
+   to the GRIB manager, which terminates current servers and starts new servers."
+  (let* (file-content (load-grib-def-file))
+    (case file-content
+	  (grib-source-list (when (erl/is-list file-content))
+	    (gen_server/call :ingest-srv {:restart-grib-servers grib-source-list}))
+	  (other {:error "Top-level expression is not a list."}))))
+
+
+(defn+ start-link (stor-dir log-f)
+  "Start the GRIB server manager that routes requests to appropriate GRIB servers."
+  (inets/start)
+  (gen_server/start_link {:local :ingest-srv} :ingest-srv [(dict/new) (dict/new) stor-dir log-f] [])
+  (reload-grib-sources)
+  (gen_server/call :ingest-srv :restart-raws-servers))
+
+
+;; API
+
+
+(defn+ get-srv-maps ()
+  "Get both server dictionaries (grib2 and raws) mapping source names -> server processes."
+  (gen_server/call :ingest-srv :get-srv-maps))
+
+
+(defn+ find-grib-server (src-name)
+  "Return the pid of the a GRIB2 ingest server under the name <src-name>."
+  (case (gen_server/call :ingest-srv {:find-grib-server src-name})
+	  ({:ok srv-pid} srv-pid)
+	  (:error :no-such-server)))
+
+
+(defn+ find-raws-server (src-name)
+  "Return the pid of the a RAWS ingest server under the name <src-name>."
+  (case (gen_server/call :ingest-srv {:find-grib-server src-name})
+	  ({:ok srv-pid} srv-pid)
+	  (:error :no-such-server)))
+
+
+(defn+ get-grib-def (src-name)
+  "Return the record of the GRIB source <src-name>."
+  (case (gen_server/call :ingest-srv {:find-grib-def src-name})
+	  ({:ok grib-src} grib-src)
+	  (:error :no-such-source)))
+
+
+(defn+ retrieve-gribs (src-name from to at-time delta timeout)
+  "Submits a GRIB retrieval request to the GRIB server stored under name <src-name>.  The retrieved GRIB
+   files are to cover the time interval from <from> to <to> and be as fresh as possible at time <at-time>.
+   Optionally an earlier cycle can be requested by setting delta > 0."
+  (let* (log-f (gen_server/call :grib-man :get-log-function))
+    (case (find-grib-server src-name)
+	    (:no-such-server :no-such-server)
+	    (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta} timeout)))))
+
+
+(defn+ retrieve-raws-obs (src-name station-list var-list from to)
+  "Submits a request to a source <src-name> that provides RAWS measurements for stations <station-list>
+   and variables <var-list> for the time period <from> to <to>."
+  (let* (log-f (gen_server/call :ingest-srv :get-log-function))
+    (case (find-raws-server src-name)
+      (:no-such-server :no-such-server)
+      (obs-srv-pid (gen_server/call obs-srv-pid {:retrieve-obs station-list var-list from to})))))
+
+
+;; Internal functions
+
+(defn start-grib-servers (grib-srcs stor-dir log-f)
+  "Start a GRIB server for each dictionary entry in <grib-srcs>."
+  (let* (start-one (fn (grib-src stor-dir log-f) (case (grib-srv/start-link grib-src stor-dir log-f) ({:ok pid} pid))))
+    (dict/fold (fn (grib-src-name grib-src d) (dict/store grib-src-name (start-one grib-src stor-dir log-f) d))
+	     (dict/new) grib-srcs)))
+
+(defn start-raws-servers (stor-dir log-f)
+  "Start pre-defined RAWS servers."
+  (dict/from-list [ {"mesowest" (mwest-srv/start-link stor-dir log-f)} ]))
+
+;; gen_server callbacks
+
+(defn+ init (args)
+    {:ok args})
+
+
+(defn+ handle_call (request from state)
+  "Handle a call request (synch request/reply)."
+  (jxc/let ([grib-srv-map grib-srcs raws-srv-map stor-dir log-f] state)
+  (case request
+	  (:get-log-function {:reply log-f state})
+	  (:get-srv-maps {:reply {grib-srv-map raws-srv-map} state})
+	  ; find the PID of the gen_server managing GRIB source src-name
+	  ({:find-raws-server src-name}
+	    {:reply (dict/find src-name raws-srv-map) state})
+	  ({:find-grib-server src-name}
+	    {:reply (dict/find src-name grib-srv-map) state})
+	  ; find and return a GRIB source record
+	  ({:find-grib-source src-name}
+	    {:reply (dict/find src-name grib-srcs) state})
+    (:restart-raws-servers
+      (log-f :info ["ingest-srv/handle_call: restarting RAWS servers."])
+      (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
+      {:reply :ok [grib-srv-map grib-srcs (start-raws-servers stor-dir log-f) stor-dir log-f]})
+	  ; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
+	  ({:restart-grib-servers new-grib-src-list}
+	    (log-f :info ["grib-man/handle_call: restarting GRIB servers."])
+	    (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-def/name x) x d)) (dict/new) new-grib-src-list)
+		         new-srv-map (start-grib-servers new-grib-srcs stor-dir log-f))
+	      ; send termination requests to all current gen_servers
+	      (dict/fold (fn (k v a) (gen_server/call v :stop-grib-srv) :ok) :ok grib-srv-map)
+	        {:reply :ok [new-srv-map new-grib-srcs stor-dir log-f]}))
+	  ; catch-all reply indicating failure, should be sent to logger
+	  (other (log-f :warn ["grib-man/handle_call: message ~p not understood." other])
+	    {:reply :invalid-request state}))))
+
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+
+(defn+ terminate (reason state)
+  :ok)
+
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
