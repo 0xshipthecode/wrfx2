@@ -4,9 +4,9 @@
 	     (joxa-core :as jxc)))
 
 
-(defn+ start-link (stor-dir log-f)
+(defn+ start-link (log-f)
   ; start a new GRIB server and return the PID
-  (gen_server/start_link :mwest-srv [stor-dir log-f] []))
+  (gen_server/start_link :mwest-srv [log-f] []))
 
 ;; API
 
@@ -22,7 +22,7 @@
     {:ok args})
 
 (defn+ handle_call (request from state)
-  (jxc/let ([stor-dir log-f] state)
+  (jxc/let ([log-f] state)
     (case request
 	    ({:retrieve-obs station-list var-list from-time to-time}
 	    ; RAWS observations retrieved here

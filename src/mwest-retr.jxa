@@ -16,7 +16,7 @@
 ;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 (ns mwest-retr
-     (require httpc lists plist
+     (require httpc lists plist filename
               (dict :joxify)
               (time-arith :as ta)
               (erlang :as erl :joxify)
@@ -86,17 +86,21 @@
     {st-info (lists/map (utils/fnm1 {ts obs} {st-code ts obs}) st-obs)})) 
 
 
-(defn+ retrieve-station-obs (station-code var-list from to)
-  "Retrieve observations for variables <var-list> of station <station-code> from <from> to <to>."
+(defn+ download-station-obs (station-code var-list from to log-f)
+  "Retrieve observations for variables <var-list> of station <station-code> from <from> to <to>.
+   Whatever is available is retrieved from <stor-dir>, whatever isn't must be downloaded to the appropriate location."
   (let* (num-hrs (ta/hours-between from to)
          url (make-dl-url station-code to var-list num-hrs))
+    (log-f :info ["mwest-retr: requesting observations from ~p on vars ~p from ~w to ~w" station-code var-list from to]) 
     (case (httpc/request :get {url []} [] [])
-      ({:ok {{_ 200 _} hdrs body}} (parse-page-body body var-list))
+      ({:ok {{_ 200 _} hdrs body}}
+        (log-f :info ["mwest-retr: station ~p success retrieving page ~p" station-code url])
+        (parse-page-body body var-list))
       ({:ok {{_ http-code reason} _ _}} {:error http-code reason})
       ({:error reason} {:error reason}))))
 
 
 (defn+ retrieve-stations-obs (station-list var-list from to max-dl log-f)
   "Retrieve observations for variables <var-list> from <from> to <to> for stations with codes <station-list>." 
-  (utils/pmap (fn (x) (retrieve-station-obs x var-list from to)) max-dl station-list))
+  (utils/pmap (fn (x) (download-station-obs x var-list from to log-f)) max-dl station-list))
  
