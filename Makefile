@@ -15,7 +15,7 @@ BEAMFILES = 	ebin/utils.beam \
         	ebin/log-srv.beam \
 		ebin/task-exec.beam \
         	ebin/tasks-fsys.beam \
-		ebin/grib-app.beam
+		ebin/wrfx2-app.beam
 
 
 ebin/%.beam: src/%.jxa
