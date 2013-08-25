@@ -17,6 +17,7 @@
 
 (ns mwest-retr
      (require httpc lists plist filename
+              raws-src-def
               (dict :joxify)
               (time-arith :as ta)
               (erlang :as erl :joxify)
@@ -32,12 +33,12 @@
 ;; example URL from the MesoWest website
 ;; http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?product=&stn=ESPC2&unit=1&time=GMT&daycalendar=1&day1=22&month1=08&year1=2013&hour1=1&hours=24&output=csv&order=0&TMPF=TMPF&RELH=RELH&SKNT=SKNT&GUST=GUST&DRCT=DRCT&QFLG=QFLG&VOLT=VOLT&FT=FT&FM=FM&TLKE=TLKE&PEAK=PEAK&PDIR=PDIR&PREC=PREC&SINT=SINT&SOLR=SOLR&ITIM=ITIM&UTIM=UTIM&DWPF=DWPF
 
-(defn+ make-dl-url (station-code ts var-list num-hours)
+(defn+ make-dl-url (station-code ts var-list num-hours raws-src)
   "Constructs the download URL that retrieves variables in <var-list> for station <station-code> for <num-hours> hours up to time <ts>."
   (jxc/let ({{y m d} {h _ _}} ts)
     (lists/flatten [ "http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?unit=1&time=GMT&daycalendar=1&output=csv&order=0"
                      (iol/format "&stn=~s" [station-code])
-                     (lists/map (fn (x) (iol/format "&~s=~s" [x x])) var-list)
+                     (lists/map (fn (x) (iol/format "&~s=~s" [x x])) (raws-src-def/var-list raws-src))
                      (iol/format "&day1=~p&month1=~p&year1=~p&hour1=~p&hours=~p" [d m y h num-hours]) ])))
 
 
@@ -75,8 +76,8 @@
     (lists/map (fn (x) (parse-obs-line x parms)) obs-lines)))
 
 
-(defn parse-page-body (body var-list)
-  "Parse the <body> of the HTML page returnedfrom the mesowest website and extract variables <var-list>."
+(defn parse-page-body (body)
+  "Parse the <body> of the HTML page returned from the mesowest website."
   (let* (parsed (html/parse body)
          info-list (xpath/execute "//div/text()" parsed)
          data-list (xpath/execute "//pre/text()" parsed)
@@ -86,11 +87,11 @@
     {st-info (lists/map (utils/fnm1 {ts obs} {st-code ts obs}) st-obs)})) 
 
 
-(defn+ download-station-obs (station-code var-list from to log-f)
+(defn+ download-station-obs (station-code from to raws-src log-f)
   "Retrieve observations for variables <var-list> of station <station-code> from <from> to <to>.
    Whatever is available is retrieved from <stor-dir>, whatever isn't must be downloaded to the appropriate location."
   (let* (num-hrs (ta/hours-between from to)
-         url (make-dl-url station-code to var-list num-hrs))
+         url     (make-dl-url station-code to num-hrs raws-src))
     (log-f :info ["mwest-retr: requesting observations from ~p on vars ~p from ~w to ~w" station-code var-list from to]) 
     (case (httpc/request :get {url []} [] [])
       ({:ok {{_ 200 _} hdrs body}}
@@ -100,7 +101,11 @@
       ({:error reason} {:error reason}))))
 
 
-(defn+ retrieve-stations-obs (station-list var-list from to max-dl log-f)
+(defn+ retreive-station-obs (station-code from to raws-src log-f)
+  :ok)
+    
+
+(defn+ retrieve-stations-obs (station-list from to raws-src log-f)
   "Retrieve observations for variables <var-list> from <from> to <to> for stations with codes <station-list>." 
-  (utils/pmap (fn (x) (download-station-obs x var-list from to log-f)) max-dl station-list))
+  (utils/pmap (fn (x) (retrieve-station-obs x from to raws-src log-f)) (raws-src-def/max-dl raws-src) station-list))
  
