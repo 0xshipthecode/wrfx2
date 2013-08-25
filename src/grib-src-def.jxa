@@ -1,0 +1,17 @@
+(ns grib-src-def
+    (use joxa-records))
+
+; name - an identifier of the grib definition
+; runs - list of hours when runs are started, e.g. [0 12]
+; delay - no. of hours it takes for the files to be availble for d/l after run start
+; url-prefix - the fixed part of the URL for file retrieval
+; name-fun   - a function that accepts cycle time (erlang datetime) and file index (integer) and returns
+;              the second part of the download URL
+; vtable-file - the VTABLE file that should be used to process the GRIB files from this source
+; domain - the storage domain
+; file-hours - a list of hours (from run time) for which grib files are available
+; max-downloads - the maximum number of concurrent downloads to use with the GRIB source
+; nl-keys - the namelist keys that must be inserted into WPS namelist to correctly handle the GRIB data
+(defrecord+ name runs delay url-prefix name-fun vtable-file domain file-hours max-downloads nl-keys)
+
+

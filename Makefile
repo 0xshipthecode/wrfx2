@@ -2,7 +2,9 @@
 all: compile
 
 
-BEAMFILES = 	ebin/utils.beam \
+BEAMFILES = 	ebin/grib-src-def.beam \
+		ebin/raws-src-def.beam \
+		ebin/utils.beam \
 		ebin/plist.beam \
 		ebin/time-arith.beam \
             	ebin/grib-retr.beam \
