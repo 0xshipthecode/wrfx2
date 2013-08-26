@@ -1,0 +1,49 @@
+(ns wrfx2-app
+    (require
+       inets io (file :joxify)
+       (application :joxify)
+       (mnesia :joxify)
+       ingest-srv
+       log-srv
+       utils
+       (io_lib :as iol)
+       (erlang :as erl :joxify)
+       (filelib :joxify)
+       (joxa-core :as jxc)))
+
+
+(defn+ start-logging ()
+  "Start the logging subsystem."
+  (utils/critical-check :ok (filelib/ensure-dir "log/log-file"))
+  (log-srv/start-link "log"))
+
+
+(defn+ start-ingest-system ()
+  "Start up the ingest system."
+  (utils/critical-check :ok (filelib/ensure-dir "ingest/fake-file"))
+  (log-srv/create-log "ingest-system" [])
+  (ingest-srv/start-link "ingest" (log-srv/get-log-f "ingest-system"))
+  (utils/ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] []))
+ 
+
+(defn+ start-otp-subsystem ()
+  "Start the OTP subsystems required for wrfx2 platform services."
+  (inets/start)
+  (mnesia/create-schema [(erl/node)])
+  (mnesia/start))
+ 
+
+(defn+ start ()
+  (application/set-env :mnesia :dir "db")
+; start otp subsystems that we need
+  (start-otp-subsystem)
+  (start-logging)
+  (start-ingest-system)
+
+  ; start the job manager
+
+  ; start the scheduler
+
+  )
+
+
