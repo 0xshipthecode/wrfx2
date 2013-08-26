@@ -17,6 +17,7 @@
 
 (ns mwest-retr
      (require httpc lists plist filename
+              (mnesia :joxify)
               raws-src-def
               (dict :joxify)
               (time-arith :as ta)
@@ -33,7 +34,7 @@
 ;; example URL from the MesoWest website
 ;; http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?product=&stn=ESPC2&unit=1&time=GMT&daycalendar=1&day1=22&month1=08&year1=2013&hour1=1&hours=24&output=csv&order=0&TMPF=TMPF&RELH=RELH&SKNT=SKNT&GUST=GUST&DRCT=DRCT&QFLG=QFLG&VOLT=VOLT&FT=FT&FM=FM&TLKE=TLKE&PEAK=PEAK&PDIR=PDIR&PREC=PREC&SINT=SINT&SOLR=SOLR&ITIM=ITIM&UTIM=UTIM&DWPF=DWPF
 
-(defn+ make-dl-url (station-code ts var-list num-hours raws-src)
+(defn+ make-dl-url (station-code ts num-hours raws-src)
   "Constructs the download URL that retrieves variables in <var-list> for station <station-code> for <num-hours> hours up to time <ts>."
   (jxc/let ({{y m d} {h _ _}} ts)
     (lists/flatten [ "http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?unit=1&time=GMT&daycalendar=1&output=csv&order=0"
@@ -84,25 +85,61 @@
          st-info (parse-station-info (erl/binary-to-list (jxl/hd info-list)))
          st-code (plist/get :code st-info)
          st-obs (parse-station-observations (erl/binary-to-list (lists/nth 2 data-list))))
-    {st-info (lists/map (utils/fnm1 {ts obs} {st-code ts obs}) st-obs)})) 
+    {st-info st-obs}))
 
 
-(defn+ download-station-obs (station-code from to raws-src log-f)
+(defn+ download-station-obs (station-code to num-hrs raws-src log-f)
   "Retrieve observations for variables <var-list> of station <station-code> from <from> to <to>.
    Whatever is available is retrieved from <stor-dir>, whatever isn't must be downloaded to the appropriate location."
-  (let* (num-hrs (ta/hours-between from to)
-         url     (make-dl-url station-code to num-hrs raws-src))
-    (log-f :info ["mwest-retr: requesting observations from ~p on vars ~p from ~w to ~w" station-code var-list from to]) 
+  (let* (url      (make-dl-url station-code to num-hrs raws-src))
+    (log-f :info ["mwest-retr: requesting observations from ~p on vars ~p for ~p hrs to ~w"
+                  station-code (raws-src-def/var-list raws-src) num-hrs to]) 
     (case (httpc/request :get {url []} [] [])
       ({:ok {{_ 200 _} hdrs body}}
         (log-f :info ["mwest-retr: station ~p success retrieving page ~p" station-code url])
-        (parse-page-body body var-list))
+        (parse-page-body body))
       ({:ok {{_ http-code reason} _ _}} {:error http-code reason})
       ({:error reason} {:error reason}))))
 
 
-(defn+ retreive-station-obs (station-code from to raws-src log-f)
-  :ok)
+(defn+ entry-exists? (key)
+  "Check if the <key> entry exists in the mnesia table :mwestraws."
+  (case (mnesia/dirty-read :mwestraws key)
+    ([] :false)
+    (other :true)))
+
+
+(defn+ get-entry (key)
+  (jxc/let ({:mwestraws key obs-time obss} (jxl/hd (mnesia/dirty-read :mwestraws key)))
+    {obs-time obss}))
+
+(defn+ get-station-info (station-code)
+  (jxc/let ({:mwestraws station-code :info st-info} (jxl/hd (mnesia/dirty-read :mwestraws station-code)))
+    st-info))
+
+(defn write-entry (station-code ts obs)
+  (mnesia/dirty-write :mwestraws {:mwestraws {(ta/round-hours ts :down) station-code} ts obs})) 
+
+
+(defn retrieve-missing-obs (station-code missing-hrs raws-src log-f)
+  "Retrieves missing observations in 24-hr chunks from the mesowest server
+   for station <station-code> to cover missing hours <missing-hrs>."
+  (io/format "missing obs -> ~p~n" [missing-hrs])
+  (case missing-hrs
+    ([] :ok)
+    ((missing . _rest)
+      (jxc/let ({st-info st-obs} (download-station-obs station-code (ta/shift-by-hours missing 1) 24 raws-src log-f))
+        (mnesia/dirty-write :mwestraws {:mwestraws station-code :info st-info})
+        (lists/map (utils/fnm1 {ts obs} (write-entry station-code ts obs)) st-obs)
+        (let* (new-missing (erl/-- missing-hrs (lists/map (utils/fnm1 {dt _} (ta/round-hours dt :down)) st-obs)))
+          (retrieve-missing-obs station-code new-missing raws-src log-f))))))
+
+
+(defn+ retrieve-station-obs (station-code from to raws-src log-f)
+  (let* (hr-list     (ta/list-hours from to)
+         missing-hrs (lists/filter (fn (x) (erl/not (entry-exists? {x station-code}))) hr-list))
+    (retrieve-missing-obs station-code (lists/reverse missing-hrs) raws-src log-f)
+    {(get-station-info station-code) (lists/map (fn (x) (get-entry {x station-code})) hr-list)})) 
     
 
 (defn+ retrieve-stations-obs (station-list from to raws-src log-f)
