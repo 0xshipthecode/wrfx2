@@ -1,6 +1,7 @@
 
 
 % name - an identifier of the grib definition
+% mod-name - name of the module that handles the source (typically grib-srv)
 % runs - list of hours when runs are started, e.g. [0 12]
 % delay - no. of hours it takes for the files to be availble for d/l after run start
 % url-prefix - the fixed part of the URL for file retrieval
@@ -17,6 +18,7 @@
 [
 {'grib-def',
  "nam_218",
+ 'grib-srv',
  [0, 6, 12, 18],
  2,
  "http://nomads.ncep.noaa.gov/pub/data/nccf/com/nam/prod",
