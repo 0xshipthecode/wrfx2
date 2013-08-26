@@ -12,6 +12,6 @@
 ; file-hours - a list of hours (from run time) for which grib files are available
 ; max-downloads - the maximum number of concurrent downloads to use with the GRIB source
 ; nl-keys - the namelist keys that must be inserted into WPS namelist to correctly handle the GRIB data
-(defrecord+ name runs delay url-prefix name-fun vtable-file domain file-hours max-downloads nl-keys)
+(defrecord+ name mod-name runs delay url-prefix name-fun vtable-file domain file-hours max-downloads nl-keys)
 
 
