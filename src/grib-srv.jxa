@@ -1,12 +1,16 @@
 (ns grib-srv
     (require gen_server
 	     grib-retr
+       plist
 	     (joxa-core :as jxc)))
 
 
-(defn+ start-link (grib-src stor-dir log-f)
-  ; start a new GRIB server and return the PID
-  (gen_server/start_link :grib-srv [grib-src stor-dir log-f] []))
+(defn+ start-link (grib-src params)
+  (let* (stor-dir (plist/get :storage-dir params)
+         log-f    (plist/get :log-func params))
+    ; start a new GRIB server and return the PID
+    (gen_server/start_link :grib-srv [grib-src stor-dir log-f] [])))
+
 
 ;; API
 
