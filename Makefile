@@ -9,7 +9,6 @@ BEAMFILES = 	ebin/grib-src-def.beam \
 		ebin/time-arith.beam \
             	ebin/grib-retr.beam \
             	ebin/grib-srv.beam \
-        	ebin/grib-man.beam \
         	ebin/mwest-retr.beam \
         	ebin/mwest-srv.beam \
 		ebin/ingest-srv.beam \

@@ -18,11 +18,13 @@
 (ns utils 
     (require lists io_lib filelib timer
              erl_scan erl_parse erl_eval
+             (mnesia :joxify)
              (file :joxify)
              (string :as str)
              (io_lib :as iol)
              (erlang :as erl :joxify)
-      	     (joxa-core :as jxc)))
+      	     (joxa-core :as jxc)
+             (joxa-lists :as jxl)))
 
 
 (defn+ sign (val)
@@ -54,16 +56,31 @@
     (catch (type body) (erl/list-to-integer lst))))
 
 
-(defn+ critical-check (succ-result func fail-msg)
-  "The function <func> must succeed, i.e return the result <succ-result>. If not
+(defmacro+ critical-check (succ-result func)
+  "The function <func> must succeed, i.e return the result <succ-result>.  If not
    the message <fail-msg> is written to file 'critical_failure.log' in the root directory
    the system and an exception is thrown."
-  (case (func)
-    (succ-result :ok)
-    (other
-      (file/write-file "critical_failure.log" fail-msg) 
-      (erl/throw (iol/format "Critical function FAILURE: ~p" [fail-msg]))))) 
+   (let* (other (jxc/gensym)
+          msg   (jxc/gensym))
+    `(case ~func
+      (~succ-result :ok)
+      (~other
+        (let* (~msg (iol/format "FAILURE in ~p: expected ~p instead returned ~p" [(quote ~func) ~succ-result ~other])) 
+          (file/write-file "critical_failure.log" ~msg) 
+          (erl/throw ~msg))))))
 
+
+(defn+ ensure-table-exists (tuple-fields index-fields)
+  "Ensure that a table either exists or is created with fields <tuple-fields>
+   and indices for <index-fields>.  The table name is (jxl/hd tuple-fields)."
+  (jxc/if (lists/member (jxl/hd tuple-fields)(mnesia/system-info :tables))
+    :ok
+    (utils/critical-check {:atomic :ok}
+                          (mnesia/create-table (jxl/hd tuple-fields)
+                                               [{:attributes (jxl/tl tuple-fields)}
+                                               {:index index-fields}
+                                               {:disc_copies [(erl/node)]}]))))
+ 
 
 ;; define a macro that matches an arbitrary structure to
 ;; a single function argument

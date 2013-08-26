@@ -82,4 +82,10 @@
   (cal/datetime-to-gregorian-seconds (cal/local-time)))
 
 
+(defn+ list-hours (from to)
+  "List timestamps starting with <from> and incrementing by 1 hour,
+   continue until past <to>."
+  (jxc/if (erl/> from to)
+    []
+    (from . (list-hours (shift-by-hours from 1) to))))
 
