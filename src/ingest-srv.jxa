@@ -27,47 +27,47 @@
 	     inets
 	     gen_server
 	     grib-srv
-	     grib-def
+	     grib-src-def
+       raws-src-def
        utils
        (erl_eval :joxify)
        mwest-srv))
 
 
-(defn+ load-grib-def-file ()
-  "Load the GRIB source definition file and scan/parse/evaluate it to retrieve the list
-   of GRIB sources to be handled by the GRIB manager."
-  (case (file/read-file "etc/grib.sources")
-	({:ok content}
-    (case (utils/eval-erlang (erl/binary-to-list content) (erl_eval/new-bindings))
-      ({:value grib-src-list _} grib-src-list)
-			(error error)))
-	  (error error)))
+(defn+ load-src-def-file (fname)
+  "Load a source file <fname> and scan/parse/eval it to obtain a list of sources."
+  (case (file/read-file fname)
+	  ({:ok content}
+      (case (utils/eval-erlang (erl/binary-to-list content) (erl_eval/new-bindings))
+        ({:value src-list _} src-list)
+			  (error error)))
+    (error error)))
 
 
-(defn+ check-grib-def-file ()
-  "Check whether the GRIB def file contains an appropriate expression."
-  (case (load-grib-def-file)
+(defn+ check-src-def-file (fname)
+  "Check whether the source definition file <fname> contains a list of values (and is parsable)."
+  (case (load-src-def-file fname)
 	  (values (when (erl/is-list values)) :ok)
 	  (other {:error (io/format "Top-level expression is not a list or error ~p." [other])})))
 
 
-(defn+ reload-grib-sources ()
-  "Reloads the etc/grib.sources file and passes the list of grib sources
-   to the GRIB manager, which terminates current servers and starts new servers."
-  (let* (file-content (load-grib-def-file))
+(defn+ reload-sources (fname reload-command)
+  "Reloads the source definition file <fname> and passes the content
+   along with the <reload-command> as {reload-command list-of-source} to the ingest server."
+  (let* (file-content (load-src-def-file fname))
     (case file-content
-	  (grib-source-list (when (erl/is-list file-content))
-	    (gen_server/call :ingest-srv {:restart-grib-servers grib-source-list}))
-	  (other {:error "Top-level expression is not a list."}))))
+	    (source-list (when (erl/is-list file-content))
+        (io/format "calling command ~p with source list ~p~n" [reload-command source-list])
+	      (gen_server/call :ingest-srv {reload-command source-list}))
+	    (other {:error "Top-level expression is not a list."}))))
 
 
 (defn+ start-link (stor-dir log-f)
   "Start the GRIB server manager that routes requests to appropriate GRIB servers."
   (inets/start)
   (gen_server/start_link {:local :ingest-srv} :ingest-srv [(dict/new) (dict/new) (dict/new) stor-dir log-f] [])
-  (reload-grib-sources)
-  (gen_server/call :ingest-srv :restart-raws-servers))
-
+  (reload-sources "etc/grib.sources" :restart-grib-servers)
+  (reload-sources "etc/raws.sources" :restart-raws-servers))
 
 ;; API
 
@@ -100,29 +100,26 @@
    Optionally an earlier cycle can be requested by setting delta > 0."
   (case (find-grib-server src-name)
 	  (:no-such-server :no-such-server)
-	  (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta} timeout))))
+	  (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta} (erl/* timeout 1000)))))
 
 
-(defn+ retrieve-raws-obs (src-name station-list var-list from to)
+(defn+ retrieve-raws-obs (src-name station-list from to timeout)
   "Submits a request to a source <src-name> that provides RAWS measurements for stations <station-list>
-   and variables <var-list> for the time period <from> to <to>."
+   and for the time period <from> to <to>."
   (case (find-raws-server src-name)
     (:no-such-server :no-such-server)
-    (obs-srv-pid (gen_server/call obs-srv-pid {:retrieve-obs station-list var-list from to}))))
+    (obs-srv-pid (gen_server/call obs-srv-pid {:retrieve-obs station-list from to} (erl/* timeout 1000)))))
 
 
 ;; Internal functions
 
-(defn start-grib-servers (grib-srcs stor-dir log-f)
-  "Start a GRIB server for each dictionary entry in <grib-srcs>."
-  (let* (start-one (fn (grib-src stor-dir log-f) (case (grib-srv/start-link grib-src stor-dir log-f) ({:ok pid} pid))))
-    (dict/fold (fn (grib-src-name grib-src d) (dict/store grib-src-name (start-one grib-src stor-dir log-f) d))
-	     (dict/new) grib-srcs)))
+(defn start-servers (src-list get-mod-f stor-dir log-f)
+  "Start a source server for each dictionary entry in <src-list>
+   and store the mapping name -> pid in a dict that is returned."
+  (let* (param-dict [ {:storage-dir stor-dir} {:log-func log-f} ] 
+         start-one (fn (src) (case (erl/apply (get-mod-f src) :start-link [src param-dict]) ({:ok pid} pid))))
+    (dict/fold (fn (src-name src d) (dict/store src-name (start-one src) d)) (dict/new) src-list)))
 
-(defn start-raws-servers (stor-dir log-f)
-  "Start pre-defined RAWS servers."
-  (jxc/let ({:ok pid} (mwest-srv/start-link log-f))
-    (dict/from-list [ {"mesowest" pid} ])))
 
 ;; gen_server callbacks
 
@@ -150,15 +147,19 @@
 	  ; find and return a GRIB source record
 	  ({:find-grib-source src-name}
 	    {:reply (dict/find src-name grib-srcs) state})
-    (:restart-raws-servers
+    ; reload RAWS sources file - send kill messages to current RAWS servers and create new ones
+    ({:restart-raws-servers new-raws-src-list}
       (log-f :info ["ingest-srv/handle_call: restarting RAWS servers."])
-      (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
-        {:reply :ok [grib-srv-map grib-srcs (start-raws-servers stor-dir log-f) stor-dir log-f]})
+  	  (let* (new-raws-srcs (lists/foldl (fn (x d) (dict/store (raws-src-def/name x) x d)) (dict/new) new-raws-src-list)
+		         new-srv-map (start-servers new-raws-srcs (fn (x) (raws-src-def/mod-name x)) stor-dir log-f))
+	      (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
+        (io/format "~p" [new-srv-map])
+        {:reply :ok [grib-srv-map grib-srcs new-srv-map stor-dir log-f]}))
 	  ; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
 	  ({:restart-grib-servers new-grib-src-list}
 	    (log-f :info ["ingest-srv/handle_call: restarting GRIB servers."])
-	    (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-def/name x) x d)) (dict/new) new-grib-src-list)
-		         new-srv-map (start-grib-servers new-grib-srcs stor-dir log-f))
+	    (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-src-def/name x) x d)) (dict/new) new-grib-src-list)
+		         new-srv-map (start-servers new-grib-srcs (fn (x) (grib-src-def/mod-name x)) stor-dir log-f))
 	      ; send termination requests to all current gen_servers
 	      (dict/fold (fn (k v a) (gen_server/call v :stop-grib-srv) :ok) :ok grib-srv-map)
 	        {:reply :ok [new-srv-map new-grib-srcs raws-srv-map stor-dir log-f]}))
