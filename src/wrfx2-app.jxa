@@ -6,6 +6,7 @@
        ingest-srv
        log-srv
        utils
+       config-srv
        (io_lib :as iol)
        (erlang :as erl :joxify)
        (filelib :joxify)
@@ -35,8 +36,10 @@
 
 (defn+ start ()
   (application/set-env :mnesia :dir "db")
-; start otp subsystems that we need
+  ; start otp subsystems that we need
   (start-otp-subsystem)
+  (config-srv/start-link (log-srv/get-log-f "system")) 
+
   (start-logging)
   (start-ingest-system)
 
