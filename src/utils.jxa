@@ -17,7 +17,8 @@
 
 (ns utils 
     (require lists io_lib filelib timer
-             erl_scan erl_parse erl_eval
+             erl_scan erl_parse
+             (erl_eval :joxify)
              (mnesia :joxify)
              (file :joxify)
              (string :as str)
@@ -206,4 +207,16 @@
   "A parallel map that uses as many processes as there are tasks in <tasks>
    to execute the pmap.  The order of tasks is not preserved."
   (pmap func (erl/length tasks) tasks))
+
+
+(defn+ execute-file (fname)
+  "Scan/parse/evaluate file content of <fname>."
+  (case (file/read-file fname)
+    ({:ok content}
+      (case (eval-erlang (erl/binary-to-list content) (erl_eval/new-bindings))
+        ({:value result _} {:ok result})
+        (error error)))
+  (error error)))
+
+
 
