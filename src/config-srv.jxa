@@ -1,0 +1,54 @@
+(ns config-srv
+  (require 
+       (erlang :as erl :joxify)
+	     (joxa-core :as jxc)
+	     plist
+	     (file :joxify)
+	     (dict :joxify)
+	     inets
+	     gen_server
+       utils
+       (erl_eval :joxify)))
+
+
+
+(defn config-valid? (fname)
+  "Check if the configuration file <fname> is a valid plist."
+  (case (utils/execute-file fname)
+    ({:ok cfg} (plist/plist? cfg))
+    (error {:false error})))
+
+
+(defn+ start-link (log-f)
+  "Start the configuration server."
+    (case (utils/execute-file "etc/config")
+      ({:ok cfg} (gen_server/start_link :config-srv [cfg log-f] []))
+      (error (erl/throw error))))
+    
+
+(defn+ init (args)
+    {:ok args})
+
+
+(defn+ handle_call (request from state)
+  (jxc/let ([cfg log-f] state)
+    (case request
+      ({:get-conf key} {:reply {:ok (plist/get key cfg)} state})
+      ({:reload new-cfg} {:reply :ok [new-cfg log-f]})
+	    (:stop-cfg-srv {:stop :normal :ok state})
+	    (other 
+	      (log-f :flash ["config-srv: message ~p not understood, fix it!" other])
+	      {:reply :invalid-request state}))))
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+

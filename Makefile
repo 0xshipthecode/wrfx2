@@ -6,6 +6,7 @@ BEAMFILES = 	ebin/grib-src-def.beam \
 		ebin/raws-src-def.beam \
 		ebin/utils.beam \
 		ebin/plist.beam \
+		ebin/config-srv.beam \
 		ebin/time-arith.beam \
             	ebin/grib-retr.beam \
             	ebin/grib-srv.beam \
