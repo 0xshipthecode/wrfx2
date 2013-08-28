@@ -14,6 +14,7 @@
    and also to any <additional-targets>."
   (gen_server/call :log-srv {:create-log log-name :info additional-targets}))
 
+
 (defn+ create-log (log-name min-priority additional-targets)
   "Create a new log stream with name <log-name> that is sent to log-dir/log-name.log
    and only routes messages with the given minimum priority."
@@ -47,7 +48,7 @@
     (gen_server/start_link {:local :log-srv} :log-srv [log-dir (dict/new)] [])
     (gen_server/call :log-srv {:add-log-internal "wrfx-errors" err-log})
     (gen_server/call :log-srv {:add-log-internal "wrfx-flash" flash-log}))
-  (create-log "system" []))
+    (create-log "system" []))
 
 ;; Internal funcrions
 
@@ -58,21 +59,21 @@
 
 (defn+ handle_call (request from state)
   (jxc/let ([log-dir log-map] state)
-   (case request
-   ({:add-log-internal log-name log-pid}
-    {:reply :ok [log-dir (dict/store log-name log-pid log-map)]})
-	 ({:create-log log-name min-priority additional-targets} 
-    (let* (fname (filename/join [log-dir (erl/++ log-name ".log")])
-           main-tgt (log-stream/make-target :device min-priority fname)
-           err-tgt (log-stream/make-target :relay :error (dict/fetch "wrfx-errors" log-map))
-           flash-tgt (log-stream/make-target :relay :flash (dict/fetch "wrfx-flash" log-map))
-           log-pid (log-stream/start-log log-name (main-tgt . (err-tgt . additional-targets))))
-    {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
-   ({:get-log-pid log-name}
-    {:reply (dict/find log-name log-map) state})
-   (other
-	  (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
-	  {:reply :invalid-request state}))))
+    (case request
+      ({:add-log-internal log-name log-pid}
+       {:reply :ok [log-dir (dict/store log-name log-pid log-map)]})
+	    ({:create-log log-name min-priority additional-targets} 
+        (let* (fname (filename/join [log-dir (erl/++ log-name ".log")])
+               main-tgt (log-stream/make-target :device min-priority fname)
+               err-tgt (log-stream/make-target :relay :error (dict/fetch "wrfx-errors" log-map))
+               flash-tgt (log-stream/make-target :relay :flash (dict/fetch "wrfx-flash" log-map))
+               log-pid (log-stream/start-log log-name (main-tgt . (err-tgt . additional-targets))))
+          {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
+      ({:get-log-pid log-name}
+        {:reply (dict/find log-name log-map) state})
+      (other
+	      (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
+	      {:reply :invalid-request state}))))
 
 (defn+ handle_cast (msg state)
   {:noreply state})
