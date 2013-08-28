@@ -59,13 +59,30 @@
        (str/tokens param-str ","))))
 
 
+(defn split-obs (chars curr acc)
+  (case chars
+    ([] (lists/reverse ((lists/reverse curr) . acc)))
+    ((ch . rest)
+      (case ch
+        (44 (split-obs rest [] ((lists/reverse curr) . acc)))  ; 44 = comma character
+        (32 (split-obs rest curr acc))         ; 32 = space
+        (other (split-obs rest (other . curr) acc))))))
+
+
+(defn split-observations (line)
+  "Split an observation line (comma separated) into individual values.
+   Skips spaces and does not aggregate separators (i.e. ,, means one empty field between commas)."
+  (split-obs line [] []))
+
+
 (defn parse-obs-line (line params)
   (let* (get-int (fn (name d) (erl/list-to-integer (dict/fetch name d)))
-         tokens (lists/map (fn (x) (str/strip x)) (str/tokens line ","))
+         tokens (split-observations line)
+         decode-num (fn (x) (case x ([] :undefined) (maybe-num (utils/str-to-num maybe-num))))
          d (dict/from-list (lists/zip params tokens))
          ts {{(get-int "YEAR" d) (get-int "MON" d) (get-int "DAY" d)} {(get-int "HR" d) (get-int "MIN" d) 0}}
          params-only-dict (lists/foldl (fn (k d) (dict/erase k d)) d ["YEAR" "MON" "DAY" "HR" "MIN" "TMZN"])
-         float-params-dict (dict/map (fn (_k v) (utils/str-to-num v)) params-only-dict))
+         float-params-dict (dict/map (fn (_k v) (decode-num v)) params-only-dict))
     {ts (dict/to-list float-params-dict)}))
 
 
@@ -92,6 +109,7 @@
   "Retrieve observations for variables <var-list> of station <station-code> from <from> to <to>.
    Whatever is available is retrieved from <stor-dir>, whatever isn't must be downloaded to the appropriate location."
   (let* (url      (make-dl-url station-code to num-hrs raws-src))
+    ; log that we are requesting some observations with timestamp
     (log-f :info ["mwest-retr: requesting observations from ~p on vars ~p for ~p hrs to ~w"
                   station-code (raws-src-def/var-list raws-src) num-hrs to]) 
     (case (httpc/request :get {url []} [] [])
@@ -113,26 +131,24 @@
   (jxc/let ({:mwestraws key obs-time obss} (jxl/hd (mnesia/dirty-read :mwestraws key)))
     {obs-time obss}))
 
+
 (defn+ get-station-info (station-code)
   (jxc/let ({:mwestraws station-code :info st-info} (jxl/hd (mnesia/dirty-read :mwestraws station-code)))
     st-info))
-
-(defn write-entry (station-code ts obs)
-  (mnesia/dirty-write :mwestraws {:mwestraws {(ta/round-hours ts :down) station-code} ts obs})) 
 
 
 (defn retrieve-missing-obs (station-code missing-hrs raws-src log-f)
   "Retrieves missing observations in 24-hr chunks from the mesowest server
    for station <station-code> to cover missing hours <missing-hrs>."
-  (io/format "missing obs -> ~p~n" [missing-hrs])
-  (case missing-hrs
-    ([] :ok)
-    ((missing . _rest)
-      (jxc/let ({st-info st-obs} (download-station-obs station-code (ta/shift-by-hours missing 1) 24 raws-src log-f))
-        (mnesia/dirty-write :mwestraws {:mwestraws station-code :info st-info})
-        (lists/map (utils/fnm1 {ts obs} (write-entry station-code ts obs)) st-obs)
-        (let* (new-missing (erl/-- missing-hrs (lists/map (utils/fnm1 {dt _} (ta/round-hours dt :down)) st-obs)))
-          (retrieve-missing-obs station-code new-missing raws-src log-f))))))
+  (let* (write-entry (fn (scode ts obs) (mnesia/write {:mwestraws {(ta/round-hours ts :down) station-code} ts obs}))) 
+    (case missing-hrs
+      ([] :ok)
+      ((missing . _rest)
+        (jxc/let ({st-info st-obs} (download-station-obs station-code (ta/shift-by-hours missing 1) 24 raws-src log-f))
+          (mnesia/transaction (fn () (mnesia/write {:mwestraws station-code :info st-info})) [] 3)
+          (mnesia/transaction (fn () (lists/map (utils/fnm1 {ts obs} (write-entry station-code ts obs)) st-obs)) [] 3)
+          (let* (new-missing (erl/-- missing-hrs (lists/map (utils/fnm1 {dt _} (ta/round-hours dt :down)) st-obs)))
+            (retrieve-missing-obs station-code new-missing raws-src log-f)))))))
 
 
 (defn+ retrieve-station-obs (station-code from to raws-src log-f)
