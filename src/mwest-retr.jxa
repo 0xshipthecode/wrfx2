@@ -114,7 +114,7 @@
                   station-code (raws-src-def/var-list raws-src) num-hrs to]) 
     (case (httpc/request :get {url []} [] [])
       ({:ok {{_ 200 _} hdrs body}}
-        (log-f :info ["mwest-retr: station ~p success retrieving page ~p" station-code url])
+        (log-f :info ["mwest-retr: success retrieving page ~p" url])
         (parse-page-body body))
       ({:ok {{_ http-code reason} _ _}} {:error http-code reason})
       ({:error reason} {:error reason}))))
@@ -154,11 +154,21 @@
 (defn+ retrieve-station-obs (station-code from to raws-src log-f)
   (let* (hr-list     (ta/list-hours from to)
          missing-hrs (lists/filter (fn (x) (erl/not (entry-exists? {x station-code}))) hr-list))
-    (retrieve-missing-obs station-code (lists/reverse missing-hrs) raws-src log-f)
-    {(get-station-info station-code) (lists/map (fn (x) (get-entry {x station-code})) hr-list)})) 
+    (try*
+      (do
+        (retrieve-missing-obs station-code (lists/reverse missing-hrs) raws-src log-f)
+        {(get-station-info station-code) (lists/map (fn (x) (get-entry {x station-code})) hr-list)})
+      (catch (type body) 
+        (do
+          (log-f :flash ["mwest-retr: error of type ~p (body ~p) encountered during retrieval of observations for station ~p" type body station-code]) 
+          (log-f :error ["mwest-retr: stack trace is ~p" (erl/get-stacktrace)])
+          :error))))) 
     
 
 (defn+ retrieve-stations-obs (station-list from to raws-src log-f)
-  "Retrieve observations for variables <var-list> from <from> to <to> for stations with codes <station-list>." 
-  (utils/pmap (fn (x) (retrieve-station-obs x from to raws-src log-f)) (raws-src-def/max-dl raws-src) station-list))
+  "Retrieve observations for variables <var-list> from <from> to <to> for stations with codes <station-list>."
+  (log-f :info ["mwest-retr processing request for stations ~p from ~w to ~w" station-list from to])
+  (let* (res (utils/pmap (fn (x) (retrieve-station-obs x from to raws-src log-f)) (raws-src-def/max-dl raws-src) station-list))
+        (log-f :info ["mwest-retr returning results."])
+    res))
  
