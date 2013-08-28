@@ -11,6 +11,7 @@
        (erl_eval :joxify)))
 
 
+; utility functions
 
 (defn config-valid? (fname)
   "Check if the configuration file <fname> is a valid plist."
@@ -19,26 +20,42 @@
     (error {:false error})))
 
 
-(defn+ start-link (log-f)
-  "Start the configuration server."
+; API
+
+(defn+ start-link ()
+  "Start the configuration server <log-f>."
     (case (utils/execute-file "etc/config")
-      ({:ok cfg} (gen_server/start_link :config-srv [cfg log-f] []))
+      ({:ok cfg} (gen_server/start_link {:local :config-srv} :config-srv [cfg] []))
       (error (erl/throw error))))
-    
+
+(defn+ reload-config ()
+  "Reload the configuration file."
+  (case (utils/execute-file "etc/config")
+    ({:ok cfg} (gen_server/call :config-srv {:reload cfg})
+               :success)
+    (error error)))
+
+
+(defn+ get-conf (key)
+  "Retrieve the configuration value for the key <key>."
+  (case (gen_server/call :config-srv {:get-conf key})
+    (:no-such-key (erl/throw :no-such-key))
+    (value value)))
+
+
+; Implementation
 
 (defn+ init (args)
     {:ok args})
 
 
 (defn+ handle_call (request from state)
-  (jxc/let ([cfg log-f] state)
+  (jxc/let ([cfg] state)
     (case request
-      ({:get-conf key} {:reply {:ok (plist/get key cfg)} state})
-      ({:reload new-cfg} {:reply :ok [new-cfg log-f]})
+      ({:get-conf key} {:reply (plist/get key :no-such-key cfg) state})
+      ({:reload new-cfg} {:reply :ok [new-cfg]})
 	    (:stop-cfg-srv {:stop :normal :ok state})
-	    (other 
-	      (log-f :flash ["config-srv: message ~p not understood, fix it!" other])
-	      {:reply :invalid-request state}))))
+	    (other {:reply :invalid-request state}))))
 
 (defn+ handle_cast (msg state)
   {:noreply state})
