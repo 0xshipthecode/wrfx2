@@ -33,10 +33,21 @@
   "Retrieve the value associated with key <k> in the property list <ps>.
    case exception arises if key does not exist."
   (case ps
-	(({k v} . _rest) v)
-	((_other . rest) (get k rest))))
+  	(({k v} . _rest) v)
+	  ((_other . rest) (get k rest))))
 
-(defn+ get-all (ks ps)
+
+(defn+ get (k def ps)
+  "Retrieve the value associated with key <k> in the property list <ps>.
+   If no such value exists, return <def> instead."
+  (case ps
+  	(({k v} . _rest) v)
+	  ((_other . rest) (get k def rest))
+    ([] def)))
+
+
+
+(defn+ get-list (ks ps)
   "Retrieve the list values associated with property keys <ks> in the list <ps>."
   (lists/map (fn (k) (get k ps)) ks))
 
