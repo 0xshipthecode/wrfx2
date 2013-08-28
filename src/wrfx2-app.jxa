@@ -1,6 +1,6 @@
 (ns wrfx2-app
     (require
-       inets io (file :joxify)
+       inets io (file :joxify) filename
        (application :joxify)
        (mnesia :joxify)
        ingest-srv
@@ -15,16 +15,18 @@
 
 (defn+ start-logging ()
   "Start the logging subsystem."
-  (utils/critical-check :ok (filelib/ensure-dir "log/log-file"))
-  (log-srv/start-link "log"))
+  (let* (log-dir (config-srv/get-conf :logging-dir))
+    (utils/critical-check :ok (filelib/ensure-dir (filename/join [log-dir "log-file"])))
+    (log-srv/start-link log-dir)))
 
 
 (defn+ start-ingest-system ()
   "Start up the ingest system."
-  (utils/critical-check :ok (filelib/ensure-dir "ingest/fake-file"))
-  (log-srv/create-log "ingest-system" [])
-  (ingest-srv/start-link "ingest" (log-srv/get-log-f "ingest-system"))
-  (utils/ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] []))
+  (let* (ingest-dir (config-srv/get-conf :ingest-storage-dir))
+    (utils/critical-check :ok (filelib/ensure-dir (filename/join [ingest-dir "fake-file"])))
+    (log-srv/create-log "ingest-system" [])
+    (ingest-srv/start-link ingest-dir (log-srv/get-log-f "ingest-system"))
+    (utils/ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] [])))
  
 
 (defn+ start-otp-subsystem ()
@@ -35,12 +37,15 @@
  
 
 (defn+ start ()
-  (application/set-env :mnesia :dir "db")
+  ; start the configuation server
+  (config-srv/start-link)
+  ; sset the mnesia database dir from config (before starting mnesia!)
+  (application/set-env :mnesia :dir (config-srv/get-conf :mnesia-dir))
   ; start otp subsystems that we need
   (start-otp-subsystem)
-  (config-srv/start-link (log-srv/get-log-f "system")) 
-
+  ; start logging subsystem
   (start-logging)
+  ; start the ingest system
   (start-ingest-system)
 
   ; start the job manager
