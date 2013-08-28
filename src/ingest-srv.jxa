@@ -21,7 +21,7 @@
 	     (joxa-core :as jxc)
 	     plist
 	     (file :joxify)
-	     io
+	     (io_lib :as iol :joxify)
 	     lists
 	     (dict :joxify)
 	     inets
@@ -48,7 +48,7 @@
   "Check whether the source definition file <fname> contains a list of values (and is parsable)."
   (case (load-src-def-file fname)
 	  (values (when (erl/is-list values)) :ok)
-	  (other {:error (io/format "Top-level expression is not a list or error ~p." [other])})))
+	  (other {:error (iol/format "Top-level expression is not a list or error ~p." [other])})))
 
 
 (defn+ reload-sources (fname reload-command)
@@ -57,7 +57,6 @@
   (let* (file-content (load-src-def-file fname))
     (case file-content
 	    (source-list (when (erl/is-list file-content))
-        (io/format "calling command ~p with source list ~p~n" [reload-command source-list])
 	      (gen_server/call :ingest-srv {reload-command source-list}))
 	    (other {:error "Top-level expression is not a list."}))))
 
@@ -153,7 +152,6 @@
   	  (let* (new-raws-srcs (lists/foldl (fn (x d) (dict/store (raws-src-def/name x) x d)) (dict/new) new-raws-src-list)
 		         new-srv-map (start-servers new-raws-srcs (fn (x) (raws-src-def/mod-name x)) stor-dir log-f))
 	      (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
-        (io/format "~p" [new-srv-map])
         {:reply :ok [grib-srv-map grib-srcs new-srv-map stor-dir log-f]}))
 	  ; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
 	  ({:restart-grib-servers new-grib-src-list}
