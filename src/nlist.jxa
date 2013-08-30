@@ -1,10 +1,38 @@
 (ns nlist
   (require file nlscanner nlparser
-           (joxa-core :as jxc)))
+           (joxa-core :as jxc)
+           (erlang :as erl :joxify)
+           (io_lib :as iol)
+           (string :as str :joxify)))
 
 
 (defn+ parse (fname nlname)
   (jxc/let ({:ok tokens} (nlscanner/scan fname)
             {:ok nls} (nlparser/parse tokens))
-    {:nlist nlname nls}))
+    {:nls nlname nls}))
+
+
+(defn+ render-value (v)
+  "Render the value <v> so that it is readable for a FORTRAN parser."
+  (case v
+    (:false ".false.")
+    (:true  " .true.")
+    (lst (when (erl/is-list v)) (iol/format "'~s'" [lst]))
+    (other (iol/format "~p" [other]))))
+
+(defn+ render-entry (entry)
+  "Render an <entry> (= { key values}) as 'key = values' row."
+  (jxc/let ({key vals} entry)
+    [key (lists/duplicate (erl/- 36 (erl/length key)) 32) "=\t" (str/join (lists/map render-value/1 vals) ",\t") " \n"]))
+
+(defn+ render-nlist (nl)
+  "Render a namelist <nl> as required by FORTRAN parsers."
+  (jxc/let ({name entries} nl)
+    (lists/flatten ["&" name "\n" (lists/map render-entry/1 entries) "/\n\n"])))
+
+
+(defn+ render-namelists (nls)
+  "Render all namelists in the namelist structure <nls>."
+  (jxc/let ({:nls _nlname nlists} nls)
+    (lists/map render-nlist/1 nlists)))
 
