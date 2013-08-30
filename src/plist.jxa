@@ -33,6 +33,7 @@
   "Retrieve the value associated with key <k> in the property list <ps>.
    case exception arises if key does not exist."
   (case ps
+    ([] (erl/throw :no-such-key))
     (({k v} . _rest) v)
     ((_other . rest) (get k rest))))
 
