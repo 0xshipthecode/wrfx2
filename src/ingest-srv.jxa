@@ -104,7 +104,8 @@
 
 (defn+ retrieve-raws-obs (src-name station-list from to timeout)
   "Submits a request to a source <src-name> that provides RAWS measurements for stations <station-list>
-   and for the time period <from> to <to>."
+   and for the time period <from> to <to>. Either returns station information and observations or :error,
+   in which case the error is logged with :flash priority."
   (case (find-raws-server src-name)
     (:no-such-server :no-such-server)
     (obs-srv-pid (gen_server/call obs-srv-pid {:retrieve-obs station-list from to} (erl/* timeout 1000)))))
@@ -148,14 +149,14 @@
 	    {:reply (dict/find src-name grib-srcs) state})
     ; reload RAWS sources file - send kill messages to current RAWS servers and create new ones
     ({:restart-raws-servers new-raws-src-list}
-      (log-f :info ["ingest-srv/handle_call: restarting RAWS servers."])
+      (log-f :info ["ingest-srv/handle_call: restarting RAWS servers"])
   	  (let* (new-raws-srcs (lists/foldl (fn (x d) (dict/store (raws-src-def/name x) x d)) (dict/new) new-raws-src-list)
 		         new-srv-map (start-servers new-raws-srcs (fn (x) (raws-src-def/mod-name x)) stor-dir log-f))
 	      (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
         {:reply :ok [grib-srv-map grib-srcs new-srv-map stor-dir log-f]}))
 	  ; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
 	  ({:restart-grib-servers new-grib-src-list}
-	    (log-f :info ["ingest-srv/handle_call: restarting GRIB servers."])
+	    (log-f :info ["ingest-srv/handle_call: restarting GRIB servers"])
 	    (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-src-def/name x) x d)) (dict/new) new-grib-src-list)
 		         new-srv-map (start-servers new-grib-srcs (fn (x) (grib-src-def/mod-name x)) stor-dir log-f))
 	      ; send termination requests to all current gen_servers

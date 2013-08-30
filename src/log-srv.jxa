@@ -40,11 +40,11 @@
      'wrfx-errors' for all error messages (added as a target to all log streams)
      'wrfx-flash' for all flash priority messages (added as a target to all log streams)."
   ; ***** the logs wrfx_error and wrfx_flash *****
-  ; MUST be created and is added as a :relay target to subsequently created logs
+  ; MUST be created here and are *always* added :relay target to subsequently created logs
   (let* (err-file (filename/join log-dir "wrfx-errors.log")
-         err-log (log-stream/start-log "wrfx-errors" [(log-stream/make-target :device :error err-file)])
+         err-log (log-stream/start-log "wrfx-errors" [(log-stream/make-dev-target err-file)])
          flash-file (filename/join log-dir "wrfx-flash.log")
-         flash-log (log-stream/start-log "wrfx-flash" [(log-stream/make-target :device :flash flash-file)]))
+         flash-log (log-stream/start-log "wrfx-flash" [(log-stream/make-dev-target flash-file)]))
     (gen_server/start_link {:local :log-srv} :log-srv [log-dir (dict/new)] [])
     (gen_server/call :log-srv {:add-log-internal "wrfx-errors" err-log})
     (gen_server/call :log-srv {:add-log-internal "wrfx-flash" flash-log}))
@@ -60,17 +60,21 @@
 (defn+ handle_call (request from state)
   (jxc/let ([log-dir log-map] state)
     (case request
+      ; add a new log to the logging server (only used internally from this file)
       ({:add-log-internal log-name log-pid}
        {:reply :ok [log-dir (dict/store log-name log-pid log-map)]})
-	    ({:create-log log-name min-priority additional-targets} 
+      ; create and manage a new log stream
+      ({:create-log log-name min-priority additional-targets} 
         (let* (fname (filename/join [log-dir (erl/++ log-name ".log")])
-               main-tgt (log-stream/make-target :device min-priority fname)
-               err-tgt (log-stream/make-target :relay :error (dict/fetch "wrfx-errors" log-map))
-               flash-tgt (log-stream/make-target :relay :flash (dict/fetch "wrfx-flash" log-map))
-               log-pid (log-stream/start-log log-name (main-tgt . (err-tgt . additional-targets))))
+               main-tgt (log-stream/make-dev-target fname)
+               err-tgt (log-stream/make-relay-target (dict/fetch "wrfx-errors" log-map) :error)
+               flash-tgt (log-stream/make-relay-target (dict/fetch "wrfx-flash" log-map) :flash)
+               log-pid (log-stream/start-log log-name (main-tgt . (err-tgt . (flash-tgt . additional-targets)))))
           {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
+      ; retrieve the pid of a log with the given name
       ({:get-log-pid log-name}
         {:reply (dict/find log-name log-map) state})
+      ; message not understood, this needs a flash priority notification
       (other
 	      (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
 	      {:reply :invalid-request state}))))
