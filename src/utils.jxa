@@ -24,23 +24,23 @@
              (string :as str)
              (io_lib :as iol)
              (erlang :as erl :joxify)
-      	     (joxa-core :as jxc)
+             (joxa-core :as jxc)
              (joxa-lists :as jxl)))
 
 
 (defn+ sign (val)
   "Return sign of number, 0 -> 0, x < 0 -> -1, x > 0 -> 1."
   (case val
-	(0 0)
-	(v (when (erl/< v 0)) -1)
-	(v 1)))
+    (0 0)
+    (v (when (erl/< v 0)) -1)
+    (v 1)))
 
 
 (defn+ zero? (val)
   "Check if a value is zero."
   (case val
-	(0 :true)
-	(_ :false)))
+    (0 :true)
+    (_ :false)))
 
 
 (defn+ empty? (lst)
@@ -81,7 +81,7 @@
                                                [{:attributes (jxl/tl tuple-fields)}
                                                {:index index-fields}
                                                {:disc_copies [(erl/node)]}]))))
- 
+
 
 ;; define a macro that matches an arbitrary structure to
 ;; a single function argument
@@ -108,22 +108,22 @@
 ;; TODO: try/catch block should be added
 (defn+ with-file (file-name mode func)
   (case (file/open file-name mode)
-	({:ok device}
-	 (let* (res (func device))
-	   (file/close device)
-	   {:success res}))
-	({:error reason} {:failure reason})))
+  ({:ok device}
+   (let* (res (func device))
+     (file/close device)
+     {:success res}))
+  ({:error reason} {:failure reason})))
 
 
 ;; read in a file that contains a single integer
 ;; return the integer or :invalid if the file was unreadable for any reason
 (defn+ read-int-from-file (fqn)
     (case (file/read_file fqn)
-	  ({:ok data} 
-	   (let* (stripped (str/strip (erl/binary_to_list data) :right 10))
-	     (erl/list_to_integer stripped)))
-	  ({:error reason} 
-	   :invalid)))
+    ({:ok data} 
+     (let* (stripped (str/strip (erl/binary_to_list data) :right 10))
+       (erl/list_to_integer stripped)))
+    ({:error reason} 
+     :invalid)))
 
 
 (defn+ read-ints-from-file (fqn)
@@ -163,9 +163,9 @@
   "Wait for a file to appear on the filesystem."
   (jxc/if (jxc/or (erl/== timeout 'infinite) (erl/> timeout 0))
           (jxc/if (filelib/is_file file-name)
-	          {:success file-name}
-	          (do (timer/sleep file-wait-chunk-ms)
-	              (wait-for-file file-name (erl/- timeout file-wait-chunk-ms) file-wait-chunk-ms)))
+            {:success file-name}
+            (do (timer/sleep file-wait-chunk-ms)
+                (wait-for-file file-name (erl/- timeout file-wait-chunk-ms) file-wait-chunk-ms)))
           {:failure :timeout}))
 
 
@@ -173,7 +173,7 @@
   "Evaluate an erlang expression <str> in the environment <env>."
   (case (erl_scan/string str)
     ({:ok scanned _} 
-	    (case (erl_parse/parse_exprs scanned)
+      (case (erl_parse/parse_exprs scanned)
         ({:ok parsed} (erl_eval/exprs parsed env))
         ({:error info} {:parse-error info})))
       ({:error err-info err-loc} {:scan-error err-info err-loc})))

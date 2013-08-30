@@ -27,14 +27,14 @@
     (log-srv/create-log "ingest-system" [])
     (ingest-srv/start-link ingest-dir (log-srv/get-log-f "ingest-system"))
     (utils/ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] [])))
- 
+
 
 (defn+ start-otp-subsystem ()
   "Start the OTP subsystems required for wrfx2 platform services."
   (inets/start)
   (mnesia/create-schema [(erl/node)])
   (mnesia/start))
- 
+
 
 (defn+ start ()
   ; start the configuation server
