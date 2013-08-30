@@ -1,0 +1,10 @@
+(ns nlist
+  (require file nlscanner nlparser
+           (joxa-core :as jxc)))
+
+
+(defn+ parse (fname nlname)
+  (jxc/let ({:ok tokens} (nlscanner/scan fname)
+            {:ok nls} (nlparser/parse tokens))
+    {:nlist nlname nls}))
+

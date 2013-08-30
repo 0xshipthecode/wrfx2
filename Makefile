@@ -1,24 +1,35 @@
 
-all: compile
+all: pre-compile compile
 
 
-BEAMFILES = 	ebin/grib-src-def.beam \
+BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/raws-src-def.beam \
 		ebin/utils.beam \
 		ebin/plist.beam \
+		ebin/nlist.beam \
 		ebin/config-srv.beam \
 		ebin/time-arith.beam \
-            	ebin/grib-retr.beam \
-            	ebin/grib-srv.beam \
-        	ebin/mwest-retr.beam \
-        	ebin/mwest-srv.beam \
+		ebin/grib-retr.beam \
+		ebin/grib-srv.beam \
+		ebin/mwest-retr.beam \
+		ebin/mwest-srv.beam \
 		ebin/ingest-srv.beam \
-        	ebin/log-stream.beam \
-        	ebin/log-srv.beam \
+		ebin/log-stream.beam \
+		ebin/log-srv.beam \
 		ebin/task-exec.beam \
-        	ebin/filesys.beam \
+		ebin/filesys.beam \
+		ebin/wrfxlib.beam \
 		ebin/wrfx2-app.beam
 
+
+pre-compile: ebin/nlscanner.beam ebin/nlparser.beam
+
+ebin/nlparser.beam: src/nlparser.yrl
+	erlc -o src src/nlparser.yrl
+	erlc -o ebin src/nlparser.erl
+
+ebin/nlscanner.beam: src/nlscanner.erl
+	erlc -o ebin src/nlscanner.erl
 
 ebin/%.beam: src/%.jxa
 	joxa -p ebin -p deps/mochiweb/ebin -p deps/mochiweb_xpath/ebin -o ebin -c $<
