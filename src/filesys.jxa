@@ -1,20 +1,21 @@
-(ns tasks-fsys
+(ns filesys
     (require (file :joxify)
+             filename
              (filelib :joxify)
-	           (lists :joxify)
-	           (string :joxify :as str)
+             (lists :joxify)
+             (string :joxify :as str)
              (erlang :as erl)
              (joxa-core :as jxc)
              re)
-    (use (utils :only (throw-if-not/2 wait-for-file/3 fmt-error/2 fmt-success/2))))
+    (use (utils :only (throw-if-not/2 wait-for-file/3))))
 
 
 (defn+ create-dir (dir)
   "Create a directory <dir>.  The parent directory of <dir> must exist."
   (case (file/make-dir dir)
-	  (:ok              :ok) 
-	  ({:error :eexist} :ok)
-	  ({:error reason}  (erl/throw reason)))) 
+    (:ok              :ok)
+    ({:error :eexist} :ok)
+    ({:error reason}  (erl/throw reason))))
 
 
 (defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
@@ -46,9 +47,12 @@
     (:regular (throw-if-not :ok (file/delete fd)))))
 
 
-(defn+ make-symlink (from to)
-  (throw-if-not :false (filelib/is-file to))
-  (throw-if-not :ok (file/make-symlink from to)))
+(defn+ symlink-unless-exists (from to)
+  "If the target file <to> does not exist, it is symlinked to the file <from>.
+   If it already exists, nothing happens."
+  (case (filelib/is-file to)
+    (:false (filelib/is-file to))
+    (:true :ok)))
 
 
 (defn+ list-dir-regexp (dir regexp)
@@ -62,4 +66,12 @@
   "Delete all files in dir <dir> that match regexp <regexp>."
   (lists/foreach (fn (x) (throw-if-not :ok (file/delete x)))
                  (list-dir-regexp dir regexp)))
+
+
+(defn+ clone-with-files (src-dir tgt-dir files)
+  "Make a 'clone' of a directory <src-dir> by creating a new directory <tgt-dir> and symlinking <files>."
+  (throw-if-not :directory (file-type src-dir))
+  (create-dir tgt-dir)
+  (lists/map (fn (x) (symlink-unless-exists (filename/join src-dir x) (filename/join tgt-dir x))) files))
+
 
