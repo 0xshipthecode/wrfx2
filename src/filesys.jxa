@@ -1,0 +1,65 @@
+(ns tasks-fsys
+    (require (file :joxify)
+             (filelib :joxify)
+	           (lists :joxify)
+	           (string :joxify :as str)
+             (erlang :as erl)
+             (joxa-core :as jxc)
+             re)
+    (use (utils :only (throw-if-not/2 wait-for-file/3 fmt-error/2 fmt-success/2))))
+
+
+(defn+ create-dir (dir)
+  "Create a directory <dir>.  The parent directory of <dir> must exist."
+  (case (file/make-dir dir)
+	  (:ok              :ok) 
+	  ({:error :eexist} :ok)
+	  ({:error reason}  (erl/throw reason)))) 
+
+
+(defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
+  ;; forward call to utility module
+  (wait-for-file file-name timeout file-wait-chunk-ms))
+
+
+(defspec delete ((erl/string)) (erl/atom))
+
+(defn+ delete-dir (dname)
+  "Delete the directory <dname> along with its contents."
+  (jxc/let ({:ok fnames} (file/list-dir dname))
+    (lists/foreach (fn (x) (throw-if-not :ok (delete x))) fnames)
+    (throw-if-not :ok (file/del-dir dname))))
+
+
+(defn+ file-type (fname)
+  "Returns the file type of <fname> from the read-link-info function.
+   NOTE: returns third element (record is not imported into joxa automatically."
+  (jxc/let ({:ok fi} (file/read-link-info fname))
+    (erl/element 3 fi)))
+
+
+(defn+ delete (fd)
+  "Delete a file or a directory <fd>."
+  (case (file-type fd)
+    (:directory (delete-dir fd))
+    (:symlink (throw-if-not :ok (file/delete fd)))
+    (:regular (throw-if-not :ok (file/delete fd)))))
+
+
+(defn+ make-symlink (from to)
+  (throw-if-not :false (filelib/is-file to))
+  (throw-if-not :ok (file/make-symlink from to)))
+
+
+(defn+ list-dir-regexp (dir regexp)
+  "List contents of directory <dir> that match regexp <regexp>."
+  (jxc/let ({:ok mp} (re/compile regexp)
+            {:ok fnames} (file/list-dir dir))
+    (lists/filter (fn (x) (case (re/run x mp) ({:match _} :true) (:nomatch :false))) fnames))) 
+
+
+(defn+ delete-regexp-files (dir regexp)
+  "Delete all files in dir <dir> that match regexp <regexp>."
+  (lists/foreach (fn (x) (throw-if-not :ok (file/delete x)))
+                 (list-dir-regexp dir regexp)))
+
