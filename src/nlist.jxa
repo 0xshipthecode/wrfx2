@@ -1,5 +1,5 @@
 (ns nlist
-  (require file nlscanner nlparser
+  (require file nlscanner nlparser plist
            (joxa-core :as jxc)
            (erlang :as erl :joxify)
            (io_lib :as iol)
@@ -20,10 +20,12 @@
     (lst (when (erl/is-list v)) (iol/format "'~s'" [lst]))
     (other (iol/format "~p" [other]))))
 
+
 (defn+ render-entry (entry)
   "Render an <entry> (= { key values}) as 'key = values' row."
   (jxc/let ({key vals} entry)
     [key (lists/duplicate (erl/- 36 (erl/length key)) 32) "=\t" (str/join (lists/map render-value/1 vals) ",\t") " \n"]))
+
 
 (defn+ render-nlist (nl)
   "Render a namelist <nl> as required by FORTRAN parsers."
@@ -35,4 +37,27 @@
   "Render all namelists in the namelist structure <nls>."
   (jxc/let ({:nls _nlname nlists} nls)
     (lists/map render-nlist/1 nlists)))
+
+
+(defn+ get-nl (nlname nls)
+  "Retrieve the namelist <nlname> from the namelists <nls>."
+  (jxc/let ({:nls name nlists} nls)
+    (plist/get nlname nlists)))
+
+
+(defn+ set-nl (nlname new-nl nls)
+  "Add/update a namelist <new-nl> with name <name> to <nls>."
+  (jxc/let ({:nls name nlists} nls)
+    {:nls name (plist/set nlname new-nl nlists)}))
+
+
+(defn+ get-entry (nlname key nls)
+  "Retrieve the entry <key> from the namelist <nlname> from the namelists <nls>."
+  (plist/get key (get-nl nlname nls)))
+
+
+(defn+ set-entry (nlname key vals nls)
+  "Set the entry <key> to values <vals> inside the namelist <nlname> of the namelists <nls>."
+  (set-nl nlname (plist/set key vals (get-nl nlname nls)) nls))
+
 
