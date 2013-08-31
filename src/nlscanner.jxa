@@ -1,0 +1,74 @@
+(ns nlscanner
+  (require (file :joxify)
+          lists io
+          (string :as str)
+          (joxa-core :as jxc)
+          (erlang :as erl :joxify)
+          re)
+  (use utils))
+
+
+(defn valid-token (tok)
+  "Check if a token <tok> is valid.  Valid tokens are anything
+   but whitespace, end-of-lines or commas."
+  (case tok
+    ("," :false)
+    ([] :false)
+    (chars (erl/not (empty? (str/strip chars))))))
+
+
+(defn process-token (tok lineno)
+  "Transform the current token <tok> in line <lineno> into a representation
+   required by the yecc parser."
+  (case tok
+    ("=" {:= lineno})
+    ("&" {:& lineno})
+    ("/" {(erl/list-to-atom "/") lineno})
+    (chars {:string lineno chars})))
+
+
+(defn process-all-tokens (toks lineno acc)
+  "Process all tokens <toks> on line <lineno> into yecc representation.
+   If a comment token is found, discard rest of line."
+  (case toks
+    ([] (lists/reverse acc))
+    ((x . rest)
+      (case x
+        ; x starts with a !, then it starts a commend and we discard rest of line
+        ((:\! . _rest) (lists/reverse acc))
+        (_ (process-all-tokens rest lineno ((process-token x lineno) . acc)))))))
+
+
+(defn scan-lines (lines tokens lineno re)
+  "Scan all of the lines <lines> and build a list of tokens <tokens>
+   from the line <lineno>.  The line string is split into tokens using the
+   regular expression <re>."
+  (case lines
+    ([] (lists/reverse ({:$end lineno} . tokens)))
+    ((line . rest)
+      (let* (new-toks (lists/filter valid-token/1 (re/split line re [{:return :list}])))
+        (scan-lines rest ((process-all-tokens new-toks lineno []) . tokens) (jxc/incr lineno) re)))))
+
+
+(defn scan-lines (lines)
+  "Scan each line in <lines> and produce a stream of tokens to represent
+   the content of the lines."
+  (jxc/let ({:ok re}  (re/compile "(/)|(&)|(=)|([-\\w\\.]+)|'(.+)'|(,)|([ \t]+)"))
+    (lists/flatten (scan-lines lines [] 1 re))))
+
+
+(defn mark-key-tokens (toks acc)
+  "Find and replace :string tokens followed by '=' with a {:key lineno string-content}.
+   This makes the grammar LALR(1) and parsable by yecc."
+  (case toks
+    ([] (lists/reverse acc))
+    (({:string lineno1 key} . ({:= lineno2} . rest)) (mark-key-tokens rest ({:key lineno1 key} . acc)))
+    ((other . rest) (mark-key-tokens rest (other . acc)))))
+
+
+(defn+ scan (fname)
+  "Scan the content of the file <fname>."
+  (jxc/let ({:ok content} (file/read-file fname))
+      (mark-key-tokens (scan-lines (str/tokens (erl/binary-to-list content) "\r\n")) [])))
+
+
