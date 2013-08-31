@@ -1,5 +1,5 @@
 (ns nlist
-  (require file nlscanner nlparser plist
+  (require file nlscanner nlparser plist lists
            (joxa-core :as jxc)
            (erlang :as erl :joxify)
            (io_lib :as iol)
@@ -7,9 +7,9 @@
 
 
 (defn+ parse (fname nlname)
-  (jxc/let ({:ok tokens} (nlscanner/scan fname)
-            {:ok nls} (nlparser/parse tokens))
-    {:nls nlname nls}))
+  (case (nlparser/parse (nlscanner/scan fname))
+    ({:ok nls} {:nls nlname nls})
+    ({:error {lineno module text}} {:error (lists/flatten (iol/format "~p on line ~p" [text lineno]))})))
 
 
 (defn+ render-value (v)

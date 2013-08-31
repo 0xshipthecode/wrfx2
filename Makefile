@@ -6,6 +6,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/raws-src-def.beam \
 		ebin/utils.beam \
 		ebin/plist.beam \
+		ebin/nlscanner.beam \
 		ebin/nlist.beam \
 		ebin/config-srv.beam \
 		ebin/time-arith.beam \
@@ -22,14 +23,11 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/wrfx2-app.beam
 
 
-pre-compile: ebin/nlscanner.beam ebin/nlparser.beam
+pre-compile: ebin/nlparser.beam
 
 ebin/nlparser.beam: src/nlparser.yrl
 	erlc -o src src/nlparser.yrl
 	erlc -o ebin src/nlparser.erl
-
-ebin/nlscanner.beam: src/nlscanner.erl
-	erlc -o ebin src/nlscanner.erl
 
 ebin/%.beam: src/%.jxa
 	joxa -p ebin -p deps/mochiweb/ebin -p deps/mochiweb_xpath/ebin -o ebin -c $<
