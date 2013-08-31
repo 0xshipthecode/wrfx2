@@ -219,7 +219,7 @@
   (error error)))
 
 
-(defmacro+ throw-if-not (form func)
+(defmacro+ !!= (form func)
   "Throws an error if the result of <func> does not match <res-check>."
   (let* (other (jxc/gensym))
     `(case  ~func

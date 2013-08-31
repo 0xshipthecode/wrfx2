@@ -7,7 +7,7 @@
              (erlang :as erl)
              (joxa-core :as jxc)
              re)
-    (use (utils :only (throw-if-not/2 wait-for-file/3))))
+    (use (utils :only (!!=/2 wait-for-file/3))))
 
 
 (defn+ create-dir (dir)
@@ -28,8 +28,8 @@
 (defn+ delete-dir (dname)
   "Delete the directory <dname> along with its contents."
   (jxc/let ({:ok fnames} (file/list-dir dname))
-    (lists/foreach (fn (x) (throw-if-not :ok (delete x))) fnames)
-    (throw-if-not :ok (file/del-dir dname))))
+    (lists/foreach (fn (x) (!!= :ok (delete x))) fnames)
+    (!!= :ok (file/del-dir dname))))
 
 
 (defn+ file-type (fname)
@@ -43,8 +43,8 @@
   "Delete a file or a directory <fd>."
   (case (file-type fd)
     (:directory (delete-dir fd))
-    (:symlink (throw-if-not :ok (file/delete fd)))
-    (:regular (throw-if-not :ok (file/delete fd)))))
+    (:symlink (!!= :ok (file/delete fd)))
+    (:regular (!!= :ok (file/delete fd)))))
 
 
 (defn+ symlink-unless-exists (from to)
@@ -64,13 +64,13 @@
 
 (defn+ delete-regexp-files (dir regexp)
   "Delete all files in dir <dir> that match regexp <regexp>."
-  (lists/foreach (fn (x) (throw-if-not :ok (file/delete x)))
+  (lists/foreach (fn (x) (!!= :ok (file/delete x)))
                  (list-dir-regexp dir regexp)))
 
 
 (defn+ clone-with-files (src-dir tgt-dir files)
   "Make a 'clone' of a directory <src-dir> by creating a new directory <tgt-dir> and symlinking <files>."
-  (throw-if-not :directory (file-type src-dir))
+  (!!= :directory (file-type src-dir))
   (create-dir tgt-dir)
   (lists/map (fn (x) (symlink-unless-exists (filename/join src-dir x) (filename/join tgt-dir x))) files))
 
