@@ -1,4 +1,6 @@
 
+ERLPREFIX=/usr/local/Cellar/erlang-r16/R16B01/lib/erlang
+
 all: pre-compile compile
 
 
@@ -23,7 +25,12 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/wrfx2-app.beam
 
 
-pre-compile: ebin/nlparser.beam
+pre-compile: ebin/nlparser.beam ebin/file_info.beam
+
+ebin/file_info.beam: src/file_info.jxa
+
+src/file_info.jxa:
+	deps/jxautorec/jxautorec $(ERLPREFIX)/lib/kernel-*/include/file.hrl src/file_info.jxa file_info true
 
 ebin/nlparser.beam: src/nlparser.yrl
 	erlc -o src src/nlparser.yrl
@@ -34,23 +41,14 @@ ebin/%.beam: src/%.jxa
 
 compile: $(BEAMFILES)
 
+get-deps:
+	./rebar get-deps
 
-get-deps: deps/mochiweb deps/mochiweb_xpath
+compile-deps: compile_jxautorec
+	./rebar compile
 
-deps/mochiweb:
-	cd deps && git clone git://github.com/mochi/mochiweb.git
-
-deps/mochiweb_xpath:
-	cd deps && git clone git://github.com/retnuh/mochiweb_xpath.git
-
-compile-deps: compile_mochiweb compile_xpath
-	
-compile_mochiweb: deps/mochiweb
-	cd deps/mochiweb && rebar compile
-
-compile_xpath: deps/mochiweb_xpath
-	cd deps/mochiweb_xpath && rebar compile
-
+compile_jxautorec: deps/jxautorec
+	cd deps/jxautorec && make
 
 clean:
 	rm -f ebin/*.beam
