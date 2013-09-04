@@ -76,13 +76,13 @@
             (_nonempty (update-list (jxl/tl lst) val ndx (incr curr) ((jxl/hd lst) . acc)))))))))
 
 
-(defn+ update-list (lst val ndx)
+(defn+ update-list (ndxs val lst)
   "Store the value <val> at indices <ndx> in list <lst>.
    The list <ndx> must be sorted.
    Extend the list if not long enough but no indeterminate values can be added to the list:
    thus update-list [1,2,3] with val [10] at position [5] is an error because it's unclear
    what should go to position 4."
-  (update-list lst val ndx 1 []))
+  (update-list lst val ndxs 1 []))
 
 
 (defn+ set-nth (ndx val lst acc)
@@ -118,6 +118,15 @@
          new-nl (lists/foldl (fn (x acc) (let ({key val} x) (upd-kv key val dom acc))) nl kvs))
     (set-nl nlname new-nl nls)))
 
+(defn set-values-for-doms (nls nlname kvs doms)
+  (let* (nl (get-nl nlname nls)
+         keys (lists/map (fn (x) (erl/element 1 x)) kvs)
+         all-dom-vals (plist/get-list keys nl)
+         upd-kv (fn (key val ndxs ps) (plist/set key (update-list ndxs val (plist/get key ps)) ps))
+         new-nl (lists/foldl (fn (x acc) (let ({key val} x) (upd-kv key val doms acc))) nl kvs))
+    (set-nl nlname new-nl nls)))
+
+
 
 (defn+ get-start-time (nls dom)
   (let ([y mon day h min sec]
@@ -135,17 +144,21 @@
       {{y mon day} {h min sec}}))
 
 
-(defn+ set-start-time (nls dt dom)
-  "Set the start time of the simulation in the namelist <nls> to <dt> for domain <dom>."
+(defn+ set-start-time (nls dt doms)
+  "Set the start time of the simulation in the namelist <nls> to <dt> for domains <doms>."
   (let ({{y mon day} {h min s}} dt)
-    (set-values-for-dom nls "time_control" [{"start_year" y} {"start_month" mon}
-                                            {"start_day" day} {"start_hour" h}
-                                            {"start_minute" min} {"start_second" s}] dom)))
+    (set-values-for-doms nls "time_control" [{"start_year" y} {"start_month" mon}
+                                             {"start_day" day} {"start_hour" h}
+                                             {"start_minute" min} {"start_second" s}] doms)))
 
-(defn+ set-end-time (nls dt dom)
-  "Set the end time of the simulation in the namelist <nls> to <dt> for domain <dom>."
+(defn+ set-end-time (nls dt doms)
+  "Set the end time of the simulation in the namelist <nls> to <dt> for domains <doms>."
   (let ({{y mon day} {h min s}} dt)
-    (set-values-for-dom nls "time_control" [{"end_year" y} {"end_month" mon}
-                                            {"end_day" day} {"end_hour" h}
-                                            {"end_minute" min} {"end_second" s}] dom)))
+    (set-values-for-doms nls "time_control" [{"end_year" y} {"end_month" mon}
+                                             {"end_day" day} {"end_hour" h}
+                                             {"end_minute" min} {"end_second" s}] doms)))
+
+(defn+ max-domains (nls)
+  "Retrieve the max_dom key from the namelist domains in <nls>."
+  (jxl/hd (get-entry "domains" "max_dom" nls)))
 
