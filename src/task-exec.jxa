@@ -9,11 +9,10 @@
                        fnm1/2))))
 
 
-
 ;; make command string given an output specification
 (defn+ make-cmd-str (tid cmd output-spec)
   (lists/flatten [cmd
-      (lists/map (fnm1 {fd tgt} (iol/format " ~p>> ~s" [fd tgt]))
+      (lists/map (fnm1 {fd tgt} (iol/format " ~p >> ~s" [fd tgt]))
            output-spec)
       " &\n"]))
 
@@ -134,10 +133,6 @@
   [{1 (make-proc-file-name in-dir tid ".stdout")}
    {2 (make-proc-file-name in-dir tid ".stderr")}])
 
-(defn+ get-output-file (for-fd output-spec)
-  (case output-spec
-    (({for-fd file} . _rest) file)
-    ((_hd . rest) (get-output-file for-fd rest))))
 
 ;; simplest wait-for-completion stub, which just returns result
 ;; of the :task-done message

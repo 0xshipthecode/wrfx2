@@ -1,7 +1,7 @@
 (ns plist
     (require lists io file
-      (joxa-core :as jxc)
-      (erlang :as erl)))
+      (erlang :as erl))
+    (use joxa-core))
 
 
 
@@ -18,7 +18,7 @@
 
 (defn+ keys (ps)
   "Retrieve all keys from the property list <ps>."
-  (lists/map (fn (x) (jxc/let ({k v} x) k)) ps))
+  (lists/map (fn (x) (let ({k v} x) k)) ps))
 
 
 (defn+ set (k v ps)
@@ -77,17 +77,17 @@
 (defn+ update-with (new-ps ps)
   "Update the property list <ps> with the properties in <new-ps>,
    in case of a collision, values in <new-ps> have a priority."
-  (lists/foldl (fn (x aps) (jxc/let ({k v} x) (set k v aps))) ps new-ps))
+  (lists/foldl (fn (x aps) (let ({k v} x) (set k v aps))) ps new-ps))
 
 
 (defn+ sub-list (ks ps)
   "Make a sub-list of only those properties with keys that are in <ks>."
-  (lists/filter (fn (x) (jxc/let ({k v} x) (lists/member k ks))) ps))
+  (lists/filter (fn (x) (let ({k v} x) (lists/member k ks))) ps))
 
 
 (defn+ store (file ps)
   "Write the property list <ps> to file <file> in human readable format."
-  (jxc/let ({:ok dev} (file/open file [:write]))
+  (let ({:ok dev} (file/open file [:write]))
      (lists/map (fn (x) (io/format dev "~p.~n" [x])) ps)
      (file/close dev)))
 
