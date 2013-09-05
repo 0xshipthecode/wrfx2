@@ -1,5 +1,6 @@
 (ns nlist
   (require file nlscanner nlparser plist lists
+           (time-arith :as ta)
            (erlang :as erl :joxify)
            (io_lib :as iol)
            (joxa-lists :as jxl)
@@ -118,6 +119,7 @@
          new-nl (lists/foldl (fn (x acc) (let ({key val} x) (upd-kv key val dom acc))) nl kvs))
     (set-nl nlname new-nl nls)))
 
+
 (defn set-values-for-doms (nls nlname kvs doms)
   (let* (nl (get-nl nlname nls)
          keys (lists/map (fn (x) (erl/element 1 x)) kvs)
@@ -128,7 +130,7 @@
 
 
 
-(defn+ get-start-time (nls dom)
+(defn+ get-wrf-start-time (nls dom)
   (let ([y mon day h min sec]
           (get-values-for-dom nls "time_control"
                               ["start_year" "start_month" "start_day"
@@ -136,7 +138,7 @@
     {{y mon day} {h min sec}}))
 
 
-(defn+ get-end-time (nls dom)
+(defn+ get-wrf-end-time (nls dom)
   (let ([y mon day h min sec]
           (get-values-for-dom nls "time_control"
                               ["end_year" "end_month" "end_day"
@@ -144,14 +146,14 @@
       {{y mon day} {h min sec}}))
 
 
-(defn+ set-start-time (nls dt doms)
+(defn+ set-wrf-start-time (nls dt doms)
   "Set the start time of the simulation in the namelist <nls> to <dt> for domains <doms>."
   (let ({{y mon day} {h min s}} dt)
     (set-values-for-doms nls "time_control" [{"start_year" y} {"start_month" mon}
                                              {"start_day" day} {"start_hour" h}
                                              {"start_minute" min} {"start_second" s}] doms)))
 
-(defn+ set-end-time (nls dt doms)
+(defn+ set-wrf-end-time (nls dt doms)
   "Set the end time of the simulation in the namelist <nls> to <dt> for domains <doms>."
   (let ({{y mon day} {h min s}} dt)
     (set-values-for-doms nls "time_control" [{"end_year" y} {"end_month" mon}
@@ -161,4 +163,23 @@
 (defn+ max-domains (nls)
   "Retrieve the max_dom key from the namelist domains in <nls>."
   (jxl/hd (get-entry "domains" "max_dom" nls)))
+
+
+(defn+ set-wps-start-time (nls dt doms)
+  "Set the start time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
+  (let* (dt-str (ta/to-esmf-string dt))
+    (set-values-for-doms nls "share" [{"start_time" dt-str}] doms)))
+
+
+(defn+ get-wps-start-time (nls dom)
+  "Return the start time in the WPS namelist <nls> for domain <dom>."
+  (io/format "nth element is ~p~n" [(lists/nth dom (get-entry "share" "start_date" nls))])
+  (ta/parse-esmf-str (lists/nth dom (get-entry "share" "start_date" nls))))
+
+
+(defn+ set-wps-end-time (nls dt doms)
+  "Set the end time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
+  (let* (dt-str (ta/to-esmf-string dt))
+    (set-values-for-doms nls "share" [{"end_date" dt-str}] doms)))
+
 
