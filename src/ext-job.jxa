@@ -1,0 +1,62 @@
+(ns ext-job
+    (require file lists filename io os
+             (filelib :joxify)
+             (string :as str)
+             (io_lib :as iol)
+             (erlang :as erl :joxify))
+    (use utils joxa-core ext-utils))
+
+
+;; construct an job script
+(defn+ make-script (tid cmd nodes wall-time-hrs machine-file output-spec)
+  (iol/format
+   (lists/flatten
+    [ "#!/usr/bin/env bash\n"
+      "CMD=~p\n"
+      "TID=~p\n"
+      "echo \"submitted\" > $TID.submit\n"
+      "PIDFILE=$TID.pid\n"
+      "DONEFILE=$TID.exitcode\n"
+      "#PBS -l nodes=~p:ppn=12\n"
+      "#PBS -l walltime=~p:00:00\n"
+      "#PBS -N ~p\n"
+      (iol/format "#PBS -o ~p\n" [(plist/get 1 output-spec)])
+      (iol/format "#PBS -e ~p\n" [(plist/get 2 output-spec)])
+      "cd $PBS_O_WORKDIR"
+      (lists/map (fnm1 {_fd tgt} (iol/format "touch ~s~n" [tgt])) output-spec)
+      ; the followint two lines construct the mpirun command
+      "mpirun -np " (erl/integer_to_list nodes) " -hostfile" machine-file " " cmd " &\n"
+      "PID=$!\n"
+      "echo $PID > $PIDFILE\n"
+      "wait $PID\n"
+      "echo $? > $DONEFILE\n"]) [cmd tid wall-time-hrs tid]))
+
+
+(defn+ execute (tid command output-spec in-dir nodes wall-time-hrs exec-timeout log-f)
+  (let ([pid-f exit-code-f submit-f host-f] (make-proc-names in-dir tid [".pid" ".exitcode" ".submit" ".hostfile"]))
+    (case (read-int-from-file exit-code-f)
+      (:invalid
+        (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
+        (case (read-int-from-file pid-f)
+          (:invalid
+            (log-f :info ["~s: no pid file found, checking for submission file ~p" tid submit-f])
+            (if (filelib/is-regular submit-f)
+              (do
+                (log-f :info ["~s: job has already been submitted, waiting for pid file ~p to appear" tid pid-f])
+
+                
+            (let* (fqn (make-proc-file-name in-dir tid ".sh"))
+              (make-run-script command tid output-spec fqn)
+              (execute-script tid in-dir exec-timeout log-f)))
+          (os-pid
+            (log-f :info ["~s: found pid file (but there was no exit code file), process ~p must still be active" tid os-pid])
+            (let* (pid (async-send-me {:ext-proc-complete (erl/self) (monitor-process in-dir tid os-pid log-f)}))
+            ;; we only spawn the exit watcher
+              (async-send-to pid {:exited (wait-for-file exit-code-f exec-timeout 500)})
+              {:running {pid exit-code-f}}))))
+      (exit-code
+        ;; just return the exit code we already obtained
+        (log-f :info ["~s: exit code ~p found, returning immediately" tid exit-code])
+        {:success exit-code}))))
+
+

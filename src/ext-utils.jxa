@@ -1,0 +1,94 @@
+(ns ext-utils
+  (require filename lists os
+           (io_lib :as iol)
+           (erlang :as erl :joxify)
+           (file :joxify))
+  (use joxa-core utils))
+
+
+;; construct the name of a process output file from
+;; run directory, task name and suffix
+(defn+ make-proc-file-name (in-dir tid suffix)
+  (filename/join in-dir (lists/append tid suffix)))
+
+
+(defn+ make-std-output-spec (in-dir tid)
+  "Construct a standard output mapping, where fd 1 is sent to <tid>.stdout and fd 2 is sent to <tid>.stderr"
+  [{1 (make-proc-file-name in-dir tid ".stdout")}
+   {2 (make-proc-file-name in-dir tid ".stderr")}])
+
+
+;; construct the quartet of output filenames of the
+;; stdout, stderr pid and exitcode files
+;; the stdout and stderr are generated automatically if output-spec is :standard
+;; otherwise the output-spec must be a tuple {stdout-f stderr-f} containing absolute
+;; path names
+(defn+ make-proc-names (in-dir tid suffixes)
+  (lists/map (fn (suffix) (make-proc-file-name in-dir tid suffix)) suffixes))
+
+
+;; construct and write the BASH run script which executes the file
+(defn+ write-run-script (target-file content)
+  (file/write-file target-file content)
+  (file/change_mode target-file 448)) ;; 448_10 = 700 in octal
+
+
+;; monitors process execution
+;; the monitoring routine effectively represents a state machine which waits for
+;; messages from external helper processes.
+;; one helper process sends the :pid-msg message with either a pid or a timeout
+;; another helper monitors the exitcode file and sends the :exited message
+(defn monitor-process (in-dir tid os-pid exec-timeout log-f)
+  "Monitor the execution of an external process with id <tid> in directory <in-dir>."
+  (receive
+    (:kill-9
+      (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+      (monitor-process in-dir tid os-pid exec-timeout log-f))
+    ({:exited {:success exit-code-file}} ;; the process exited, capture status
+      (let* (exit-code (read-int-from-file exit-code-file))
+        (log-f :info ["~s: exited with code ~p" tid exit-code])
+        :success))
+    ({:exited {:failure reason}} ; kill the rogue process
+      (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+      (log-f :error ["~s: failed with reason ~p, process ~p killed" tid reason os-pid])
+      :failure)
+    ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
+      (log-f :error ["~s: pid not acquired within timeout~n" tid])
+      :failure)
+    ({:pid-msg {:success pid-file}} ;; the pid file was created
+      (case (read-int-from-file pid-file)
+        (:invalid (log-f :error ["~s: unable to obtain pid from file ~s" tid pid-file]) :failure)
+        (real-os-pid
+          (async-send-me {:exited (wait-for-file (make-proc-file-name in-dir tid ".exitcode") exec-timeout 500)})
+          (monitor-process in-dir tid real-os-pid exec-timeout log-f))))
+    (unknown-msg ;; we don:t understand this message, notify
+      (log-f :flash ["~s: message not understood [~p]~n" tid unknown-msg])
+      (monitor-process in-dir tid os-pid exec-timeout log-f))))
+
+
+(defn+ begin-monitoring (in-dir tid pid-timeout exec-timeout log-f)
+  "Begin monitoring the execution of the process <tid> in dir <in-dir>."
+  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
+    (let* (myself  (erl/self)
+           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process in-dir tid :undefined exec-timeout log-f)}))
+      ;; construct the first watcher that scans for pids
+      (async-send-to pid {:have-pid (wait-for-file pid-f pid-timeout 500)})
+      {:running {pid exit-code-f}})))
+
+
+(defn+ execute-script (tid fqn in-dir pid-timeout exec-timeout log-f)
+  "Execute a previously-constructed script <fqn> for task <tid> in directory <in-dir>.
+   If execution does not complete for <exec-timeout> ms, the system reports an error."
+    (let* (fqn (make-proc-file-name in-dir tid ".sh")
+           port-id (erl/open-port {:spawn fqn} [{:cd in-dir}]))
+      (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))
+
+
+;; simplest wait-for-completion stub, which just returns result
+;; of the :ext-proc-complete message
+;; more sophisticated clients should handle this message themselves
+(defn+ wait-for-completion (pid)
+  "Blocks until a :ext-proc-complete message is obtained from the correct monitoring procedure <pid>."
+  (receive
+   ({:ext-proc-complete pid result} result)))
+

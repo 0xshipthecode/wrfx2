@@ -1,24 +1,13 @@
-(ns task-exec
+(ns ext-proc
     (require file lists filename io os
              (string :as str)
              (io_lib :as iol)
-             (joxa-core :as jxc)
              (erlang :as erl :joxify))
-    (use (utils :only (fmt-error/2 fmt-success/2 read-int-from-file/1
-                       wait-for-file/3 async-send-me/1 async-send-to/2
-                       fnm1/2))))
-
-
-;; make command string given an output specification
-(defn+ make-cmd-str (tid cmd output-spec)
-  (lists/flatten [cmd
-      (lists/map (fnm1 {fd tgt} (iol/format " ~p >> ~s" [fd tgt]))
-           output-spec)
-      " &\n"]))
+    (use utils joxa-core ext-utils))
 
 
 ;; construct an immediate run script
-(defn+ immed-exec-script (tid cmd output-spec) 
+(defn+ make-immed-exec-script (tid cmd output-spec)
   (iol/format
    (lists/flatten
     [ "#!/usr/bin/env bash\n"
@@ -27,117 +16,37 @@
       "PIDFILE=\"$TID.pid\"\n"
       "DONEFILE=\"$TID.exitcode\"\n"
       (lists/map (fnm1 {_fd tgt} (iol/format "touch ~s~n" [tgt])) output-spec)
-      (make-cmd-str tid cmd output-spec)
+      cmd (lists/map (fnm1 {fd tgt} (iol/format " ~p>> ~s" [fd tgt])) output-spec) " &\n"
       "PID=$!\n"
       "echo $PID > $PIDFILE\n"
       "wait $PID\n"
       "echo $? > $DONEFILE\n"]) [cmd tid]))
 
 
-;; construct the name of a process output file from
-;; run directory, task name and suffix
-(defn+ make-proc-file-name (in-dir tid suffix)
-  (filename/join in-dir (lists/append tid suffix)))
-
-
-;; construct the quartet of output filenames of the
-;; stdout, stderr pid and exitcode files
-;; the stdout and stderr are generated automatically if output-spec is :standard
-;; otherwise the output-spec must be a tuple {stdout-f stderr-f} containing absolute
-;; path names
-(defn+ make-proc-names (in-dir tid suffixes)
-  (lists/map (fn (suffix) (make-proc-file-name in-dir tid suffix)) suffixes))
-
-
-;; construct and write the BASH run script which executes the file
-(defn make-run-script (cmd tid output-spec target-file)
-  (file/write_file target-file (immed-exec-script tid cmd output-spec))
-  ;; 448_10 = 700 in octal
-  (file/change_mode target-file 448))
-
-
-;; monitors the process execution, retrieving the os pid when available
-;; and waiting for the exit code
-(defn monitor-process (in-dir tid os-pid)
-  (receive
-   ('kill-9
-    (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-    (monitor-process in-dir tid os-pid))
-   ;; the process exited, capture status
-   ({'exited {'success exit-code-file}}
-    (let* (exit-code (read-int-from-file exit-code-file))
-      (fmt-success "~s: exited with code ~p" tid exit-code)))
-   ({'exited {'failure reason}}
-    ; kill the rogue process
-    (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-    (fmt-error "~s: failed with reason ~p, process ~p killed" tid reason os-pid))
-   ({'have-pid {'failure 'timeout}}
-    (fmt-error "~s: pid not acquired within timeout~n" tid))
-   ;; the pid file was created
-   ({'have-pid {'success pid-file}}
-    (case (read-int-from-file pid-file)
-    ('invalid 
-     (fmt-error "~s: unable to obtain pid from file ~s" tid pid-file))
-    (os-pid-2 (monitor-process in-dir tid os-pid-2))))
-   ;; we don't understand this message, notify
-   (unknown-msg
-    (io/format "~s: message not understood [~p]~n" [tid unknown-msg])
-    (monitor-process in-dir tid os-pid))))
-
-
-(defn do-execute (tid command output-spec in-dir exec-timeout log-f)
-  (jxc/let (fqn (make-proc-file-name in-dir tid ".sh")
-  [pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    ;; construct run.sh shell script
-    (make-run-script command tid output-spec fqn)
-    ;; spawn a process that waits for the pid and exit code files to appear
-    ;; with given timeouts
-    (let* (port-id (erl/open-port {:spawn fqn} [{:cd in-dir}])
-           myself  (erl/self)
-           pid     (async-send-me {:task-done (erl/self) (monitor-process in-dir tid :undefined)}))
-  ;; construct watchers in separate threads
-  (async-send-to pid {:exited (wait-for-file exit-code-f exec-timeout 500)})
-  (async-send-to pid {:have-pid (wait-for-file pid-f 5000 500)})
-  {:running {pid exit-code-f}})))
-
-
 ;; execute a process denoted tid with a given timeout in a given directory
 ;; the execute function either returns {:success exit-code} if process need not
 ;; be executed or {:running pid} if the process was executed and running
 ;; in this case, the process termination is transmitted to the caller as
-;; {:task-done task-pid {result message}} where result is either :success or :failure
+;; {:ext-proc-complete task-pid {result message}} where result is either :success or :failure
 (defn+ execute (tid command output-spec in-dir exec-timeout log-f)
   ;; check if the command has already been run (exitcode file exists)
-  (jxc/let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
+  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
     (case (read-int-from-file exit-code-f)
-    (:invalid 
-     (log-f :info ["~s: no exit code found, pid will be checked" tid])
-     (case (read-int-from-file pid-f)
-     (:invalid 
-      (log-f :info ["~s: no pid file found process ~p must be started" tid command])
-      (do-execute tid command output-spec in-dir exec-timeout log-f))
-     (os-pid
-      (log-f :info ["~s: found pid file, assuming process ~p still active" tid os-pid])
-      (let* (pid (async-send-me {:task-done (erl/self) (monitor-process in-dir tid os-pid)}))
-        ;; we only spawn the exit watcher
-        (async-send-to pid {:exited (wait-for-file exit-code-f exec-timeout 500)})
-        {:running {pid exit-code-f}}))))
-    (exit-code
-     ;; just return the exit code we already obtained
-     (log-f :info ["~s: exit code ~p found, returning immediately" tid exit-code])
-     {:success exit-code}))))
+      (:invalid
+        (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
+        (case (read-int-from-file pid-f)
+          (:invalid
+            (log-f :info ["~s: no pid file found, process ~p must be started" tid command])
+            (let* (fqn (make-proc-file-name in-dir tid ".sh"))
+              (write-run-script fqn (make-immed-exec-script tid command output-spec))
+              (execute-script tid fqn in-dir 5000 exec-timeout log-f)))
+          (os-pid
+            (log-f :info ["~s: found pid file (but there was no exit code file), process ~p must still be active" tid os-pid])
+            ; begin monitoring will again look for the pid file, find it right away and start looking for the exit-code file
+            (begin-monitoring in-dir tid 5000 exec-timeout log-f))))
+      (exit-code
+        ;; just return the exit code we already obtained
+        (log-f :info ["~s: exit code ~p found, returning immediately" tid exit-code])
+        {:success exit-code}))))
 
-
-(defn+ make-std-output-spec (in-dir tid)
-  "Construct a standard output mapping, where fd 1 is sent to <tid>.stdout and fd 2 is sent to <tid>.stderr"
-  [{1 (make-proc-file-name in-dir tid ".stdout")}
-   {2 (make-proc-file-name in-dir tid ".stderr")}])
-
-
-;; simplest wait-for-completion stub, which just returns result
-;; of the :task-done message
-;; more sophisticated clients should handle this message themselves
-(defn+ wait-for-completion (pid)
-  (receive
-   ({:task-done pid result} result)))
 
