@@ -19,7 +19,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/ingest-srv.beam \
 		ebin/log-stream.beam \
 		ebin/log-srv.beam \
-		ebin/task-exec.beam \
+		ebin/ext-utils.beam \
+		ebin/ext-proc.beam \
 		ebin/filesys.beam \
 		ebin/wrfxlib.beam \
 		ebin/wrfx2-app.beam
