@@ -24,11 +24,11 @@
               (erlang :as erl :joxify)
               (string :as str :joxify)
               (io_lib :as iol)
-              (joxa-core :as jxc)
               (joxa-lists :as jxl)
               (mochiweb_xpath :as xpath)
               (mochiweb_html :as html)
-              utils))
+              utils)
+    (use joxa-core))
 
 
 ;; example URL from the MesoWest website
@@ -36,7 +36,7 @@
 
 (defn+ make-dl-url (station-code ts num-hours raws-src)
   "Constructs the download URL that retrieves variables in <var-list> for station <station-code> for <num-hours> hours up to time <ts>."
-  (jxc/let ({{y m d} {h _ _}} ts)
+  (let ({{y m d} {h _ _}} ts)
     (lists/flatten [ "http://mesowest.utah.edu/cgi-bin/droman/meso_download_mesowest_ndb.cgi?unit=1&time=GMT&daycalendar=1&output=csv&order=0"
                      (iol/format "&stn=~s" [station-code])
                      (lists/map (fn (x) (iol/format "&~s=~s" [x x])) (raws-src-def/var-list raws-src))
@@ -45,7 +45,7 @@
 
 (defn+ parse-station-info (st-line)
   (let* (tokens (str/tokens st-line " "))
-    (jxc/let ((st-code . rest) tokens
+    (let ((st-code . rest) tokens
               ("RAWS" . ("m" . (height . (lon . (lat . name-lst))))) (lists/reverse rest))
               [{:code st-code} {:lon lon} {:lat lat}
                {:name (str/join (lists/reverse name-lst) " ")}
@@ -55,7 +55,7 @@
 (defn parse-params (p-line)
   "Parses the line PARM = A,B,C,D and returns [A B C D]."
   (let* (tokens (lists/map (fn (x) (str/strip x)) (str/tokens p-line "=")))
-    (jxc/let (("PARM" . (param-str . [])) tokens)
+    (let (("PARM" . (param-str . [])) tokens)
        (str/tokens param-str ","))))
 
 
@@ -128,12 +128,12 @@
 
 
 (defn+ get-entry (key)
-  (jxc/let ({:mwestraws key obs-time obss} (jxl/hd (mnesia/dirty-read :mwestraws key)))
+  (let ({:mwestraws key obs-time obss} (jxl/hd (mnesia/dirty-read :mwestraws key)))
     {obs-time obss}))
 
 
 (defn+ get-station-info (station-code)
-  (jxc/let ({:mwestraws station-code :info st-info} (jxl/hd (mnesia/dirty-read :mwestraws station-code)))
+  (let ({:mwestraws station-code :info st-info} (jxl/hd (mnesia/dirty-read :mwestraws station-code)))
     st-info))
 
 
@@ -144,7 +144,7 @@
     (case missing-hrs
       ([] :ok)
       ((missing . _rest)
-        (jxc/let ({st-info st-obs} (download-station-obs station-code (ta/shift-by-hours missing 1) 24 raws-src log-f))
+        (let ({st-info st-obs} (download-station-obs station-code (ta/shift-by-hours missing 1) 24 raws-src log-f))
           (mnesia/transaction (fn () (mnesia/write {:mwestraws station-code :info st-info})) [] 3)
           (mnesia/transaction (fn () (lists/map (utils/fnm1 {ts obs} (write-entry station-code ts obs)) st-obs)) [] 3)
           (let* (new-missing (erl/-- missing-hrs (lists/map (utils/fnm1 {dt _} (ta/round-hours dt :down)) st-obs)))
