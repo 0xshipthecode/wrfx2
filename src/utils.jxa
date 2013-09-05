@@ -24,8 +24,8 @@
              (string :as str)
              (io_lib :as iol)
              (erlang :as erl :joxify)
-             (joxa-core :as jxc)
-             (joxa-lists :as jxl)))
+             (joxa-lists :as jxl))
+    (use joxa-core))
 
 
 (defn+ sign (val)
@@ -61,8 +61,8 @@
   "The function <func> must succeed, i.e return the result <succ-result>.  If not
    the message <fail-msg> is written to file 'critical_failure.log' in the root directory
    the system and an exception is thrown."
-   (let* (other (jxc/gensym)
-          msg   (jxc/gensym))
+   (let* (other (gensym)
+          msg   (gensym))
     `(case ~func
       (~succ-result :ok)
       (~other
@@ -74,7 +74,7 @@
 (defn+ ensure-table-exists (tuple-fields index-fields)
   "Ensure that a table either exists or is created with fields <tuple-fields>
    and indices for <index-fields>.  The table name is (jxl/hd tuple-fields)."
-  (jxc/if (lists/member (jxl/hd tuple-fields)(mnesia/system-info :tables))
+  (if (lists/member (jxl/hd tuple-fields) (mnesia/system-info :tables))
     :ok
     (utils/critical-check {:atomic :ok}
                           (mnesia/create-table (jxl/hd tuple-fields)
@@ -86,8 +86,8 @@
 ;; define a macro that matches an arbitrary structure to
 ;; a single function argument
 (defmacro+ fnm1 (args body)
-  (let* (arg (jxc/gensym))
-    `(fn (~arg) (jxc/let (~args ~arg) ~body))))
+  (let* (arg (gensym))
+    `(fn (~arg) (let (~args ~arg) ~body))))
 
 
 ;; format a task error tuple
@@ -144,7 +144,7 @@
 ;; use of this macro requires the namespace erlang is required
 (defmacro+ async-send-me (f)
   "Execute function f in a new process and send myself the result."
-  (let* (myself (jxc/gensym))
+  (let* (myself (gensym))
     `(let* (~myself (erlang/self))
        (erl/spawn (fn () (erl/send ~myself ~f))))))
 
@@ -161,18 +161,19 @@
 ;; the file has appeared
 (defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
   "Wait for a file to appear on the filesystem."
-  (jxc/if (jxc/or (erl/== timeout 'infinite) (erl/> timeout 0))
-          (jxc/if (filelib/is_file file-name)
-            {:success file-name}
-            (do (timer/sleep file-wait-chunk-ms)
-                (wait-for-file file-name (erl/- timeout file-wait-chunk-ms) file-wait-chunk-ms)))
-          {:failure :timeout}))
+  (if
+    (or (erl/== timeout 'infinite) (erl/> timeout 0))
+      (if (filelib/is_file file-name)
+        {:success file-name}
+        (do (timer/sleep file-wait-chunk-ms)
+            (wait-for-file file-name (erl/- timeout file-wait-chunk-ms) file-wait-chunk-ms)))
+      {:failure :timeout}))
 
 
 (defn+ eval-erlang (str env)
   "Evaluate an erlang expression <str> in the environment <env>."
   (case (erl_scan/string str)
-    ({:ok scanned _} 
+    ({:ok scanned _}
       (case (erl_parse/parse_exprs scanned)
         ({:ok parsed} (erl_eval/exprs parsed env))
         ({:error info} {:parse-error info})))
@@ -190,7 +191,7 @@
           ([] res-list)
           (_notempty (wait-for-result func workers max-workers [] res-list))))
     ((task . rest)
-        (jxc/if (erl/< (erl/length workers) max-workers)
+        (if (erl/< (erl/length workers) max-workers)
           (let* (pid (erl/spawn (fn () (erl/send me {:done (erl/self) (func task)}))))
             (pmap func (pid . workers) max-workers rest res-list))
           (wait-for-result func workers max-workers lst res-list))))))
@@ -221,7 +222,7 @@
 
 (defmacro+ !!= (form func)
   "Throws an error if the result of <func> does not match <res-check>."
-  (let* (other (jxc/gensym))
+  (let* (other (gensym))
     `(case  ~func
       (~form :ok)
       (~other (erl/throw ~other)))))
