@@ -1,5 +1,7 @@
 (ns wrfxlib
-  (require utils filesys filename))
+  (require filesys filename ext-proc ext-utils plist
+           (erlang :as erl :joxify))
+  (use joxa-core utils))
 
 (defn+ clone-wps (src dst vtable)
   "Clone the WPS directory <src> to another location <dst>.
@@ -20,5 +22,24 @@
     "real.exe" "RRTM_DATA" "RRTM_DATA_DBL" "RRTMG_LW_DATA" "RRTMG_LW_DATA_DBL"
     "RRTMG_SW_DATA" "RRTMG_SW_DATA_DBL" "SOILPARM.TBL" "tc.exe" "tr49t67" "tr49t85"
     "tr67t85" "URBPARM.TBL" "URBPARM_UZE.TBL" "VEGPARM.TBL" "wrf.exe"]))
+
+
+(defn+ run-geogrid (in-dir log-f)
+  (let* (output-spec (ext-utils/make-std-output-spec in-dir "geogrid"))
+    (let ({:running {pid _}} (ext-proc/execute "geogrid" (filename/join in-dir "geogrid.exe")
+                                               output-spec in-dir 1200000 log-f))
+      (!!= :success (ext-utils/wait-for-completion pid))
+      (!!= :found (grep-file (plist/get 1 output-spec) "SUCCESS"))
+      (log-f :info ["geogrid: completed successfully."]))))
+
+
+(defn+ run-ungrib (in-dir log-f)
+  "Run ungrib.exe in the WPS directory <in-dir> and log progress to using <log-f>."
+  (let* (output-spec (ext-utils/make-std-output-spec in-dir "ungrib"))
+    (let ({:running {pid _}} (ext-proc/execute "ungrib" (filename/join in-dir "ungrib.exe")
+                                               output-spec in-dir 1800000 log-f))
+      (!!= :success (ext-utils/wait-for-completion pid))
+      (!!= :found (grep-file (plist/get 1 output-spec) "SUCCESS"))
+      (log-f :info ["ungrib: completed succesfully."]))))
 
 

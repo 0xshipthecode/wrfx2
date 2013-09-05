@@ -50,7 +50,8 @@
                 (let* (fqn (make-proc-file-name in-dir tid ".sh"))
                   (file/write-file host-f (str/join nodes "\n"))
                   (write-run-script fqn (make-script tid command (erl/length nodes) np wall-time-hrs host-f output-spec))
-                  (execute-script tid fqn in-dir pid-timeout exec-timeout log-f)))))
+                  (erl/open-port {:spawn (lists/flatten ["qsub " fqn])} [{:cd in-dir}])
+                  (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))))
           (os-pid
             (log-f :info ["~s: found pid file (but there was no exit code file), process ~p must still be active" tid os-pid])
             (begin-monitoring in-dir tid pid-timeout exec-timeout log-f))))
