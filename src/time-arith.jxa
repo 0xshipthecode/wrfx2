@@ -17,26 +17,27 @@
 
 (ns time-arith
     (require io
-             (erlang :as erl)
-             (joxa-core :as jxc)
-	     (calendar :as cal :joxify)))
+             (erlang :as erl :joxify)
+             (io_lib :as iol)
+             (calendar :as cal :joxify))
+    (use joxa-core))
 
 
 (defn+ shift-by-hours (datetime hrs)
   "Shift an erlang <datetime> by <hrs> hours, positive -> future, negative -> past."
   (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (jxc/+ gs (erl/* hrs 3600)))))
+    (cal/gregorian-seconds-to-datetime (+ gs (erl/* hrs 3600)))))
 
 
 (defn+ shift-by-days (datetime d)
   "Shift an erlang <datetime> by <d> days, positive -> future, negaive -> past."
   (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (jxc/+ gs (erl/* d 86400)))))
+    (cal/gregorian-seconds-to-datetime (+ gs (erl/* d 86400)))))
 
 
 (defn+ set-hour (datetime new-h)
   "Set the hour of erlang datetime <datetime> to <h>."
-  (jxc/let ({date, {h m s}} datetime)
+  (let ({date, {h m s}} datetime)
     {date {new-h m s}}))
 
 
@@ -70,12 +71,12 @@
 
 (defn+ min-time (t1 t2)
   "Find the earlier time from the two datetimes <t1> and <t2>."
-  (jxc/if (erl/< t1 t2) t1 t2))
+  (if (erl/< t1 t2) t1 t2))
 
 
 (defn+ max-time (t1 t2)
   "Find the later time from the two datetimes <t1> and <t2>."
-  (jxc/if (erl/> t1 t2) t1 t2))
+  (if (erl/> t1 t2) t1 t2))
 
 (defn+ gregorian-seconds-now ()
   "Retrieve seconds since epoch."
@@ -85,7 +86,21 @@
 (defn+ list-hours (from to)
   "List timestamps starting with <from> and incrementing by 1 hour,
    continue until past <to>."
-  (jxc/if (erl/> from to)
+  (if (erl/> from to)
     []
     (from . (list-hours (shift-by-hours from 1) to))))
+
+
+(defn+ to-esmf-string (dt)
+  "Render datetime <dt> as an ESMF date time string YYYY-MM-DD_HH:mm:SS."
+  (let ({{y mon day} {h min s}} dt)
+    (iol/format "~4..0B-~2..0B-~2..0B_~2..0B:~2..0B:~2..0B" [y mon day h min s])))
+
+
+(defn+ parse-esmf-str (str)
+  "Parse an ESMF date/time string (format: YYYY-MM-DD_HH:mm:SS) <str> into an erlang datetime."
+  (let ([y1 y2 y3 y4 :\- m1 m2 :\- d1 d2 :\_ h1 h2 :\: min1 min2 :\: s1 s2] str)
+    {{(erl/list-to-integer [y1 y2 y3 y4]) (erl/list-to-integer [m1 m2]) (erl/list-to-integer [d1 d2])}
+     {(erl/list-to-integer [h1 h2]) (erl/list-to-integer [min1 min2]) (erl/list-to-integer [s1 s2])}}))
+
 

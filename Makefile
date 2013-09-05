@@ -9,9 +9,9 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/utils.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
+		ebin/time-arith.beam \
 		ebin/nlist.beam \
 		ebin/config-srv.beam \
-		ebin/time-arith.beam \
 		ebin/grib-retr.beam \
 		ebin/grib-srv.beam \
 		ebin/mwest-retr.beam \
