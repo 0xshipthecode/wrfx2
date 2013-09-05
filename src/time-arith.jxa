@@ -78,6 +78,7 @@
   "Find the later time from the two datetimes <t1> and <t2>."
   (if (erl/> t1 t2) t1 t2))
 
+
 (defn+ gregorian-seconds-now ()
   "Retrieve seconds since epoch."
   (cal/datetime-to-gregorian-seconds (cal/local-time)))
@@ -103,4 +104,11 @@
     {{(erl/list-to-integer [y1 y2 y3 y4]) (erl/list-to-integer [m1 m2]) (erl/list-to-integer [d1 d2])}
      {(erl/list-to-integer [h1 h2]) (erl/list-to-integer [min1 min2]) (erl/list-to-integer [s1 s2])}}))
 
+(defn+ to-unix-timestamp (dt)
+  "Convert a local erlang datetime <dt> to a unix timestamp."
+  (- (cal/datetime-to-gregorian-seconds (cal/local-time-to-universal-time dt)) (erl/* 719528 86400)))
+
+(defn+ from-unix-timestamp (ts)
+  "Convert a unix timestamp <ts> to an erlang datetime."
+  (cal/universal-time-to-local-time (cal/gregorian-seconds-to-datetime (+ ts (erl/* 719528 86400)))))
 
