@@ -84,6 +84,10 @@
   (cal/datetime-to-gregorian-seconds (cal/local-time)))
 
 
+(defn+ local-time ()
+  "Retrieve the local time from calendar - convenience function."
+  (cal/local-time))
+
 (defn+ list-hours (from to)
   "List timestamps starting with <from> and incrementing by 1 hour,
    continue until past <to>."
@@ -104,9 +108,11 @@
     {{(erl/list-to-integer [y1 y2 y3 y4]) (erl/list-to-integer [m1 m2]) (erl/list-to-integer [d1 d2])}
      {(erl/list-to-integer [h1 h2]) (erl/list-to-integer [min1 min2]) (erl/list-to-integer [s1 s2])}}))
 
+
 (defn+ to-unix-timestamp (dt)
   "Convert a local erlang datetime <dt> to a unix timestamp."
   (- (cal/datetime-to-gregorian-seconds (cal/local-time-to-universal-time dt)) (erl/* 719528 86400)))
+
 
 (defn+ from-unix-timestamp (ts)
   "Convert a unix timestamp <ts> to an erlang datetime."

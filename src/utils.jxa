@@ -227,3 +227,25 @@
       (~form :ok)
       (~other (erl/throw ~other)))))
 
+
+(defn grep-device (dev for-what)
+  "Keep reading lines from device <dev> until either: eof is reached (returns :not-found),
+   an error occurs (returns :error) or <for-what> is a substring
+   in one of the lines (returns :found)."
+  (case (file/read-line dev)
+    (:eof :not-found)
+    ({:error _} :error)
+    ({:ok line} (case (str/str line for-what)
+                  (0 (grep-device dev for-what))
+                  (_ :found)))))
+
+
+(defn+ grep-file (fname for-what)
+  "Scan the file <fname> for the occurrence of the string <for-what>.
+   Returns either :found or :not-found.  Throws an exception if <fname> cannot
+   be opened for reading."
+  (let ({:ok dev} (file/open fname [:read]))
+    (let* (result (grep-device dev for-what))
+      (file/close dev)
+      result)))
+
