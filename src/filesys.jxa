@@ -1,6 +1,6 @@
 (ns filesys
     (require (file :joxify)
-             filename
+             filename file_info
              (filelib :joxify)
              (lists :joxify)
              (string :joxify :as str)
@@ -36,7 +36,7 @@
   "Returns the file type of <fname> from the read-link-info function.
    NOTE: returns third element (record is not imported into joxa automatically."
   (jxc/let ({:ok fi} (file/read-link-info fname))
-    (erl/element 3 fi)))
+    (file_info/type fi)))
 
 
 (defn+ delete (fd)
