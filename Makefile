@@ -42,10 +42,10 @@ ebin/%.beam: src/%.jxa
 compile: $(BEAMFILES)
 
 get-deps:
-	./rebar get-deps
+	rebar get-deps
 
 compile-deps: compile_jxautorec
-	./rebar compile
+	rebar compile
 
 compile_jxautorec: deps/jxautorec
 	cd deps/jxautorec && make

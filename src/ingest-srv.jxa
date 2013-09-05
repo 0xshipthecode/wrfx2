@@ -65,8 +65,8 @@
   "Start the GRIB server manager that routes requests to appropriate GRIB servers."
   (inets/start)
   (gen_server/start_link {:local :ingest-srv} :ingest-srv [(dict/new) (dict/new) (dict/new) stor-dir log-f] [])
-  (reload-sources "etc/grib.sources" :restart-grib-servers)
-  (reload-sources "etc/raws.sources" :restart-raws-servers))
+  (reload-sources "etc/ingest/grib.sources" :restart-grib-servers)
+  (reload-sources "etc/ingest/raws.sources" :restart-raws-servers))
 
 ;; API
 

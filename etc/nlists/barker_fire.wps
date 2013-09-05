@@ -1,0 +1,55 @@
+&share
+ wrf_core = 'ARW',
+ max_dom = 5,
+ start_date = '2012-09-08_00:00:00','2012-09-08_00:00:00','2012-09-08_00:00:00','2012-09-08_00:00:00','2012-09-08_00:00:00','2012-09-08_00:00:00'
+ end_date   = '2012-09-20_00:00:00','2012-09-20_00:00:00','2012-09-20_00:00:00','2012-09-20_00:00:00','2012-09-20_00:00:00','2012-09-08_00:00:00'
+ interval_seconds = 10800
+ io_form_geogrid = 2,
+! subgrid_ratio_x = 1,1,1,1,20,10,
+! subgrid_ratio_y = 1,1,1,1,20,10,
+/
+
+&geogrid
+ parent_id         =   0, 1, 2, 3, 4, 5
+ parent_grid_ratio =   1, 3, 3, 3, 3, 3
+ i_parent_start    =   1,  75, 35, 60, 383, 69,
+ j_parent_start    =   1,  36, 28, 125, 226, 69,
+ e_we              =  151, 184, 406, 712, 196, 196,
+ e_sn              =  127, 142, 283, 364, 193, 193,
+ geog_data_res     =  '10m', '30s', '30s', '1s', '.3s', '.3s',
+ dx = 36000,
+ dy = 36000,
+ map_proj = 'lambert',
+ ref_lat   = 45.66480255
+ ref_lon   = -134.74227905
+ truelat1  = 30
+ truelat2  = 60
+ stand_lon = -121
+ geog_data_path = '/storage/jbeezley/git/wrfdata/geog'
+/
+
+&ungrib
+ out_format = 'WPS',
+ prefix = 'NARR_a',
+!prefix = 'NARR_b',
+/
+
+&metgrid
+ fg_name = 'NARR_a','NARR_b', 
+ constants_name ='./NARR-FIXED:1979-11-08_00',
+ io_form_metgrid = 2, 
+/
+
+&mod_levs
+ press_pa = 201300 , 200100 , 100000 , 
+             95000 ,  90000 , 
+             85000 ,  80000 , 
+             75000 ,  70000 , 
+             65000 ,  60000 , 
+             55000 ,  50000 , 
+             45000 ,  40000 , 
+             35000 ,  30000 , 
+             25000 ,  20000 , 
+             15000 ,  10000 , 
+              5000 ,   1000
+/
