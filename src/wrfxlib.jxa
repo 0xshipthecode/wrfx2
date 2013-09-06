@@ -25,21 +25,21 @@
 
 
 (defn+ run-geogrid (in-dir log-f)
-  (let* (output-spec (ext-utils/make-std-output-spec in-dir "geogrid"))
-    (let ({:running {pid _}} (ext-proc/run "geogrid" (filename/join in-dir "geogrid.exe")
-                                               output-spec in-dir 1200000 log-f))
-      (!!= :success (ext-utils/wait-for-completion pid))
-      (!!= :found (grep-file (plist/get 1 output-spec) "SUCCESS"))
-      (log-f :info ["geogrid: completed successfully."]))))
+  (let* (out-spec (ext-utils/make-std-output-spec in-dir "geogrid")
+         cmd      (filename/join in-dir "geogrid.exe"))
+    (ext-utils/wrap-run (ext-proc/run "geogrid" cmd
+                                      out-spec in-dir 1200000 log-f))
+    (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of geogrid."))
+    (log-f :info ["geogrid: completed successfully."])))
 
 
 (defn+ run-ungrib (in-dir log-f)
   "Run ungrib.exe in the WPS directory <in-dir> and log progress to using <log-f>."
-  (let* (output-spec (ext-utils/make-std-output-spec in-dir "ungrib"))
-    (let ({:running {pid _}} (ext-proc/run "ungrib" (filename/join in-dir "ungrib.exe")
-                                               output-spec in-dir 1800000 log-f))
-      (!!= :success (ext-utils/wait-for-completion pid))
-      (!!= :found (grep-file (plist/get 1 output-spec) "SUCCESS"))
-      (log-f :info ["ungrib: completed succesfully."]))))
+  (let* (out-spec (ext-utils/make-std-output-spec in-dir "ungrib")
+         cmd      (filename/join in-dir "ungrib.exe"))
+    (ext-utils/wrap-run (ext-proc/run "ungrib" cmd
+                                      out-spec in-dir 1800000 log-f))
+    (!!= :found (grep-file (plist/get 1 out-spec) "SUCCESS"))
+    (log-f :info ["ungrib: completed succesfully."])))
 
 
