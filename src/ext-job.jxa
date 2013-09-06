@@ -47,8 +47,8 @@
         (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
         (case (read-pid-file pid-f)
           ({os-pid start-time}
-            (log-f :info ["~s: found pid file with pid ~p, process started on ~w, waiting remaining time" tid os-pid start-time])
             (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
+              (log-f :info ["~s: found pid file with pid ~p, process started on ~w, waiting for completion another ~p ms" tid os-pid start-time remaining-exec-timeout])
               (begin-monitoring in-dir tid pid-timeout remaining-exec-timeout log-f)))
           (:invalid
             (log-f :info ["~s: no pid file found, checking for submission file ~p" tid submit-f])
