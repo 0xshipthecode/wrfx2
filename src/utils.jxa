@@ -226,3 +226,11 @@
       (file/close dev)
       result)))
 
+
+(defn+ debug-log ()
+  "A logging function that's useful for debugging.
+   Sends all log output to stdout."
+  (fn (level lst)
+    (io/format "debug [~p] " [level])
+    (io/format (jxl/hd lst) (jxl/tl lst))
+    (io/format "~n")))
