@@ -22,15 +22,14 @@
       "#PBS -N ~s\n"
       "cd $PBS_O_WORKDIR\n"
       "echo `date +%s` > $TID.submit\n"
-      ; the following two lines construct the mpirun command
-      "mpirun -np ~p -hostfile $PBS_NODEFILE " cmd " &\n"
+      "mpirun -np ~p -hostfile $PBS_NODEFILE ~s &\n"
       "PID=$!\n"
       "echo $PID > $PIDFILE\n"
       "echo `date +%s` >> $PIDFILE\n"
       "wait $PID\n"
       "echo $? > $DONEFILE\n"
       "echo `date +%s` >> $DONEFILE\n"])
-        [cmd tid num-nodes wall-time-hrs tid (erl/* num-nodes 12)]))
+        [tid num-nodes wall-time-hrs tid (erl/* num-nodes 12) cmd]))
 
 
 (defn+ run (tid command in-dir num-nodes wall-time-hrs pid-timeout exec-timeout log-f)
