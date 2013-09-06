@@ -2,6 +2,7 @@
     (require file lists filename io os
              (string :as str)
              (io_lib :as iol)
+             (time-arith :as ta)
              (erlang :as erl :joxify))
     (use utils joxa-core ext-utils))
 
@@ -19,8 +20,11 @@
       cmd (lists/map (fnm1 {fd tgt} (iol/format " ~p>> ~s" [fd tgt])) output-spec) " &\n"
       "PID=$!\n"
       "echo $PID > $PIDFILE\n"
+      "echo `date +%s` >> $PIDFILE\n"
       "wait $PID\n"
-      "echo $? > $DONEFILE\n"]) [cmd tid]))
+      "echo $? > $DONEFILE\n"]
+      "echo `date +%s` >> $DONEFILE\n")
+        [cmd tid]))
 
 
 ;; execute a process denoted tid with a given timeout in a given directory
@@ -28,25 +32,25 @@
 ;; be executed or {:running pid} if the process was executed and running
 ;; in this case, the process termination is transmitted to the caller as
 ;; {:ext-proc-complete task-pid {result message}} where result is either :success or :failure
-(defn+ execute (tid command output-spec in-dir exec-timeout log-f)
+(defn+ run (tid command output-spec in-dir exec-timeout log-f)
   ;; check if the command has already been run (exitcode file exists)
   (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (case (read-int-from-file exit-code-f)
-      (:invalid
+    (case (read-exitcode-file exit-code-f)
+      ({exit-code exit-time}
+        ;; just return the exit code we already obtained
+        (log-f :info ["~s: exit code ~p found, process exited on ~w returning immediately" tid exit-code exit-time])
+        {:success exit-code})
+     (:invalid
         (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
-        (case (read-int-from-file pid-f)
+        (case (read-pid-file pid-f)
+          ({os-pid start-time}
+            (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
+              (log-f :info ["~s: found pid file with pid ~p, written at ~p, waiting for another ~p ms" tid os-pid start-time remaining-exec-timeout])
+              (begin-monitoring in-dir tid 5000 remaining-exec-timeout log-f)))
           (:invalid
             (log-f :info ["~s: no pid file found, process ~p must be started" tid command])
             (let* (fqn (make-proc-file-name in-dir tid ".sh"))
               (write-run-script fqn (make-immed-exec-script tid command output-spec))
-              (execute-script tid fqn in-dir 5000 exec-timeout log-f)))
-          (os-pid
-            (log-f :info ["~s: found pid file (but there was no exit code file), process ~p must still be active" tid os-pid])
-            ; begin monitoring will again look for the pid file, find it right away and start looking for the exit-code file
-            (begin-monitoring in-dir tid 5000 exec-timeout log-f))))
-      (exit-code
-        ;; just return the exit code we already obtained
-        (log-f :info ["~s: exit code ~p found, returning immediately" tid exit-code])
-        {:success exit-code}))))
-
+              (erl/open-port {:spawn fqn} [{:cd in-dir}])
+              (begin-monitoring in-dir tid 5000 exec-timeout log-f))))))))
 

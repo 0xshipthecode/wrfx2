@@ -1,9 +1,51 @@
 (ns ext-utils
-  (require filename lists os
+  (require filename lists os io
            (io_lib :as iol)
            (erlang :as erl :joxify)
-           (file :joxify))
+           (file :joxify)
+           (joxa-lists :as jxl)
+           (string :as str)
+           (time-arith :as ta))
   (use joxa-core utils))
+
+
+(defn+ read-ints-from-file (fname)
+  "Read integers separated by newlines from file <fname>."
+  (case (file/read-file fname)
+    ({:ok data}
+      (let* (tokens (str/tokens (erl/binary-to-list data) " \n"))
+        (lists/map (fn (x) (erl/list-to-integer (str/strip x))) tokens)))
+    ({:error reason} :invalid)))
+
+
+(defn+ read-int-from-file (fname)
+  "A convenience shortcut when only one integer is to be read from <fname>."
+  (case (read-ints-from-file fname)
+    (:invalid :invalid)
+    ([] :invalid)
+    ([int] int)))
+
+
+(defn+ read-pid-file (fname)
+  "Read a pid file <fname> to obtain the pid of the process and
+   the time when it was started."
+  (case (read-ints-from-file fname)
+    ([pid unix-ts] {pid (ta/from-unix-timestamp unix-ts)})
+    (:invalid :invalid)))
+
+
+(defn+ read-exitcode-file (fname)
+  "Read the exit code file <fname> to obtain the exitcode of the process and
+   the time when it was started."
+  (case (read-ints-from-file fname)
+    ([exit-code unix-ts] {exit-code (ta/from-unix-timestamp unix-ts)})
+    (:invalid :invalid)))
+
+(defn+ read-submit-file (fname)
+  "Read the submit file <fname> that only contains the date submitted."
+  (case (read-ints-from-file fname)
+    (:invalid :invalid)
+    ([unix-ts] (ta/from-unix-timestamp unix-ts))))
 
 
 ;; construct the name of a process output file from
@@ -40,30 +82,36 @@
 ;; another helper monitors the exitcode file and sends the :exited message
 (defn monitor-process (in-dir tid os-pid exec-timeout log-f)
   "Monitor the execution of an external process with id <tid> in directory <in-dir>."
-  (receive
-    (:kill-9
-      (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-      (monitor-process in-dir tid os-pid exec-timeout log-f))
-    ({:exited {:success exit-code-file}} ;; the process exited, capture status
-      (let* (exit-code (read-int-from-file exit-code-file))
-        (log-f :info ["~s: exited with code ~p" tid exit-code])
-        :success))
-    ({:exited {:failure reason}} ; kill the rogue process
-      (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-      (log-f :error ["~s: failed with reason ~p, process ~p killed" tid reason os-pid])
-      :failure)
-    ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
-      (log-f :error ["~s: pid not acquired within timeout~n" tid])
-      :failure)
-    ({:pid-msg {:success pid-file}} ;; the pid file was created
-      (case (read-int-from-file pid-file)
-        (:invalid (log-f :error ["~s: unable to obtain pid from file ~s" tid pid-file]) :failure)
-        (real-os-pid
-          (async-send-me {:exited (wait-for-file (make-proc-file-name in-dir tid ".exitcode") exec-timeout 500)})
-          (monitor-process in-dir tid real-os-pid exec-timeout log-f))))
-    (unknown-msg ;; we don:t understand this message, notify
-      (log-f :flash ["~s: message not understood [~p]~n" tid unknown-msg])
-      (monitor-process in-dir tid os-pid exec-timeout log-f))))
+  (try*
+    (do (io/format "monitor-process tid ~p os-pid ~p in receive.~n" [tid os-pid])
+    (receive
+      (:kill-9
+        (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+        (monitor-process in-dir tid os-pid exec-timeout log-f))
+      ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
+        (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
+          (log-f :info ["~s: exited with code ~p at ~w" tid exit-code exit-time])
+          :success))
+      ({:exit-msg {:failure reason}} ; kill the rogue process
+        (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+        (log-f :error ["~s: failed with reason ~p, process ~p killed" tid reason os-pid])
+        :failure)
+      ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
+        (log-f :error ["~s: pid not acquired within timeout" tid])
+        :failure)
+      ({:pid-msg {:success pid-file}} ;; the pid file was created
+        (let ({real-os-pid start-time} (read-pid-file pid-file))
+          (log-f :info ["~s: received pid ~p, process was started on ~w" tid real-os-pid start-time])
+          (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
+            (async-send-me {:exit-msg (wait-for-file (make-proc-file-name in-dir tid ".exitcode") remaining-exec-timeout 500)})
+            (monitor-process in-dir tid real-os-pid exec-timeout log-f))))
+      (unknown-msg ;; we don:t understand this message, notify
+        (log-f :flash ["~s: message not understood [~p]~n" tid unknown-msg])
+        (monitor-process in-dir tid os-pid exec-timeout log-f))))
+  (catch (ex bdy)
+    (do
+      (log-f :flash ["monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
+      (monitor-process in-dir tid os-pid exec-timeout log-f)))))
 
 
 (defn+ begin-monitoring (in-dir tid pid-timeout exec-timeout log-f)
@@ -72,16 +120,8 @@
     (let* (myself  (erl/self)
            pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process in-dir tid :undefined exec-timeout log-f)}))
       ;; construct the first watcher that scans for pids
-      (async-send-to pid {:have-pid (wait-for-file pid-f pid-timeout 500)})
+      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
       {:running {pid exit-code-f}})))
-
-
-(defn+ execute-script (tid fqn in-dir pid-timeout exec-timeout log-f)
-  "Execute a previously-constructed script <fqn> for task <tid> in directory <in-dir>.
-   If execution does not complete for <exec-timeout> ms, the system reports an error."
-    (let* (fqn (make-proc-file-name in-dir tid ".sh")
-           port-id (erl/open-port {:spawn fqn} [{:cd in-dir}]))
-      (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))
 
 
 ;; simplest wait-for-completion stub, which just returns result
