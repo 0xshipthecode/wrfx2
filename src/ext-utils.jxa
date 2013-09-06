@@ -83,7 +83,6 @@
 (defn monitor-process (in-dir tid os-pid exec-timeout log-f)
   "Monitor the execution of an external process with id <tid> in directory <in-dir>."
   (try*
-    (do (io/format "monitor-process tid ~p os-pid ~p in receive.~n" [tid os-pid])
     (receive
       (:kill-9
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
@@ -91,7 +90,7 @@
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
         (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
           (log-f :info ["~s: exited with code ~p at ~w" tid exit-code exit-time])
-          :success))
+          {:success exit-code}))
       ({:exit-msg {:failure reason}} ; kill the rogue process
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
         (log-f :error ["~s: failed with reason ~p, process ~p killed" tid reason os-pid])
@@ -107,7 +106,7 @@
             (monitor-process in-dir tid real-os-pid exec-timeout log-f))))
       (unknown-msg ;; we don:t understand this message, notify
         (log-f :flash ["~s: message not understood [~p]~n" tid unknown-msg])
-        (monitor-process in-dir tid os-pid exec-timeout log-f))))
+        (monitor-process in-dir tid os-pid exec-timeout log-f)))
   (catch (ex bdy)
     (do
       (log-f :flash ["monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
@@ -131,4 +130,18 @@
   "Blocks until a :ext-proc-complete message is obtained from the correct monitoring procedure <pid>."
   (receive
    ({:ext-proc-complete pid result} result)))
+
+
+(defmacro+ wrap-run (exec-func)
+  "Wrap a standard execution (ext-proc or ext-job) in a function
+   that either returns the exit code of the process or fails (throws an error)."
+  (let* (pid (gensym)
+         error (gensym)
+         exit-code (gensym))
+    `(case ~exec-func
+      ({:running {~pid _}}
+        (case (ext-utils/wait-for-completion ~pid)
+          ({:success ~exit-code} ~exit-code)
+          (~error (erl/throw ~error))))
+      ({:success ~exit-code} ~exit-code))))
 
