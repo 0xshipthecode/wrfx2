@@ -9,7 +9,7 @@
 
 
 ;; construct an job script
-(defn+ make-script (tid cmd nodes np wall-time-hrs machine-file output-spec)
+(defn+ make-script (tid cmd num-nodes wall-time-hrs output-spec)
   (iol/format
    (lists/flatten
     [ "#!/usr/bin/env bash\n"
@@ -25,16 +25,16 @@
       (iol/format "#PBS -e ~p\n" [(plist/get 2 output-spec)])
       "cd $PBS_O_WORKDIR"
       (lists/map (fnm1 {_fd tgt} (iol/format "touch ~s~n" [tgt])) output-spec)
-      ; the followint two lines construct the mpirun command
-      "mpirun -np " (erl/integer_to_list np) " -hostfile" machine-file " " cmd " &\n"
+      ; the following two lines construct the mpirun command
+      "mpirun -np ~p -hostfile $PBS_NODEFILE " cmd " &\n"
       "PID=$!\n"
       "echo $PID > $PIDFILE\n"
       "wait $PID\n"
-      "echo $? > $DONEFILE\n"]) [cmd tid wall-time-hrs tid]))
+      "echo $? > $DONEFILE\n"]) [cmd tid num-nodes wall-time-hrs tid (erl/* num-nodes 12)]))
 
 
-(defn+ execute (tid command output-spec in-dir nodes np wall-time-hrs pid-timeout exec-timeout log-f)
-  (let ([pid-f exit-code-f submit-f host-f] (make-proc-names in-dir tid [".pid" ".exitcode" ".submit" ".hostfile"]))
+(defn+ execute (tid command output-spec in-dir num-nodes wall-time-hrs pid-timeout exec-timeout log-f)
+  (let ([pid-f exit-code-f submit-f] (make-proc-names in-dir tid [".pid" ".exitcode" ".submit"]))
     (case (read-int-from-file exit-code-f)
       (:invalid
         (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
@@ -48,8 +48,7 @@
               (do
                 (log-f :info ["~s: job has not been submitted yet, submitting job now" tid])
                 (let* (fqn (make-proc-file-name in-dir tid ".sh"))
-                  (file/write-file host-f (str/join nodes "\n"))
-                  (write-run-script fqn (make-script tid command (erl/length nodes) np wall-time-hrs host-f output-spec))
+                  (write-run-script fqn (make-script tid command num-nodes wall-time-hrs output-spec))
                   (erl/open-port {:spawn (lists/flatten ["qsub " fqn])} [{:cd in-dir}])
                   (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))))
           (os-pid
