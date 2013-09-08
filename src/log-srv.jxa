@@ -34,6 +34,11 @@
     (log-stream/make-log-func log-pid)))
 
 
+(defn+ close-log (log-name)
+  "Close the log <log-name>."
+  (gen_server/call :log-srv {:close-log log-name}))
+
+
 (defn+ start-link (log-dir)
   "Start the logging server and construct default log streams:
      'system' for general system messages
@@ -75,6 +80,14 @@
       ({:get-log-pid log-name}
         {:reply (dict/find log-name log-map) state})
       ; message not understood, this needs a flash priority notification
+      ({:close-log log-name}
+        (case (dict/find log-name log-map)
+          ({:ok log-pid}
+            (log-stream/close-log log-pid)
+            (log-stream/stop-log log-pid)
+            {:reply :ok [log-dir (dict/erase log-name log-map)]})
+          (error
+            {:reply :error state})))
       (other
 	      (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
 	      {:reply :invalid-request state}))))
