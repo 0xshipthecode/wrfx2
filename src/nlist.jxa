@@ -164,6 +164,9 @@
   "Retrieve the max_dom key from the namelist domains in <nls>."
   (jxl/hd (get-entry "domains" "max_dom" nls)))
 
+(defn+ all-domains (nls)
+  "Returns a list of all domains in the namelist <nls>."
+  (lists/seq 1 (max-domains nls)))
 
 (defn+ set-wps-start-time (nls dt doms)
   "Set the start time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
