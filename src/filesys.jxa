@@ -68,10 +68,14 @@
                  (list-dir-regexp dir regexp)))
 
 
+(defn+ symlink-files-to-dir (files tgt-dir)
+  "Create symlinks of files <files> in directory <tgt-dir>, reuse basename of file."
+  (lists/map (fn (x) (symlink-unless-exists x (filename/join tgt-dir (filename/basename x)))) files))
+
+
 (defn+ clone-with-files (src-dir tgt-dir files)
   "Make a 'clone' of a directory <src-dir> by creating a new directory <tgt-dir> and symlinking <files>."
   (!!= :directory (file-type src-dir))
   (create-dir tgt-dir)
   (lists/map (fn (x) (symlink-unless-exists (filename/join src-dir x) (filename/join tgt-dir x))) files))
-
 

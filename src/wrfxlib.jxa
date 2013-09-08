@@ -3,6 +3,7 @@
            (erlang :as erl :joxify))
   (use joxa-core utils))
 
+
 (defn+ clone-wps (src dst vtable)
   "Clone the WPS directory <src> to another location <dst>.
    This function uses a standard list of files that must be symlinked with
@@ -41,5 +42,26 @@
                                       out-spec in-dir 1800000 log-f))
     (!!= :found (grep-file (plist/get 1 out-spec) "SUCCESS"))
     (log-f :info ["ungrib: completed succesfully."])))
+
+
+
+(defn+ next-grib-suffix (suff)
+  "Returns the next suffix in the sequence AAA, AAB, ACC, ..., ZZZ after <suff>."
+  (let ([s1 s2 s3] suff)
+    (case (+ s3 1)
+      (91 (case (+ s2 1)
+            (91 (case (+ s1 1)
+                  (91 (erl/throw "too many grib files"))
+                  (ns3 [ns3 :\A :\A])))
+            (ns2 [s1 ns2 :\A])))
+      (ns3 [s1 s3 ns3]))))
+
+
+(defn+ symlink-grib-files (mfest dir)
+  "Construct symlinks to the GRIB files in <mfest> in directory <dir> according
+   to ungrib.exe requirements.  Assumes that the manifest files <mfest> are ordered
+   temporally."
+  (lists/foldl (fn (x acc) (filesys/symlink-unless-exists x (filename/join dir (lists/flatten ["GRIBFILE." acc])))
+                           (next-grib-suffix acc)) "AAA" mfest))
 
 

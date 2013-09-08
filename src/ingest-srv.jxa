@@ -98,8 +98,8 @@
    files are to cover the time interval from <from> to <to> and be as fresh as possible at time <at-time>.
    Optionally an earlier cycle can be requested by setting delta > 0."
   (case (find-grib-server src-name)
-	  (:no-such-server :no-such-server)
-	  (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta} (erl/* timeout 1000)))))
+    (:no-such-server :no-such-server)
+    (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time delta} (erl/* timeout 1000)))))
 
 
 (defn+ retrieve-raws-obs (src-name station-list from to timeout)

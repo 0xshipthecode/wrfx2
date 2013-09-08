@@ -153,7 +153,7 @@
   "Computes the GRIB files needed for the simulation covering the time interval <from> to <to>
    which use <delta> cycles before the last cycle and downloads them from the grib source <grib-src>.
    Files already available in <stor-dir> are not redownloaded.
-   Returns one of {:success {cov-from cov-to manifest}},
+   Returns one of {cov-from cov-to manifest},
                   :out-of-range,
                   {:missing-gribs list-of-gribs}
                   {:failed-download url}."
@@ -173,7 +173,7 @@
         ([]
           (log-func :info ["grib-retr (~p) -> all ~p files downloaded succesfully, returning manifest covering ~w to ~w with ~p files"
                     (grib-src-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
-          {:success {cov-from cov-to (lists/map (fn (x) (filename/join stor-dir x)) manifest)}})
+          {cov-from cov-to (lists/map (fn (x) (filename/join stor-dir x)) manifest)})
 			    (failure failure)))
 		 ; in case of missing gribs, download
 		 (missing-gribs 

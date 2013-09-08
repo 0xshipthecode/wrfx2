@@ -62,6 +62,7 @@
 (defn+ init (args)
     {:ok args})
 
+
 (defn+ handle_call (request from state)
   (jxc/let ([log-dir log-map] state)
     (case request
@@ -75,7 +76,7 @@
                err-tgt (log-stream/make-relay-target (dict/fetch "wrfx-errors" log-map) :error)
                flash-tgt (log-stream/make-relay-target (dict/fetch "wrfx-flash" log-map) :flash)
                log-pid (log-stream/start-log log-name (main-tgt . (err-tgt . (flash-tgt . additional-targets)))))
-          {:reply {:ok log-pid} [log-dir (dict/store log-name log-pid log-map)]}))
+          {:reply {:ok log-pid (log-stream/make-log-func log-pid)} [log-dir (dict/store log-name log-pid log-map)]}))
       ; retrieve the pid of a log with the given name
       ({:get-log-pid log-name}
         {:reply (dict/find log-name log-map) state})
@@ -89,8 +90,8 @@
           (error
             {:reply :error state})))
       (other
-	      (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
-	      {:reply :invalid-request state}))))
+        (log-stream/flash (dict/fetch "system" log-map) "log-srv: message ~p not understood, fix it!" other)
+        {:reply :invalid-request state}))))
 
 (defn+ handle_cast (msg state)
   {:noreply state})
