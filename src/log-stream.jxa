@@ -90,11 +90,12 @@
 
 ;; relay the eof message to all targets
 (defn send-eof (tgt close-msg)
-  "Interpret the :eof message for the target <tgt>."
+  "Interpret the :eof message for the target <tgt>.
+   NOTE: :eof messages are not propagated to :relay targets."
   (case tgt
-	({:stdio _level}      (io/format close-msg))
-	({:device dev} (io/format dev close-msg []) (file/close dev))
-	({:relay pid _level}  (erl/send pid :eof))))
+    ({:stdio _level}      (io/format close-msg))
+    ({:device dev} (io/format dev close-msg []) (file/close dev))
+    ({:relay pid _level}  :ok)))
 
 
 ;; the main logging loop which waits for messages in the form
