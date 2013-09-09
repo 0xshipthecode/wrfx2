@@ -5,7 +5,7 @@
            filesys
            log-srv
            ingest-srv
-           filename
+           filename io
            (time-arith :as ta)
            (file :joxify)
            (erlang :as erl :joxify))
@@ -16,7 +16,7 @@
   "Fill out entries relevant to geogrid in the namelist <nls> and write the namelist into
    the wps working directory <wps-dir>.  Retrieve job parameters from <args>"
   (let* (wps-geog-dir (plist/get :wps-geog-dir args)
-         nls1 (nlist/set-entry "geogrid" "geog_data_path" wps-geog-dir nls))
+         nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls))
     nls1))
 
 
@@ -38,35 +38,44 @@
    wps-inst-dir: WPS installation directory
    wps-geog-dir: WPS geography data directory
    grib-src: name of the GRIB source"
-  (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-idir :wrf-idir ] args)
+  (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir ] args)
         [grib-src ign-when ign-where]       (plist/get-list [:grib-src :ign-when :ign-where] args)
-        sim-from        (ta/shift-by-hours ign-when -2)
-        sim-to          (ta/shift-by-hours ign-when  6)
-        {:ok _ log-f}   (log-srv/create-log job-id [])
-        wps-wdir        (filename/join (work-dir "wps"))
-        ; step 1:  construct innermost domain from ignition point and add it to the namelist,
-        ;          and write namelist to working directory,
-        wps-nl1         (make-geogrid-namelist (nlist/parse "etc/nlists/barker_fire.wps" :barker_wps0) wps-wdir args))
+        {:ok _ log-f}  (log-srv/create-log job-id []))
 
-    ; create the working directory for WPS
-    (!!= :ok (filesys/create-dir wps-wdir))
-    (!!= :ok (file/write-file (filename/join wps-wdir "namelist.wps") wps-nl1))
+    (let* (sim-from        (ta/shift-by-hours ign-when -2)
+           sim-to          (ta/shift-by-hours ign-when  6)
+           wps-wdir        (filename/join work-dir "wps")
+           wps-nl0         (nlist/parse "etc/nlists/barker_fire.wps" :barker_wps0))
 
-    (wrfxlib/run-geogrid wps-wdir log-f)
-    (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src sim-from sim-to sim-from 0 3600000)
-          wps-nl2                   (make-ungrib-namelist wps-nl1 cov-from cov-to (nlist/all-domains wps-nl1)))
-      (wrfxlib/symlink-grib-files mfest wps-wdir)
-      (file/write-file (filename/join wps-wdir "namelist.wps") wps-nl2))
+      (log-f :info ["fire-sim: job-id ~p work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
+      ; create the working directory for WPS
+      (!!= :ok (filesys/create-dir work-dir))
+      (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
 
-    (wrfxlib/run-ungrib wps-wdir log-f)))
+      ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
+      (let* (wps-nl1 (make-geogrid-namelist wps-nl0 wps-wdir args))
+        (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" job-id]) 
+        (!!= :ok (file/write-file (filename/join wps-wdir "namelist.wps") (nlist/render-namelists wps-nl1)))
+        (wrfxlib/run-geogrid wps-wdir log-f)
+        ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
+        (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" job-id sim-from sim-to])
+        (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src sim-from sim-to sim-from 0 3600000)
+              wps-nl2                   (make-ungrib-namelist wps-nl1 cov-from cov-to (nlist/all-domains wps-nl1)))
+          (wrfxlib/symlink-grib-files mfest wps-wdir)
+          (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])
+          (file/write-file (filename/join wps-wdir "namelist.wps") wps-nl2)))
+
+      ; step 3: run ungrib
+      (wrfxlib/run-ungrib wps-wdir log-f))))
 
 (defn+ test ()
-  (run [ {:ign-when {{2012 9 9} {4 0 0}}}
+  (run [ {:job-id "fire_sim_47592abb980ac"}
+         {:ign-when {{2013 9 1} {4 0 0}}}
          {:ign-where { 13.1 123.5 }}
-         {:work-dir "wksp"}
+         {:work-dir "/home/mvejmelka/Projects/wrfx2/wksp/test-fs"}
          {:wrf-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WRFV3"}
          {:wps-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WPS"}
-         {:wps-geog-dir "/home/mvejmelka/Packages/WPS-GEOG"}
+         {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
          {:grib-src "nam_218"} ]))
 
 
