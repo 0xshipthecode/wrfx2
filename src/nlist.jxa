@@ -41,6 +41,12 @@
     (lists/map render-nlist/1 nlists)))
 
 
+(defn+ has-nl (nlname nls)
+  "Check if the namelists <nls> contain a particular namelist <nlname>."
+  (let ({:nls _name nlists} nls)
+    (plist/contains nlname nlists)))
+
+
 (defn+ get-nl (nlname nls)
   "Retrieve the namelist <nlname> from the namelists <nls>."
   (let ({:nls name nlists} nls)
@@ -160,18 +166,24 @@
                                              {"end_day" day} {"end_hour" h}
                                              {"end_minute" min} {"end_second" s}] doms)))
 
+
 (defn+ max-domains (nls)
-  "Retrieve the max_dom key from the namelist domains in <nls>."
-  (jxl/hd (get-entry "domains" "max_dom" nls)))
+  "Retrieve the max_dom key from the namelist 'domains' in <nls> if this
+   is a WRF namelist or in the share namelist in a WPS namelist."
+  (if (has-nl "domains" nls)
+    (jxl/hd (get-entry "domains" "max_dom" nls))
+    (jxl/hd (get-entry "share" "max_dom" nls))))
+
 
 (defn+ all-domains (nls)
   "Returns a list of all domains in the namelist <nls>."
   (lists/seq 1 (max-domains nls)))
 
+
 (defn+ set-wps-start-time (nls dt doms)
   "Set the start time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
   (let* (dt-str (ta/to-esmf-string dt))
-    (set-values-for-doms nls "share" [{"start_time" dt-str}] doms)))
+    (set-values-for-doms nls "share" [{"start_date" dt-str}] doms)))
 
 
 (defn+ get-wps-start-time (nls dom)

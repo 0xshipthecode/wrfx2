@@ -28,7 +28,7 @@
 (defn+ run-geogrid (in-dir log-f)
   (let* (out-spec (ext-utils/make-std-output-spec in-dir "geogrid")
          cmd      (filename/join in-dir "geogrid.exe"))
-    (log-f :info ["running geogrid"])
+    (log-f :info ["running GEOGRID"])
     (ext-utils/wrap-run (ext-proc/run "geogrid" cmd out-spec in-dir 1200000 log-f))
     (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of geogrid."))
     (log-f :info ["geogrid: completed successfully"])))
@@ -38,11 +38,20 @@
   "Run ungrib.exe in the WPS directory <in-dir> and log progress to using <log-f>."
   (let* (out-spec (ext-utils/make-std-output-spec in-dir "ungrib")
          cmd      (filename/join in-dir "ungrib.exe"))
-    (log-f :info ["running ungrib"])
+    (log-f :info ["running UNGRIB"])
     (ext-utils/wrap-run (ext-proc/run "ungrib" cmd out-spec in-dir 1800000 log-f))
-    (!!= :found (grep-file (plist/get 1 out-spec) "SUCCESS"))
+    (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of ungrib."))
     (log-f :info ["ungrib: completed succesfully."])))
 
+
+(defn+ run-metgrid (in-dir log-f)
+  "Run metgrid.exe in the WPS directory <in-dir> and log progress using <log-f>."
+  (let* (out-spec (ext-utils/make-std-output-spec in-dir "metgrid")
+         cmd      (filename/join in-dir "metgrid.exe"))
+    (log-f :info ["running METGRID"])
+    (ext-utils/wrap-run (ext-proc/run "metgrid" cmd out-spec in-dir 1800000 log-f))
+    (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of metgrid."))
+    (log-f :info ["metgrid: completed succesfully."])))
 
 
 (defn+ next-grib-suffix (suff)
@@ -54,7 +63,7 @@
                   (91 (erl/throw "too many grib files"))
                   (ns3 [ns3 :\A :\A])))
             (ns2 [s1 ns2 :\A])))
-      (ns3 [s1 s3 ns3]))))
+      (ns3 [s1 s2 ns3]))))
 
 
 (defn+ symlink-grib-files (mfest dir)

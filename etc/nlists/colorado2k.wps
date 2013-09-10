@@ -1,0 +1,37 @@
+&share
+ wrf_core = 'ARW',
+ max_dom = 1,
+ io_form_geogrid = 2,
+ start_date = '2012-06-01_00:00:00',
+ end_date   = '2012-06-06_00:00:00',
+ interval_seconds   = 86400
+/
+
+&geogrid
+ e_we                     = 264,
+ e_sn                     = 200,
+ dx                       = 2000,
+ dy                       = 2000,
+ parent_id                = 1,
+ i_parent_start           = 1,
+ j_parent_start           = 1,
+ parent_grid_ratio        = 1,
+ geog_data_res            = '30s',
+ map_proj = 'lambert',
+ ref_lat   = 39, 
+ ref_lon   = -105.5,
+ truelat1  =  37.5,
+ truelat2  =  40.5,
+ stand_lon = -105.5,
+ geog_data_path = '/home/mvejmelka/Packages/WPS_GEOG'
+/
+
+&ungrib
+ out_format = 'WPS',
+ prefix = 'COLMET',
+/
+
+&metgrid
+ fg_name = 'COLMET',
+ io_form_metgrid = 2, 
+/

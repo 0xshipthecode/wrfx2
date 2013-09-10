@@ -1,7 +1,7 @@
 [
   {'mnesia-dir', "db"},
   {'logging-dir', "log"},
-  {'workspace-dir',  "workspace"},
-  {'ingest-storage-dir', "ingest"}
+  {'workspace-dir',  "/home/mvejmelka/Projects/wrfx2/wksp"},
+  {'ingest-storage-dir', "/home/mvejmelka/Projects/wrfx2/ingest"}
 ].
 

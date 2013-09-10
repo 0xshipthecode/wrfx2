@@ -24,8 +24,9 @@
   "Set the start/end times for WPS to <cov-from>/<cov-to> for domains <doms>
    in the wps namelist <nls>."
   (let* (nls1 (nlist/set-wps-start-time nls cov-from doms)
-         nls2 (nlist/set-wps-end-time nls1 cov-to doms))
-    nls2))
+         nls2 (nlist/set-wps-end-time nls1 cov-to doms)
+         nls3 (nlist/set-entry "share" "interval_seconds" [3600] nls2))
+    nls3))
 
 
 (defn+ run (args)
@@ -45,7 +46,7 @@
     (let* (sim-from        (ta/shift-by-hours ign-when -2)
            sim-to          (ta/shift-by-hours ign-when  6)
            wps-wdir        (filename/join work-dir "wps")
-           wps-nl0         (nlist/parse "etc/nlists/barker_fire.wps" :barker_wps0))
+           wps-nl0         (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0))
 
       (log-f :info ["fire-sim: job-id ~p work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
       ; create the working directory for WPS
@@ -53,20 +54,25 @@
       (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
 
       ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-      (let* (wps-nl1 (make-geogrid-namelist wps-nl0 wps-wdir args))
+      (let* (wps-nl1 (make-geogrid-namelist wps-nl0 wps-wdir args)
+             wps-nl-name (filename/join wps-wdir "namelist.wps"))
         (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" job-id]) 
-        (!!= :ok (file/write-file (filename/join wps-wdir "namelist.wps") (nlist/render-namelists wps-nl1)))
+        (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
         (wrfxlib/run-geogrid wps-wdir log-f)
         ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
         (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" job-id sim-from sim-to])
         (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src sim-from sim-to sim-from 0 3600000)
               wps-nl2                   (make-ungrib-namelist wps-nl1 cov-from cov-to (nlist/all-domains wps-nl1)))
+          (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
           (wrfxlib/symlink-grib-files mfest wps-wdir)
           (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])
           (file/write-file (filename/join wps-wdir "namelist.wps") wps-nl2)))
 
-      ; step 3: run ungrib
-      (wrfxlib/run-ungrib wps-wdir log-f))))
+      ; step 3: run ungrib & metgrid
+      (wrfxlib/run-ungrib wps-wdir log-f)
+      (wrfxlib/run-metgrid wps-wdir log-f)
+
+      :ok)))
 
 (defn+ test ()
   (run [ {:job-id "fire_sim_47592abb980ac"}
