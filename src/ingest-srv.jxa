@@ -40,25 +40,22 @@
 	  ({:ok content}
       (case (utils/eval-erlang (erl/binary-to-list content) (erl_eval/new-bindings))
         ({:value src-list _} src-list)
-			  (error error)))
-    (error error)))
+			  (error (erl/throw error))))
+    (error (erl/throw error))))
 
 
 (defn+ check-src-def-file (fname)
   "Check whether the source definition file <fname> contains a list of values (and is parsable)."
   (case (load-src-def-file fname)
 	  (values (when (erl/is-list values)) :ok)
-	  (other {:error (iol/format "Top-level expression is not a list or error ~p." [other])})))
+	  (other {:error (lists/flatten (iol/format "Top-level expression is not a list or error ~p." [other]))})))
 
 
 (defn+ reload-sources (fname reload-command)
   "Reloads the source definition file <fname> and passes the content
    along with the <reload-command> as {reload-command list-of-source} to the ingest server."
-  (let* (file-content (load-src-def-file fname))
-    (case file-content
-	    (source-list (when (erl/is-list file-content))
-	      (gen_server/call :ingest-srv {reload-command source-list}))
-	    (other {:error "Top-level expression is not a list."}))))
+  (let* (source-list (load-src-def-file fname))
+    (gen_server/call :ingest-srv {reload-command source-list})))
 
 
 (defn+ start-link (stor-dir log-f)
@@ -88,9 +85,9 @@
 
 (defn+ get-grib-def (src-name)
   "Return the record of the GRIB source <src-name>."
-  (case (gen_server/call :ingest-srv {:find-grib-def src-name})
-	  ({:ok grib-src} grib-src)
-	  (:error :no-such-source)))
+  (case (gen_server/call :ingest-srv {:find-grib-source src-name})
+    ({:ok grib-src} grib-src)
+    (:error :no-such-source)))
 
 
 (defn+ retrieve-gribs (src-name from to at-time delta timeout)

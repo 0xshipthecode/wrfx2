@@ -69,6 +69,17 @@
   (set-nl nlname (plist/set key vals (get-nl nlname nls)) nls))
 
 
+(defn update-namelist-entries (entries nls)
+  "Update the namelists <nls> with the plist <kvs>."
+  (let ({nlname kvs} entries)
+    (set-nl nlname (plist/update-with kvs (get-nl nlname nls)) nls)))
+
+
+(defn+ set-entries (entries nls)
+  "Set entries to given keys in the namelists <nls>."
+  (lists/foldl (fn (el nl) (update-namelist-entries el nl)) nls entries))
+
+
 (defn+ update-list (lst val ndx curr acc)
   (case ndx
     ([] (lists/reverse acc lst))

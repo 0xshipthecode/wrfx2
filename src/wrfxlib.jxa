@@ -1,5 +1,5 @@
 (ns wrfxlib
-  (require filesys filename ext-proc ext-utils plist
+  (require filesys filename ext-proc ext-job ext-utils plist
            (erlang :as erl :joxify))
   (use joxa-core utils))
 
@@ -73,4 +73,9 @@
   (lists/foldl (fn (x acc) (filesys/symlink-unless-exists x (filename/join dir (lists/flatten ["GRIBFILE." acc])))
                            (next-grib-suffix acc)) "AAA" mfest))
 
+
+(defn+ submit-wrf-job (wrf-wdir num-nodes log-f)
+  "Submit a WRF job using the ext-job module for WRF in working directory <wrf-wdir>
+   on <num-nodes> nodes and log progress on <log-f>."
+  :ok)
 

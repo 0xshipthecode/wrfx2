@@ -6,26 +6,37 @@
            log-srv
            ingest-srv
            filename io
+           grib-src-def
            (time-arith :as ta)
            (file :joxify)
            (erlang :as erl :joxify))
   (use joxa-core utils))
 
 
-(defn+ make-geogrid-namelist (nls wps-dir args)
+(defn+ make-geogrid-namelist (wps-dir args nls0)
   "Fill out entries relevant to geogrid in the namelist <nls> and write the namelist into
    the wps working directory <wps-dir>.  Retrieve job parameters from <args>"
   (let* (wps-geog-dir (plist/get :wps-geog-dir args)
-         nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls))
+         nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls0))
     nls1))
 
 
-(defn+ make-ungrib-namelist (nls cov-from cov-to doms)
+(defn+ make-ungrib-namelist (cov-from cov-to doms nls0)
   "Set the start/end times for WPS to <cov-from>/<cov-to> for domains <doms>
    in the wps namelist <nls>."
-  (let* (nls1 (nlist/set-wps-start-time nls cov-from doms)
+  (let* (nls1 (nlist/set-wps-start-time nls0 cov-from doms)
          nls2 (nlist/set-wps-end-time nls1 cov-to doms)
          nls3 (nlist/set-entry "share" "interval_seconds" [3600] nls2))
+    nls3))
+
+
+(defn+ make-wrf-namelist (sim-from sim-to grib-src doms nls0)
+  "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
+   the grib source needs."
+  (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from doms)
+         nls2     (nlist/set-wrf-end-time nls1 sim-to doms)
+         grib-upd (grib-src-def/nl-keys grib-src)
+         nls3     (nlist/set-entries grib-upd nls2))
     nls3))
 
 
@@ -38,15 +49,19 @@
    wrf-inst-dir: WRF installation directory
    wps-inst-dir: WPS installation directory
    wps-geog-dir: WPS geography data directory
-   grib-src: name of the GRIB source"
+   grib-src-name: name of the GRIB source"
   (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir ] args)
-        [grib-src ign-when ign-where]       (plist/get-list [:grib-src :ign-when :ign-where] args)
-        {:ok _ log-f}  (log-srv/create-log job-id []))
+        [grib-src-name ign-when ign-where]  (plist/get-list [:grib-src-name :ign-when :ign-where] args)
+        {:ok _ log-f}                       (log-srv/create-log job-id []))
 
-    (let* (sim-from        (ta/shift-by-hours ign-when -2)
-           sim-to          (ta/shift-by-hours ign-when  6)
-           wps-wdir        (filename/join work-dir "wps")
-           wps-nl0         (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0))
+    (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
+           sim-from   (ta/shift-by-hours ign-when -2)
+           sim-to     (ta/shift-by-hours ign-when  6)
+           wps-wdir   (filename/join work-dir "wps")
+           wrf-wdir   (filename/join work-dir "wrf")
+           wps-nl0    (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0)
+           wrf-nl0    (nlist/parse "etc/nlists/colorado2k.input" :colorado_2k_wrf0)
+           all-doms   (nlist/all-domains wps-nl0))
 
       (log-f :info ["fire-sim: job-id ~p work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
       ; create the working directory for WPS
@@ -54,23 +69,33 @@
       (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
 
       ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-      (let* (wps-nl1 (make-geogrid-namelist wps-nl0 wps-wdir args)
+      (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
              wps-nl-name (filename/join wps-wdir "namelist.wps"))
         (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" job-id]) 
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
         (wrfxlib/run-geogrid wps-wdir log-f)
         ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
         (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" job-id sim-from sim-to])
-        (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src sim-from sim-to sim-from 0 3600000)
-              wps-nl2                   (make-ungrib-namelist wps-nl1 cov-from cov-to (nlist/all-domains wps-nl1)))
+        (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
+              wps-nl2                   (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
           (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
           (wrfxlib/symlink-grib-files mfest wps-wdir)
-          (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])
-          (file/write-file (filename/join wps-wdir "namelist.wps") wps-nl2)))
+          (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])))
 
       ; step 3: run ungrib & metgrid
       (wrfxlib/run-ungrib wps-wdir log-f)
       (wrfxlib/run-metgrid wps-wdir log-f)
+
+      ; step 4: setup the WRF working directory
+      (log-f :info ["fire-sim [~p]: creating WRF working directory" job-id])
+      (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+
+      ; step 5: construct the WRF namelist
+      (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
+        (log-f :info ["fire-sim [~p] writing namelist.input for WRF" job-id])
+        (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
+
+      (log-f :info ["fire-sim [~p] end of job reached" job-id])
 
       :ok)))
 
@@ -79,9 +104,9 @@
          {:ign-when {{2013 9 1} {4 0 0}}}
          {:ign-where { 13.1 123.5 }}
          {:work-dir "/home/mvejmelka/Projects/wrfx2/wksp/test-fs"}
-         {:wrf-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WRFV3"}
+         {:wrf-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WRFV3/run"}
          {:wps-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WPS"}
          {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
-         {:grib-src "nam_218"} ]))
+         {:grib-src-name "nam_218"} ]))
 
 
