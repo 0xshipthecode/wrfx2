@@ -58,6 +58,14 @@
     (erl/- to-s from-s)))
 
 
+(defn+ days-hrs-mins-secs-between (from to)
+  "Find the number of days/hours/minutes/seconds between <from> and <to> and
+   return it as a list."
+  (let* (total-seconds (seconds-between from to)
+         fold-secs     (fn (d s) {(erl/div s d) (erl/rem s d)}))
+    (erl/element 1 (lists/mapfoldl fold-secs total-seconds [86400 3600 60 1]))))
+
+
 (defn+ hours-between (from to)
   "Compute the number of whole hours between <from> and <to> assuming
    that to > from."
