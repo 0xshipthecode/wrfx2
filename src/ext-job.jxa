@@ -48,7 +48,8 @@
         (case (read-pid-file pid-f)
           ({os-pid start-time}
             (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
-              (log-f :info ["~s: found pid file with pid ~p, process started on ~w, waiting for completion another ~p ms" tid os-pid start-time remaining-exec-timeout])
+              (log-f :info ["~s: found pid file with pid ~p, process started on ~w, waiting for completion another ~p ms"
+                            tid os-pid start-time remaining-exec-timeout])
               (begin-monitoring in-dir tid pid-timeout remaining-exec-timeout log-f)))
           (:invalid
             (log-f :info ["~s: no pid file found, checking for submission file ~p" tid submit-f])
@@ -57,7 +58,7 @@
                 (log-f :info ["~s: job has not been submitted yet, submitting job now" tid])
                 (let* (fqn (make-proc-file-name in-dir tid ".sh"))
                   (write-run-script fqn (make-script tid command num-nodes wall-time-hrs))
-                  (erl/open-port {:spawn (lists/flatten ["qsub " fqn])} [{:cd in-dir}])
+                  (erl/open-port {:spawn (lists/flatten ["qsub " fqn])} [{:cd in-dir} :out])
                   (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))
               (submit-time
                 (let* (remaining-pid-timeout (- pid-timeout (erl/* (ta/seconds-elapsed-from submit-time) 1000)))

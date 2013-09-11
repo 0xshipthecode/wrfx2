@@ -41,6 +41,7 @@
     ([exit-code unix-ts] {exit-code (ta/from-unix-timestamp unix-ts)})
     (:invalid :invalid)))
 
+
 (defn+ read-submit-file (fname)
   "Read the submit file <fname> that only contains the date submitted."
   (case (read-ints-from-file fname)
@@ -120,7 +121,7 @@
            pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process in-dir tid :undefined exec-timeout log-f)}))
       ;; construct the first watcher that scans for pids
       (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
-      {:running {pid exit-code-f}})))
+      {:running pid})))
 
 
 ;; simplest wait-for-completion stub, which just returns result
@@ -129,7 +130,8 @@
 (defn+ wait-for-completion (pid)
   "Blocks until a :ext-proc-complete message is obtained from the correct monitoring procedure <pid>."
   (receive
-   ({:ext-proc-complete pid result} result)))
+   ({:ext-proc-complete pid result} result)
+   (other (io/format "wait-for-completion recvd ~p~n" [other]) (wait-for-completion pid))))
 
 
 (defmacro+ wrap-run (exec-func)
@@ -139,7 +141,7 @@
          error (gensym)
          exit-code (gensym))
     `(case ~exec-func
-      ({:running {~pid _}}
+      ({:running ~pid}
         (case (ext-utils/wait-for-completion ~pid)
           ({:success ~exit-code} ~exit-code)
           (~error (erl/throw ~error))))

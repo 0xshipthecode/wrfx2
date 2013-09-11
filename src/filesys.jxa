@@ -7,7 +7,7 @@
              (erlang :as erl)
              (joxa-core :as jxc)
              re)
-    (use (utils :only (!!=/2 wait-for-file/3))))
+    (use (utils :only (!!=/2))))
 
 
 (defn+ create-dir (dir)
@@ -16,11 +16,6 @@
     (:ok              :ok)
     ({:error :eexist} :ok)
     ({:error reason}  (erl/throw reason))))
-
-
-(defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
-  ;; forward call to utility module
-  (wait-for-file file-name timeout file-wait-chunk-ms))
 
 
 (defspec delete ((erl/string)) (erl/atom))
@@ -70,7 +65,14 @@
 
 (defn+ symlink-files-to-dir (files tgt-dir)
   "Create symlinks of files <files> in directory <tgt-dir>, reuse basename of file."
-  (lists/map (fn (x) (symlink-unless-exists x (filename/join tgt-dir (filename/basename x)))) files))
+  (lists/map (fn (x) (!!= :ok (symlink-unless-exists x (filename/join tgt-dir (filename/basename x))))) files)
+  :ok)
+
+
+(defn+ symlink-files-to-dir (bfiles src-dir tgt-dir)
+  "Symlink the files <bfiles> (identified by their basenames) in directory <src-dir> to directory <tgt-dir>."
+  (lists/map (fn (x) (!!= :ok (symlink-unless-exists (filename/join src-dir x) (filename/join tgt-dir x)))) bfiles)
+  :ok)
 
 
 (defn+ clone-with-files (src-dir tgt-dir files)
@@ -79,4 +81,10 @@
   (create-dir tgt-dir)
   (lists/map (fn (x) (symlink-unless-exists (filename/join src-dir x) (filename/join tgt-dir x))) files)
   :ok)
+
+
+(defn+ rename-file (src-name tgt-name)
+  "Rename the file <src-name> to the file <tgt-name>."
+  (!!= :ok (file/rename src-name tgt-name)))
+
 
