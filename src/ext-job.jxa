@@ -22,7 +22,7 @@
       "echo `date +%s` > $TID.submit\n"
       "mpirun -np ~p -hostfile $PBS_NODEFILE ~s &\n"
       "PID=$!\n"
-      "echo $PID > $TID.pid"
+      "echo $PID > $TID.pid\n"
       "echo `date +%s` >> $TID.pid\n"
       "wait $PID\n"
       "echo $? > $TID.exitcode\n"
