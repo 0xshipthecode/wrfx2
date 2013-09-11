@@ -61,8 +61,8 @@
     (log-f :info ["running REAL"])
     (ext-utils/wrap-run (ext-proc/run "real" cmd [] in-dir 1800000 log-f))
     (!!= :found (grep-file out-file "SUCCESS COMPLETE REAL_EM"))
-    (filesys/rename-file out-file (filename/join in-dir "real.stdout"))
-    (filesys/rename-file (filename/join in-dir "rsl.error.0000") (filename/join in-dir "rsl.out.0000"))
+    (filesys/copy out-file (filename/join in-dir "real.stdout"))
+    (filesys/copy (filename/join in-dir "rsl.error.0000") (filename/join in-dir "real.stderr"))
     (log-f :info ["real completed succesfully."])))
 
 

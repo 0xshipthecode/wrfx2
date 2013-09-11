@@ -14,22 +14,20 @@
   (iol/format
    (lists/flatten
     [ "#!/usr/bin/env bash\n"
-      "TID=~p\n"
-      "PIDFILE=$TID.pid\n"
-      "DONEFILE=$TID.exitcode\n"
       "#PBS -l nodes=~p:ppn=12\n"
       "#PBS -l walltime=~p:00:00\n"
       "#PBS -N ~s\n"
+      "TID=~p\n"
       "cd $PBS_O_WORKDIR\n"
       "echo `date +%s` > $TID.submit\n"
       "mpirun -np ~p -hostfile $PBS_NODEFILE ~s &\n"
       "PID=$!\n"
-      "echo $PID > $PIDFILE\n"
-      "echo `date +%s` >> $PIDFILE\n"
+      "echo $PID > $TID.pid"
+      "echo `date +%s` >> $TID.pid\n"
       "wait $PID\n"
-      "echo $? > $DONEFILE\n"
-      "echo `date +%s` >> $DONEFILE\n"])
-        [tid num-nodes wall-time-hrs tid (erl/* num-nodes 12) cmd]))
+      "echo $? > $TID.exitcode\n"
+      "echo `date +%s` >> $TID.exitcode\n"])
+        [num-nodes wall-time-hrs tid tid (erl/* num-nodes 12) cmd]))
 
 
 (defn+ run (tid command in-dir num-nodes wall-time-hrs pid-timeout exec-timeout log-f)

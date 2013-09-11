@@ -88,3 +88,8 @@
   (!!= :ok (file/rename src-name tgt-name)))
 
 
+(defn+ copy (src dst)
+  "Copy the name <src> to <dst>."
+  (!!= {:ok _} (file/copy src dst))
+  :ok)
+
