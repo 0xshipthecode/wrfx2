@@ -56,14 +56,21 @@
 
 (defn+ run-real (in-dir log-f)
   "Run the (parallel) real.exe in the WRF directory <in-dir> and log progress using <log-f>."
-  (let* (cmd      (filename/join in-dir "real.exe")
-         out-file (filename/join in-dir "rsl.out.0000"))
+  (let* (cmd          (filename/join in-dir "real.exe")
+         out-file     (filename/join in-dir "rsl.out.0000")
+         err-file     (filename/join in-dir "rsl.error.0000")
+         new-out-file (filename/join in-dir "real.stdout"))
     (log-f :info ["running REAL"])
-    (ext-utils/wrap-run (ext-proc/run "real" cmd [] in-dir 1800000 log-f))
-    (!!= :found (grep-file out-file "SUCCESS COMPLETE REAL_EM"))
-    (filesys/copy out-file (filename/join in-dir "real.stdout"))
-    (filesys/copy (filename/join in-dir "rsl.error.0000") (filename/join in-dir "real.stderr"))
-    (log-f :info ["real completed succesfully."])))
+    (case (ext-proc/run "real" cmd [] in-dir 1800000 log-f)
+      ({:running pid}
+        (case (ext-utils/wait-for-completion pid)
+          ({:success exit-code}
+            (!!= :ok (filesys/copy out-file new-out-file))
+            (!!= :ok (filesys/copy err-file (filename/join in-dir "real.stderr"))))
+          (error (erl/throw error))))
+      ({:success exit-code} exit-code))
+    (!!= :found (grep-file new-out-file "SUCCESS COMPLETE REAL_EM"))
+    (log-f :info ["real completed succesfully"])))
 
 
 (defn+ next-grib-suffix (suff)

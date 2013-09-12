@@ -7,6 +7,7 @@
            ext-utils
            ext-job
            log-srv
+           log-stream
            ingest-srv
            filename io
            grib-src-def
@@ -86,69 +87,77 @@
    wps-inst-dir: WPS installation directory
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
-  (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir ] args)
-        [grib-src-name ign-when ign-where]  (plist/get-list [:grib-src-name :ign-when :ign-where] args)
-        {:ok _ log-f}                       (log-srv/create-log job-id []))
+  (try*
 
-    (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
-           sim-from   (ta/shift-by-hours ign-when -2)
-           sim-to     (ta/shift-by-hours ign-when  2)
-           wps-wdir   (filename/join work-dir "wps")
-           wrf-wdir   (filename/join work-dir "wrf")
-           wps-nl0    (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0)
-           wrf-nl0    (nlist/parse "etc/nlists/colorado2k.input" :colorado_2k_wrf0)
-           all-doms   (nlist/all-domains wps-nl0))
+    (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir ] args)
+          [grib-src-name ign-when ign-where]  (plist/get-list [:grib-src-name :ign-when :ign-where] args)
+          {:ok _ log-f}                       (log-srv/create-log job-id []))
 
-      (log-f :info ["fire-sim: job-id ~p work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
-      ; create the working directory for WPS
-      (!!= :ok (filesys/create-dir work-dir))
-      (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
+      (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
+             sim-from   (ta/shift-by-hours ign-when -2)
+             sim-to     (ta/shift-by-hours ign-when  2)
+             wps-wdir   (filename/join work-dir "wps")
+             wrf-wdir   (filename/join work-dir "wrf")
+             wps-nl0    (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0)
+             wrf-nl0    (nlist/parse "etc/nlists/colorado2k.input" :colorado_2k_wrf0)
+             all-doms   (nlist/all-domains wps-nl0))
 
-      ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-      (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
-             wps-nl-name (filename/join wps-wdir "namelist.wps"))
-        (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" job-id]) 
-        (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-        (wrfxlib/run-geogrid wps-wdir log-f)
-        ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-        (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" job-id sim-from sim-to])
-        (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
-              wps-nl2                   (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
-          (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
-          (wrfxlib/symlink-grib-files mfest wps-wdir)
-          (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])))
+        (log-f :info ["fire-sim: job-id ~p work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
+        ; create the working directory for WPS
+        (!!= :ok (filesys/create-dir work-dir))
+        (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
 
-      ; step 3: run ungrib & metgrid
-      (wrfxlib/run-ungrib wps-wdir log-f)
-      (wrfxlib/run-metgrid wps-wdir log-f)
+        ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
+        (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
+               wps-nl-name (filename/join wps-wdir "namelist.wps"))
+          (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" job-id]) 
+          (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
+          (wrfxlib/run-geogrid wps-wdir log-f)
+          ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
+          (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" job-id sim-from sim-to])
+          (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
+                wps-nl2                   (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+            (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
+            (wrfxlib/symlink-grib-files mfest wps-wdir)
+            (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])))
 
-      ; step 4: setup the WRF working directory
-      (log-f :info ["fire-sim [~p]: creating WRF working directory" job-id])
-      (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+        ; step 3: run ungrib & metgrid
+        (wrfxlib/run-ungrib wps-wdir log-f)
+        (wrfxlib/run-metgrid wps-wdir log-f)
 
-      ; step 5: symlink all met_em* files to the wrfdir
-      (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
-        (log-f :info ["fire-sim [~p] symlinking ~p met_em* files to the wrf dir." job-id (erl/length met-em-files)])
-        (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
+        ; step 4: setup the WRF working directory
+        (log-f :info ["fire-sim [~p]: creating WRF working directory" job-id])
+        (wrfxlib/clone-wrf wrf-idir wrf-wdir)
 
-      ; step 6: construct the WRF namelist
-      (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
-        (log-f :info ["fire-sim [~p] writing namelist.input for WRF" job-id])
-        (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
+        ; step 5: symlink all met_em* files to the wrfdir
+        (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
+          (log-f :info ["fire-sim [~p] symlinking ~p met_em* files to the wrf dir." job-id (erl/length met-em-files)])
+          (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
-      ;step 7: run real.exe
-      (wrfxlib/run-real wrf-wdir log-f)
+        ; step 6: construct the WRF namelist
+        (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
+          (log-f :info ["fire-sim [~p] writing namelist.input for WRF" job-id])
+          (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
-      ; step 8: run WRF
-      (log-f :info ["fire-sim [~p] running WRF" job-id])
-      (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir 4 2 60000 3600000 log-f)
-        ({:running wrf-pid} (monitor-wrf-execution wrf-wdir wrf-pid job-id log-f))
-        ({:success exit-code}
-          (log-f :info ["fire-sim [~p] job is already completed, nothing to compute" job-id])))
+        ;step 7: run real.exe
+        (wrfxlib/run-real wrf-wdir log-f)
 
-      (log-f :info ["fire-sim [~p] end of job reached" job-id])
+        ; step 8: run WRF
+        (log-f :info ["fire-sim [~p] running WRF" job-id])
+        (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir 4 2 60000 3600000 log-f)
+          ({:running wrf-pid} (monitor-wrf-execution wrf-wdir wrf-pid job-id log-f))
+          ({:success exit-code}
+            (log-f :info ["fire-sim [~p] job is already completed, nothing to compute" job-id])))
 
-      :ok)))
+        (log-f :info ["fire-sim [~p] end of job reached" job-id])
+        :ok))
+
+      (catch (type body)
+        (let* (syslog (log-srv/get-log "system"))
+          (log-stream/log-msg syslog :flash "fire-sim [~p] job crashed with exception ~p bdy ~p, stacktrace ~p~n"
+            [(plist/get :job-id args) type body (erl/get-stacktrace)])
+            :error))))
+
 
 (defn+ test ()
   (run [ {:job-id "fire-sim-47592abb980ac"}
