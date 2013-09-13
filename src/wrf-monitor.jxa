@@ -1,0 +1,48 @@
+(ns wrf-monitor
+  (require (time-arith :as ta) lists string utils io
+           (file :joxify) (erlang :as erl))
+  (use joxa-core utils))
+
+
+
+(defn monitor-loop (dev sim-start sim-end comp-start updates-seen master-pid log-f)
+  (case (file/read-line dev)
+    (:eof
+      (receive
+        (after 250 (monitor-loop dev sim-start sim-end comp-start updates-seen master-pid log-f))
+        (:terminate :ok)))
+    ({:ok line}
+      (when (and (erl/> updates-seen 10) (erl/> (string/str line "Timing for main") 0))
+        (let* (sim-time-now     (ta/parse-esmf (string/substr line 23 19))
+               now              (ta/local-time)
+               comp-time-done   (ta/seconds-between comp-start now)
+               sim-time-done    (ta/seconds-between sim-start sim-time-now)
+               sim-time-togo    (ta/seconds-between sim-time-now sim-end)
+               comp-time-left   (erl/* (erl/:'/' comp-time-done sim-time-done) sim-time-togo)
+               completion-time  (ta/shift-by-seconds now (erl/round comp-time-left)))
+           (erl/send master-pid {:wrf-predicted-completion (erl/self) completion-time})
+      (monitor-loop dev sim-start sim-end comp-start (incr updates-seen) master-pid log-f))))
+    ({:error reason} (log-f :error ["wrf-monitor encountered an error [~p] reading from rsl.error.0000" reason]))))
+
+
+(defn+ run (fname sim-start sim-end comp-start master-pid log-f)
+  "Monitor the wrf output log rsl.error.0000 opened as <dev>.  Given information on
+   when the simulation extent <sim-start> to <sim-end> and when the computation was
+   started <comp-start>, the monitor will estimate when the the computation will terminate."
+  (log-f :info ["wrfx-monitor/run was called ~p ~p ~p" sim-start sim-end comp-start]) 
+  (case (wait-for-file fname 120000 500)
+    ({:success _}
+      (let ({:ok dev} (file/open fname [:read]))
+        (monitor-loop dev sim-start sim-end comp-start 0 master-pid log-f)
+        (file/close dev)))
+    ({:failure :timeout}
+      (log-f :error ["fire-sim waited 120 seconds for file ~p to appear and timed out." fname])
+      :failure)))
+
+
+(defn+ start (fname sim-start sim-end comp-start log-f)
+  "Start the run/5 function in a new process and return the pid.
+   For arguments see run/5."
+  (let* (myself (erl/self))
+    (erl/spawn (fn () (run fname sim-start sim-end comp-start myself log-f)))))
+

@@ -1,0 +1,61 @@
+(ns job-state
+  (require plist utils
+           (erlang :as erl :joxify) (file :joxify) (dict :joxify)
+            inets gen_server)
+  (use joxa-core))
+
+
+; API
+
+(defn+ start-link (job-name)
+  "Start the configuration server <log-f>."
+  (gen_server/start_link :job-state [job-name (dict/new)] []))
+
+(defn+ name (pid)
+  "Retrieve the name of the job-state server <pid>."
+  (gen_server/call pid :get-name))
+
+
+(defn+ get (pid key)
+  "Get the state stored under the key <key> in the
+   state server <pid>."
+  (case (gen_server/call pid {:get-state key})
+    ({:ok state} state)
+    (:error :no-such-key)))
+
+
+(defn+ set (pid key value)
+  "Retrieve all keys from the configuration server."
+  (gen_server/call pid {:set-state key value}))
+
+
+; Implementation
+
+(defn+ init (args)
+    {:ok args})
+
+
+(defn+ handle_call (request from state)
+  (let ([job-name state-dict] state)
+    (case request
+      (:get-name {:reply job-name state})
+      ({:get-state key} {:reply (dict/find key state-dict) state})
+      ({:set-state key value} {:reply :ok [job-name (dict/store key value state-dict)]})
+      (other {:reply :invalid-request state}))))
+
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+
+(defn+ terminate (reason state)
+  :ok)
+
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+
