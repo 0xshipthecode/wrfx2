@@ -200,19 +200,19 @@
 
 (defn+ set-wps-start-time (nls dt doms)
   "Set the start time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
-  (let* (dt-str (ta/to-esmf-string dt))
+  (let* (dt-str (ta/to-esmf-str dt))
     (set-values-for-doms nls "share" [{"start_date" dt-str}] doms)))
 
 
 (defn+ get-wps-start-time (nls dom)
   "Return the start time in the WPS namelist <nls> for domain <dom>."
   (io/format "nth element is ~p~n" [(lists/nth dom (get-entry "share" "start_date" nls))])
-  (ta/parse-esmf-str (lists/nth dom (get-entry "share" "start_date" nls))))
+  (ta/parse-esmf (lists/nth dom (get-entry "share" "start_date" nls))))
 
 
 (defn+ set-wps-end-time (nls dt doms)
   "Set the end time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
-  (let* (dt-str (ta/to-esmf-string dt))
+  (let* (dt-str (ta/to-esmf-str dt))
     (set-values-for-doms nls "share" [{"end_date" dt-str}] doms)))
 
 

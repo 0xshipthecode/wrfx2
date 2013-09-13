@@ -1,14 +1,8 @@
 (ns config-srv
-  (require 
-       (erlang :as erl :joxify)
-	     (joxa-core :as jxc)
-	     plist
-	     (file :joxify)
-	     (dict :joxify)
-	     inets
-	     gen_server
-       utils
-       (erl_eval :joxify)))
+  (require plist utils
+           (erlang :as erl :joxify) (file :joxify) (dict :joxify)
+	         inets gen_server)
+  (use joxa-core))
 
 
 ; utility functions
@@ -55,7 +49,7 @@
 
 
 (defn+ handle_call (request from state)
-  (jxc/let ([cfg] state)
+  (let ([cfg] state)
     (case request
       ({:get-conf key} {:reply (plist/get key :no-such-key cfg) state})
       (:get-keys {:reply (plist/keys cfg) state})

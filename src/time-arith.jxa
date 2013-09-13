@@ -23,16 +23,20 @@
     (use joxa-core))
 
 
+(defn+ shift-by-seconds (datetime secs)
+  "Shift an erlang <datetime> by <secs> seconds positive -> future, negative -> past."
+  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
+    (cal/gregorian-seconds-to-datetime (+ gs secs))))
+
+
 (defn+ shift-by-hours (datetime hrs)
   "Shift an erlang <datetime> by <hrs> hours, positive -> future, negative -> past."
-  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (+ gs (erl/* hrs 3600)))))
+  (shift-by-seconds datetime (erl/* hrs 3600)))
 
 
 (defn+ shift-by-days (datetime d)
   "Shift an erlang <datetime> by <d> days, positive -> future, negaive -> past."
-  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (+ gs (erl/* d 86400)))))
+  (shift-by-seconds datetime (erl/* d 86400)))
 
 
 (defn+ set-hour (datetime new-h)
@@ -96,6 +100,7 @@
   "Retrieve the local time from calendar - convenience function."
   (cal/local-time))
 
+
 (defn+ list-hours (from to)
   "List timestamps starting with <from> and incrementing by 1 hour,
    continue until past <to>."
@@ -104,13 +109,13 @@
     (from . (list-hours (shift-by-hours from 1) to))))
 
 
-(defn+ to-esmf-string (dt)
+(defn+ to-esmf-str (dt)
   "Render datetime <dt> as an ESMF date time string YYYY-MM-DD_HH:mm:SS."
   (let ({{y mon day} {h min s}} dt)
     (iol/format "~4..0B-~2..0B-~2..0B_~2..0B:~2..0B:~2..0B" [y mon day h min s])))
 
 
-(defn+ parse-esmf-str (str)
+(defn+ parse-esmf (str)
   "Parse an ESMF date/time string (format: YYYY-MM-DD_HH:mm:SS) <str> into an erlang datetime."
   (let ([y1 y2 y3 y4 :\- m1 m2 :\- d1 d2 :\_ h1 h2 :\: min1 min2 :\: s1 s2] str)
     {{(erl/list-to-integer [y1 y2 y3 y4]) (erl/list-to-integer [m1 m2]) (erl/list-to-integer [d1 d2])}

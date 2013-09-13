@@ -1,19 +1,7 @@
 (ns fire-sim
-  (require wrfxlib
-           nlist
-           plist
-           filesys
-           (string :as str)
-           ext-utils
-           ext-job
-           log-srv
-           log-stream
-           ingest-srv
-           filename io
-           grib-src-def
-           (time-arith :as ta)
-           (file :joxify)
-           (erlang :as erl :joxify))
+  (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor job-state
+           ingest-srv grib-src-def (time-arith :as ta)
+           (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
 
@@ -46,38 +34,19 @@
     nls5))
 
 
-(defn wrferr-mon-loop (dev job-id log-f)
-  (case (file/read-line dev)
-    (:eof
-      (receive
-        (after 250 (wrferr-mon-loop dev job-id log-f))
-        (:terminate :ok)))
-    ({:ok line}
-      (if (erl/> (str/str line "Timing for main") 0) (log-f :info [line]) :nothing)
-        (wrferr-mon-loop dev job-id log-f))
-    ({:error reason} (log-f :error ["fire-sim [~p] wrferr-mon-loop encountered an error [~p] reading from rsl.error.0000" job-id reason]))))
-
-
-(defn wrferr-monitor (fname job-id log-f)
-  (case (wait-for-file fname 120000 500)
-    ({:success _}
-      (let ({:ok dev} (file/open fname [:read]))
-        (wrferr-mon-loop dev job-id log-f)
-        (file/close dev)))
-    ({:failure :timeout}
-      (log-f :error ["fire-sim [~p] waited 120 seconds for file ~p to appear and timed out." job-id fname])
-      :failure)))
-
-
-(defn monitor-wrf-execution (wdir pid job-id log-f)
+(defn monitor-wrf-execution (wdir pid sim-from sim-to mon-pid jst-pid log-f)
   "Parse the error output of the process with rank 0 in the working
    directory <wdir> while the wrf job with pid <pid> completes."
-  (let* (mon-pid (erl/spawn (fn () (wrferr-monitor (filename/join wdir "rsl.error.0000") job-id log-f))))
-    (ext-utils/wait-for-completion pid)
-    (erl/send mon-pid :terminate)))
+  (let* (fname (filename/join wdir "rsl.error.0000"))
+    (receive
+      ({:proc-started pid comp-start}
+        (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
+        (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start jst-pid log-f))
+          (monitor-wrf-execution wdir pid sim-from sim-to real-mon-pid jst-pid log-f)))
+      ({:ext-proc-complete pid result} (erl/send mon-pid :terminate) result))))
 
 
-(defn+ run (args)
+(defn+ run (args jst-pid)
   "Execute the fire-simulation job with the given arguments:
    ign-when: start of the fire as a GMT time
    ign-where: ignition of the fire
@@ -91,7 +60,9 @@
 
     (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir ] args)
           [grib-src-name ign-when ign-where]  (plist/get-list [:grib-src-name :ign-when :ign-where] args)
-          {:ok _ log-f}                       (log-srv/create-log job-id []))
+          [num-nodes wall-time-hrs]           (plist/get-list [:num-nodes :wall-time-hrs] args)
+          trunc-jid                           (lists/nthtail 36 job-id)
+          {:ok _ log-f}                       (log-srv/create-log (erl/++ "fs" trunc-jid) []))
 
       (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
              sim-from   (ta/shift-by-hours ign-when -2)
@@ -102,7 +73,7 @@
              wrf-nl0    (nlist/parse "etc/nlists/colorado2k.input" :colorado_2k_wrf0)
              all-doms   (nlist/all-domains wps-nl0))
 
-        (log-f :info ["fire-sim: job-id ~p work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
+        (log-f :info ["fire-sim [~p] work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
         ; create the working directory for WPS
         (!!= :ok (filesys/create-dir work-dir))
         (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
@@ -110,63 +81,78 @@
         ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
         (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
                wps-nl-name (filename/join wps-wdir "namelist.wps"))
-          (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" job-id]) 
+          (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" trunc-jid]) 
           (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
+          (job-state/set jst-pid :stage "geogrid")
           (wrfxlib/run-geogrid wps-wdir log-f)
           ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-          (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" job-id sim-from sim-to])
+          (job-state/set jst-pid :stage "GRIB download")
+          (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" trunc-jid sim-from sim-to])
           (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
                 wps-nl2                   (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
             (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
             (wrfxlib/symlink-grib-files mfest wps-wdir)
-            (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" job-id])))
+            (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" trunc-jid])))
 
         ; step 3: run ungrib & metgrid
+        (job-state/set jst-pid :stage "ungrib")
         (wrfxlib/run-ungrib wps-wdir log-f)
+        (job-state/set jst-pid :stage "metgrid")
         (wrfxlib/run-metgrid wps-wdir log-f)
 
         ; step 4: setup the WRF working directory
-        (log-f :info ["fire-sim [~p]: creating WRF working directory" job-id])
+        (log-f :info ["fire-sim [~p]: creating WRF working directory" trunc-jid])
         (wrfxlib/clone-wrf wrf-idir wrf-wdir)
 
         ; step 5: symlink all met_em* files to the wrfdir
         (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
-          (log-f :info ["fire-sim [~p] symlinking ~p met_em* files to the wrf dir." job-id (erl/length met-em-files)])
+          (log-f :info ["fire-sim [~p] symlinking ~p met_em* files to the wrf dir." trunc-jid (erl/length met-em-files)])
           (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
         ; step 6: construct the WRF namelist
         (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
-          (log-f :info ["fire-sim [~p] writing namelist.input for WRF" job-id])
+          (log-f :info ["fire-sim [~p] writing namelist.input for WRF" trunc-jid])
           (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
         ;step 7: run real.exe
+        (job-state/set jst-pid :stage "real")
         (wrfxlib/run-real wrf-wdir log-f)
 
         ; step 8: run WRF
-        (log-f :info ["fire-sim [~p] running WRF" job-id])
-        (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir 4 2 60000 3600000 log-f)
-          ({:running wrf-pid} (monitor-wrf-execution wrf-wdir wrf-pid job-id log-f))
+        (log-f :info ["fire-sim [~p] running WRF" trunc-jid])
+        (job-state/set jst-pid :stage "wrf")
+        (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes wall-time-hrs 60000 3600000 log-f)
+          ({:running wrf-pid}
+            (monitor-wrf-execution wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
           ({:success exit-code}
-            (log-f :info ["fire-sim [~p] job is already completed, nothing to compute" job-id])))
+            (log-f :info ["fire-sim [~p] job is already completed, nothing to compute" trunc-jid])))
 
-        (log-f :info ["fire-sim [~p] end of job reached" job-id])
+        (log-f :info ["fire-sim [~p] end of job reached" trunc-jid])
+        (job-state/set jst-pid :stage "done")
+
         :ok))
 
       (catch (type body)
-        (let* (syslog (log-srv/get-log "system"))
-          (log-stream/log-msg syslog :flash "fire-sim [~p] job crashed with exception ~p bdy ~p, stacktrace ~p~n"
-            [(plist/get :job-id args) type body (erl/get-stacktrace)])
+        (let* (syslog (log-srv/get-log "system")
+               trunc-jid (lists/nthtail 36 (plist/get :job-id args)))
+          (log-stream/log-msg syslog :flash "fire-sim [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
+            trunc-jid type body (erl/get-stacktrace))
             :error))))
 
 
 (defn+ test ()
-  (run [ {:job-id "fire-sim-47592abb980ac"}
-         {:ign-when {{2013 9 1} {4 0 0}}}
-         {:ign-where { 13.1 123.5 }}
-         {:work-dir "/home/mvejmelka/Projects/wrfx2/wksp/test-fs"}
-         {:wrf-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WRFV3/run"}
-         {:wps-inst-dir "/home/mvejmelka/Packages/op-wrf-fire/WPS"}
-         {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
-         {:grib-src-name "nam_218"} ]))
+;  (let* (uuid (make-uuid))
+  (let (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f"
+        {:ok jst-pid} (job-state/start-link uuid))
+    (run [ {:job-id (erl/++ "fire-sim-" uuid)}
+           {:ign-when {{2013 9 1} {4 0 0}}}
+           {:ign-where { 13.1 123.5 }}
+           {:work-dir (filename/join (config-srv/get-conf :workspace-dir) uuid)}
+           {:wrf-inst-dir (config-srv/get-conf :wrf-install-dir)}
+           {:wps-inst-dir (config-srv/get-conf :wps-install-dir)}
+           {:wps-geog-dir (config-srv/get-conf :wps-geog-dir)}
+           {:num-nodes 1}
+           {:wall-time-hrs 4}
+           {:grib-src-name "nam_218"} ] jst-pid)))
 
 

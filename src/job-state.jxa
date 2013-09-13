@@ -1,5 +1,5 @@
 (ns job-state
-  (require plist utils
+  (require plist utils io
            (erlang :as erl :joxify) (file :joxify) (dict :joxify)
             inets gen_server)
   (use joxa-core))
@@ -10,6 +10,7 @@
 (defn+ start-link (job-name)
   "Start the configuration server <log-f>."
   (gen_server/start_link :job-state [job-name (dict/new)] []))
+
 
 (defn+ name (pid)
   "Retrieve the name of the job-state server <pid>."
@@ -40,7 +41,7 @@
     (case request
       (:get-name {:reply job-name state})
       ({:get-state key} {:reply (dict/find key state-dict) state})
-      ({:set-state key value} {:reply :ok [job-name (dict/store key value state-dict)]})
+      ({:set-state key value} (io/format "job-state ~p: ~p => ~p~n" [job-name key value]) {:reply :ok [job-name (dict/store key value state-dict)]})
       (other {:reply :invalid-request state}))))
 
 

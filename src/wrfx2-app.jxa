@@ -1,6 +1,6 @@
 (ns wrfx2-app
     (require
-       inets io (file :joxify) filename
+       inets io (file :joxify) filename crypto
        (application :joxify)
        (mnesia :joxify)
        ingest-srv
@@ -33,7 +33,8 @@
   "Start the OTP subsystems required for wrfx2 platform services."
   (inets/start)
   (mnesia/create-schema [(erl/node)])
-  (mnesia/start))
+  (mnesia/start)
+  (crypto/start))
 
 
 (defn+ start ()

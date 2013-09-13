@@ -16,15 +16,10 @@
 ;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 (ns utils 
-    (require lists filelib timer
-             erl_scan erl_parse
-             (erl_eval :joxify)
-             (mnesia :joxify)
-             (file :joxify)
-             (string :as str)
-             (io_lib :as iol)
-             (erlang :as erl :joxify)
-             (joxa-lists :as jxl))
+    (require lists filelib timer erl_scan erl_parse
+             (erl_eval :joxify) (mnesia :joxify) (file :joxify)
+             (string :as str) (io_lib :as iol) (erlang :as erl :joxify)
+             (joxa-lists :as jxl) (crypto :joxify))
     (use joxa-core))
 
 
@@ -234,3 +229,12 @@
     (io/format "debug [~p] " [level])
     (io/format (jxl/hd lst) (jxl/tl lst))
     (io/format "~n")))
+
+
+(defn+ make-uuid ()
+  "Creates a long UUID.  Shamelessly ripped from afiscon/rlang-uuid-4 repo on github."
+  (let (<<(a :size 32) (b :size 16) (c :size 16) (d :size 16) (e :size 48)>>  (crypto/rand-bytes 16))
+    (lists/flatten
+      (iol/format "~8.16.0b-~4.16.0b-4~3.16.0b-~4.16.0b-~12.16.0b"
+                  [a, b, (erl/band c 4095) (erl/bor (erl/band d 16383) 32768) e]))))
+

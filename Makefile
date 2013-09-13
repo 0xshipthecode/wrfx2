@@ -1,5 +1,5 @@
 
-ERLPREFIX=$(HOME)/Apps/erlang/lib/erlang
+ERLPREFIX=/usr/local/Cellar/erlang-r16/R16B01/lib/erlang
 
 all: pre-compile compile
 
@@ -17,6 +17,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/mwest-retr.beam \
 		ebin/mwest-srv.beam \
 		ebin/ingest-srv.beam \
+		ebin/job-state.beam \
 		ebin/log-stream.beam \
 		ebin/log-srv.beam \
 		ebin/ext-utils.beam \
@@ -24,6 +25,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/ext-job.beam \
 		ebin/filesys.beam \
 		ebin/wrfxlib.beam \
+		ebin/wrf-monitor.beam \
 		ebin/fire-sim.beam \
 		ebin/wrfx2-app.beam
 

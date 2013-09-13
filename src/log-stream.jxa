@@ -74,18 +74,19 @@
 ;; construct a logging timestamp
 (defn timestamp ()
   (jxc/let ({{yr mon day}, {hr min sec}} (calendar/local-time))
-	    (iol/format "~4..0B~2..0B~2..0B:~2..0B~2..0B~2..0B"
-		    [yr mon day hr min sec])))
+      (iol/format "~4..0B~2..0B~2..0B:~2..0B~2..0B~2..0B"
+        [yr mon day hr min sec])))
 
 
-(defn route-message (tgt msg-level text)
-  "Relay message <text> at message level <msg-level> to target <tgt> if
-   the message level is higher than or equal to the target stream level."
+(defn route-message (tgt msg-level log-text text)
+  "Relay message <text> or <log-text> at message level <msg-level> to target <tgt> if
+   the message level is higher than or equal to the target stream level.
+   <text> is sent to :relay targets while <log-text> is sent to other targets."
   (let* (msg-level-num (level-number msg-level))
     (case tgt
-  	  ({:stdio level-num}     (jxc/if (jxc/gte msg-level-num level-num) (io/format text) :ok))
-  	  ({:device dev}          (io/format dev text []) :ok)
-  	  ({:relay pid level-num} (jxc/if (jxc/gte msg-level-num level-num) (erl/send pid {:msg msg-level text}) :ok)))))
+      ({:stdio level-num}     (jxc/if (jxc/gte msg-level-num level-num) (io/format log-text) :ok))
+      ({:device dev}          (io/format dev log-text []) :ok)
+      ({:relay pid level-num} (jxc/if (jxc/gte msg-level-num level-num) (erl/send pid {:msg msg-level text}) :ok)))))
 
 
 ;; relay the eof message to all targets
@@ -108,13 +109,12 @@
     ({:msg level text}
       ; construct a log text & route message at the given level
       (let* (log-text [log-n " " (timestamp) " " (level-string level) " " text "\n"])
-        (lists/map (fn (tgt) (route-message tgt level log-text)) targets)
+        (lists/map (fn (tgt) (route-message tgt level log-text text)) targets)
         (log-loop log-n targets)))
     (:eof
       (lists/map (fn (tgt) (send-eof tgt [log-n " [" (timestamp) "] -> *** LOG END ***.\n"])) targets))
     (:exit
       :ok)))
-
 
 
 (defn+ start-log (log-n targets)
@@ -127,12 +127,12 @@
 (defn+ make-dev-target (fname)
   "Create a device target for the log stream (always sinks all messages)."
   (case (file/open fname [:write])
-	  ({:ok dev} {:device dev})
-		(error :failed)))
-	
+    ({:ok dev} {:device dev})
+    (error :failed)))
+
 
 (defn+ make-relay-target (pid level)
   "Create a relay target for routing messages to <pid> only with urgency equal to or above <level>."
   (let* (level-num (level-number level))
-	  {:relay pid level-num}))
+    {:relay pid level-num}))
 

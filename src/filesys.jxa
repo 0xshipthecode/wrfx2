@@ -45,9 +45,10 @@
 (defn+ symlink-unless-exists (from to)
   "If the target file <to> does not exist, it is symlinked to the file <from>.
    If it already exists, nothing happens."
-  (case (filelib/is-file to)
-    (:false (!!= :ok (file/make-symlink from to)) :ok)
-    (:true :ok)))
+  (case (file/make-symlink from to)
+    (:ok :ok)
+    ({:error :eexist} :ok)
+    (other (erl/throw other))))
 
 
 (defn+ list-dir-regexp (dir regexp)
