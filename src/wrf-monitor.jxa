@@ -1,44 +1,58 @@
 (ns wrf-monitor
   (require (time-arith :as ta) lists string utils job-state
-           (file :joxify) (erlang :as erl :joxify))
+           re (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
 
-(defn monitor-loop (dev sim-start sim-end comp-start updates-seen jst-pid log-f)
+(defn estimate-remaining-time (sim-now sim-end sim-acceleration)
+  (let* (sim-time-left-s   (ta/seconds-between sim-now sim-end))
+    (erl/:'/' sim-time-left-s sim-acceleration)))
+
+
+(defn estimate-acceleration (sim-start sim-now comp-start now)
+  (let* (comp-time-s       (ta/seconds-between comp-start now)
+         sim-time-s        (ta/seconds-between sim-start sim-now))
+    (erl/:'/' sim-time-s comp-time-s)))
+
+
+(defn monitor-loop (dev sim-start sim-end comp-start updates-seen jst-pid regexp log-f)
   (case (file/read-line dev)
     (:eof
       (receive
-        (after 250 (monitor-loop dev sim-start sim-end comp-start updates-seen jst-pid log-f))
+        (after 250 (monitor-loop dev sim-start sim-end comp-start updates-seen jst-pid regexp log-f))
         (:terminate :ok)))
     ({:ok line}
-      (when (and (erl/> updates-seen 10) (erl/> (string/str line "Timing for main") 0))
-        (let* (sim-time-now     (ta/parse-esmf (string/substr line 23 19))
-               now              (ta/local-time)
-               comp-time-done   (ta/seconds-between comp-start now)
-               sim-time-done    (ta/seconds-between sim-start sim-time-now)
-               sim-time-togo    (ta/seconds-between sim-time-now sim-end)
-               comp-time-left   (erl/* (erl/:'/' comp-time-done sim-time-done) sim-time-togo)
-               completion-time  (ta/shift-by-seconds now (erl/round comp-time-left)))
-           (job-state/set jst-pid :wrf-predicted-completion completion-time)))
-      (monitor-loop dev sim-start sim-end comp-start (incr updates-seen) jst-pid log-f))
-    ({:error reason} (log-f :error ["wrf-monitor encountered an error [~p] reading from rsl.error.0000" reason]))))
+      (when (and (erl/> updates-seen 20) (erl/== (string/left line 15) "Timing for main"))
+        (let ({:match [esmf-date domain-id timing]} (re/run line regexp [{:capture :all_but_first :list}]))
+          (when (erl/== domain-id "1")
+            (let* (now       (ta/local-time)
+                   sim-now   (ta/parse-esmf (esmf-date))
+                   sim-accel (estimate-acceleration sim-start sim-now comp-start now)
+                   to-go-s   (estimate-remaining-time sim-now sim-end sim-accel))
+              (job-state/set jst-pid :job-completion-time (ta/shift-by-seconds now to-go-s))
+              (job-state/set jst-pid :job-remaining-time-s to-go-s)
+              (job-state/set jst-pid :sim-acceleration sim-accel)))))
+       (monitor-loop dev sim-start sim-end comp-start (incr updates-seen) jst-pid regexp log-f))
+      ({:error reason} (log-f :error ["wrf-monitor encountered an error [~p] reading from rsl.error.0000" reason]))))
 
 
 (defn+ run (fname sim-start sim-end comp-start jst-pid log-f)
   "Monitor the wrf output log rsl.error.0000 opened as <dev>.  Given information on
    when the simulation extent <sim-start> to <sim-end> and when the computation was
    started <comp-start>, the monitor will estimate when the the computation will terminate."
-  (try*
-    (case (wait-for-file fname 120000 500)
-      ({:success _}
-        (let ({:ok dev} (file/open fname [:read]))
-          (monitor-loop dev sim-start sim-end comp-start 0 jst-pid log-f)
-          (file/close dev)))
-      ({:failure :timeout}
-        (log-f :error ["fire-sim waited 120 seconds for file ~p to appear and timed out." fname])
-        :failure))
-  (catch (type bdy)
-    (log-f :flash ["wrf-monitor crash with exc ~p ~p~nstacktrace ~p~n" type bdy (erl/get-stacktrace)]))))
+  (let* (regexp (re/compile "Timing for main: time ([0-9\-_:]{19}) on domain [\ ]+([0-9]):[\ ]+ ([0-9\.]{7}) elapsed seconds"))
+    (try*
+      (case (wait-for-file fname 120000 500)
+        ({:success _}
+          (let ({:ok dev} (file/open fname [:read]))
+            (monitor-loop dev sim-start sim-end comp-start 0 jst-pid regexp log-f)
+            (file/close dev)))
+        ({:failure :timeout}
+          (log-f :error ["fire-sim waited 120 seconds for file ~p to appear and timed out." fname])
+          :failure))
+    (catch (type bdy)
+      (log-f :flash ["wrf-monitor crash with exc ~p ~p~nstacktrace ~p~n" type bdy (erl/get-stacktrace)])))))
+
 
 (defn+ start (fname sim-start sim-end comp-start jst-pid log-f)
   "Start the run/5 function in a new process and return the pid.
