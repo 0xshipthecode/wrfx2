@@ -27,7 +27,7 @@
                sim-accel (estimate-acceleration sim-start sim-now comp-start now)
                to-go-s   (estimate-remaining-time sim-now sim-end sim-accel))
           (job-state/set-plist jst-pid
-            [{:job-completion-time (ta/shift-by-seconds now to-go-s)} {:job-time-to-finish-s to-go-s}
+            [{:completion-time (ta/shift-by-seconds now to-go-s)} {:seconds-to-finish to-go-s}
              {:sim-acceleration sim-accel} {:sim-time sim-now}])))))
   (monitor-loop dev sim-start sim-end comp-start (incr updates-seen) jst-pid master-pid log-f))
 
