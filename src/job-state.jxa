@@ -1,5 +1,5 @@
 (ns job-state
-  (require plist utils io
+  (require plist utils
            (erlang :as erl :joxify) (file :joxify) (dict :joxify)
             inets gen_server)
   (use joxa-core))
@@ -29,6 +29,9 @@
   "Retrieve all keys from the configuration server."
   (gen_server/call pid {:set-state key value}))
 
+(defn+ set-plist (pid plst)
+  "Set multiple keys to their values stored as a plist <plst> injob-state <pid>."
+  (gen_server/call pid {:multiset-state plst}))
 
 ; Implementation
 
@@ -41,7 +44,8 @@
     (case request
       (:get-name {:reply job-name state})
       ({:get-state key} {:reply (dict/find key state-dict) state})
-      ({:set-state key value} (io/format "job-state ~p: ~p => ~p~n" [job-name key value]) {:reply :ok [job-name (dict/store key value state-dict)]})
+      ({:set-state key value} {:reply :ok [job-name (dict/store key value state-dict)]})
+      ({:multiset-state plst} {:reply :ok [job-name (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst)]})
       (other {:reply :invalid-request state}))))
 
 

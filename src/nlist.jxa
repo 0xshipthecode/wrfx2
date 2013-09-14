@@ -66,7 +66,9 @@
 
 (defn+ set-entry (nlname key vals nls)
   "Set the entry <key> to values <vals> inside the namelist <nlname> of the namelists <nls>."
-  (set-nl nlname (plist/set key vals (get-nl nlname nls)) nls))
+  (if (erl/is-list vals)
+    (set-nl nlname (plist/set key vals (get-nl nlname nls)) nls)
+    (erl/throw "set-entry: vals must be a list")))
 
 
 (defn update-namelist-entries (entries nls)

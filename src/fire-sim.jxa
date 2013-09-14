@@ -30,8 +30,9 @@
          nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to doms)
          grib-upd (grib-src-def/nl-keys grib-src)
          nls4     (nlist/set-entries grib-upd nls3)
-         nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4))
-    nls5))
+         nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
+         nls6     (nlist/set-entry "time_control" "history_interval" [30] nls5))
+    nls6))
 
 
 (defn monitor-wrf-execution (wdir pid sim-from sim-to mon-pid jst-pid log-f)
@@ -39,6 +40,9 @@
    directory <wdir> while the wrf job with pid <pid> completes."
   (let* (fname (filename/join wdir "rsl.error.0000"))
     (receive
+      ({:wrf-history-written domain-id sim-time}
+        (log-f :info ["fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
+        (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
       ({:proc-started pid comp-start}
         (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
         (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start jst-pid log-f))
@@ -57,16 +61,14 @@
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
   (try*
-
-    (let ([job-id work-dir wps-idir wrf-idir] (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir ] args)
-          [grib-src-name ign-when ign-where]  (plist/get-list [:grib-src-name :ign-when :ign-where] args)
-          [num-nodes wall-time-hrs]           (plist/get-list [:num-nodes :wall-time-hrs] args)
+    (let ([job-id work-dir wps-idir wrf-idir grib-src-name ign-when num-nodes wall-time-hrs]
+            (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir :grib-src-name :ign-when :num-nodes :wall-time-hrs] args)
           trunc-jid                           (lists/nthtail 36 job-id)
           {:ok _ log-f}                       (log-srv/create-log (erl/++ "fs" trunc-jid) []))
 
       (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
-             sim-from   (ta/shift-by-hours ign-when -2)
-             sim-to     (ta/shift-by-hours ign-when  2)
+             sim-from   (ta/shift-by-hours ign-when 0)
+             sim-to     (ta/shift-by-hours ign-when 2)
              wps-wdir   (filename/join work-dir "wps")
              wrf-wdir   (filename/join work-dir "wrf")
              wps-nl0    (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0)
@@ -147,6 +149,7 @@
     (run [ {:job-id (erl/++ "fire-sim-" uuid)}
            {:ign-when {{2013 9 1} {4 0 0}}}
            {:ign-where { 13.1 123.5 }}
+           {:write-interval 600}
            {:work-dir (filename/join (config-srv/get-conf :workspace-dir) uuid)}
            {:wrf-inst-dir (config-srv/get-conf :wrf-install-dir)}
            {:wps-inst-dir (config-srv/get-conf :wps-install-dir)}
