@@ -10,11 +10,11 @@
 
 
 ;; construct an job script
-(defn+ make-script (tid cmd num-nodes wall-time-hrs)
+(defn+ make-script (tid cmd num-nodes ppn wall-time-hrs)
   (iol/format
    (lists/flatten
     [ "#!/usr/bin/env bash\n"
-      "#PBS -l nodes=~p:ppn=12\n"
+      "#PBS -l nodes=~p:ppn=~p\n"
       "#PBS -l walltime=~p:00:00\n"
       "#PBS -N ~s\n"
       "TID=~p\n"
@@ -27,10 +27,10 @@
       "wait $PID\n"
       "echo $? > $TID.exitcode\n"
       "echo `date +%s` >> $TID.exitcode\n"])
-        [num-nodes wall-time-hrs tid tid (erl/* num-nodes 12) cmd]))
+        [num-nodes ppn wall-time-hrs tid tid (erl/* num-nodes ppn) cmd]))
 
 
-(defn+ run (tid command in-dir num-nodes wall-time-hrs pid-timeout exec-timeout log-f)
+(defn+ run (tid command in-dir num-nodes ppn wall-time-hrs pid-timeout exec-timeout log-f)
   "Execute an external process <command> with id <tid> in directory <in-dir> using a job queuing system.
    The process will use <num-nodes> nodes and up to <wall-time-hrs> hours.  The monitor will wait
    <pid-timeout> ms for the execution to commence and then <exec-timeout> for the execution to complete.
@@ -55,7 +55,7 @@
               (:invalid
                 (log-f :info ["~s: job has not been submitted yet, submitting job now" tid])
                 (let* (fqn (make-proc-file-name in-dir tid ".sh"))
-                  (write-run-script fqn (make-script tid command num-nodes wall-time-hrs))
+                  (write-run-script fqn (make-script tid command num-nodes ppn wall-time-hrs))
                   (erl/open-port {:spawn (lists/flatten ["qsub " fqn])} [{:cd in-dir} :out])
                   (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))
               (submit-time
