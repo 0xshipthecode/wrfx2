@@ -1,6 +1,6 @@
 (ns fire-sim
   (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor job-state
-           ingest-srv grib-src-def (time-arith :as ta)
+           ingest-srv grib-src-def (time-arith :as ta) os
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
@@ -31,7 +31,7 @@
          grib-upd (grib-src-def/nl-keys grib-src)
          nls4     (nlist/set-entries grib-upd nls3)
          nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
-         nls6     (nlist/set-entry "time_control" "history_interval" [30] nls5))
+         nls6     (nlist/set-entry "time_control" "history_interval" [10] nls5))
     nls6))
 
 
@@ -42,6 +42,7 @@
     (receive
       ({:wrf-history-written domain-id sim-time}
         (log-f :info ["fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
+        (log-f :info ["fire-sim result from process-frame ~p" (os/cmd "psrc/process-frame.py")])
         (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
       ({:proc-started pid comp-start}
         (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
