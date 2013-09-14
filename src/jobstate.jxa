@@ -1,4 +1,4 @@
-(ns job-state
+(ns jobstate
   (require plist utils
            (erlang :as erl :joxify) (file :joxify) (dict :joxify)
             inets gen_server)
@@ -9,11 +9,11 @@
 
 (defn+ start-link (job-name)
   "Start the configuration server <log-f>."
-  (gen_server/start_link :job-state [job-name (dict/new)] []))
+  (gen_server/start_link :jobstate [job-name (dict/new)] []))
 
 
 (defn+ name (pid)
-  "Retrieve the name of the job-state server <pid>."
+  "Retrieve the name of the jobstate server <pid>."
   (gen_server/call pid :get-name))
 
 
@@ -30,7 +30,7 @@
   (gen_server/call pid {:set-state key value}))
 
 (defn+ set-plist (pid plst)
-  "Set multiple keys to their values stored as a plist <plst> injob-state <pid>."
+  "Set multiple keys to their values stored as a plist <plst> injobstate <pid>."
   (gen_server/call pid {:multiset-state plst}))
 
 ; Implementation

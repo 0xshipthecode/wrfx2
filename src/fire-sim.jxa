@@ -1,5 +1,5 @@
 (ns fire-sim
-  (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor job-state
+  (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor jobstate
            ingest-srv grib-src-def (time-arith :as ta) os
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
@@ -44,8 +44,8 @@
         (log-f :info ["fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
         (log-f :info ["fire-sim result from process-frame ~p" (os/cmd "psrc/process-frame.py")])
         (log-f :info ["fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
-                      (job-state/get jst-pid :sim-acceleration) (job-state/get jst-pid :seconds-to-finish)
-                      (job-state/get jst-pid :completion-time)])
+                      (jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
+                      (jobstate/get jst-pid :completion-time)])
         (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
       ({:proc-started pid comp-start}
         (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
@@ -89,10 +89,10 @@
                wps-nl-name (filename/join wps-wdir "namelist.wps"))
           (log-f :info ["fire-sim [~p] writing namelist.wps for geogrid" trunc-jid]) 
           (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-          (job-state/set jst-pid :stage "geogrid")
+          (jobstate/set jst-pid :stage "geogrid")
           (wrfxlib/run-geogrid wps-wdir log-f)
           ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-          (job-state/set jst-pid :stage "GRIB download")
+          (jobstate/set jst-pid :stage "GRIB download")
           (log-f :info ["fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" trunc-jid sim-from sim-to])
           (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
                 wps-nl2                   (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
@@ -101,9 +101,9 @@
             (log-f :info ["fire-sim [~p] writing amended namelist.wps for ungrib.exe" trunc-jid])))
 
         ; step 3: run ungrib & metgrid
-        (job-state/set jst-pid :stage "ungrib")
+        (jobstate/set jst-pid :stage "ungrib")
         (wrfxlib/run-ungrib wps-wdir log-f)
-        (job-state/set jst-pid :stage "metgrid")
+        (jobstate/set jst-pid :stage "metgrid")
         (wrfxlib/run-metgrid wps-wdir log-f)
 
         ; step 4: setup the WRF working directory
@@ -121,12 +121,12 @@
           (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
         ;step 7: run real.exe
-        (job-state/set jst-pid :stage "real")
+        (jobstate/set jst-pid :stage "real")
         (wrfxlib/run-real wrf-wdir log-f)
 
         ; step 8: run WRF
         (log-f :info ["fire-sim [~p] running WRF" trunc-jid])
-        (job-state/set jst-pid :stage "wrf")
+        (jobstate/set jst-pid :stage "wrf")
         (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes 2 wall-time-hrs 60000 3600000 log-f)
           ({:running wrf-pid}
             (monitor-wrf-execution wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
@@ -134,7 +134,7 @@
             (log-f :info ["fire-sim [~p] job is already completed, nothing to compute" trunc-jid])))
 
         (log-f :info ["fire-sim [~p] end of job reached" trunc-jid])
-        (job-state/set jst-pid :stage "done")
+        (jobstate/set jst-pid :stage "done")
 
         :ok))
 
@@ -149,7 +149,7 @@
 (defn+ test ()
 ;  (let* (uuid (make-uuid))
   (let (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f"
-        {:ok jst-pid} (job-state/start-link uuid))
+        {:ok jst-pid} (jobstate/start-link uuid))
     (run [ {:job-id (erl/++ "fire-sim-" uuid)}
            {:ign-when {{2013 9 1} {4 0 0}}}
            {:ign-where {13.1 123.5}}
