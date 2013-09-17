@@ -4,12 +4,13 @@
   (use joxa-core utils))
 
 
-(defn+ clone-wps (src dst vtable)
+(defn+ clone-wps (src dst vtable add-files)
   "Clone the WPS directory <src> to another location <dst>.
    This function uses a standard list of files that must be symlinked with
    other standard files, such as the <vtable> relative path passed automatically."
-  (filesys/clone-with-files src dst [ "geogrid.exe" "geogrid" "metgrid.exe" "metgrid" "ungrib.exe" "ungrib"])
-  (filesys/symlink-unless-exists (filename/join src vtable) (filename/join dst "Vtable")))
+  (!!= :ok (filesys/clone-with-files src dst [ "geogrid.exe" "geogrid" "metgrid.exe" "metgrid" "ungrib.exe" "ungrib"]))
+  (!!= :ok (filesys/symlink-unless-exists (filename/join src vtable) (filename/join dst "Vtable")))
+  (filesys/symlink-files-to-dir add-files src dst))
 
 
 (defn+ clone-wrf (src dst)
