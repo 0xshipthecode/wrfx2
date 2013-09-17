@@ -32,7 +32,7 @@
       (let (dom-dir (filename/join stor-dir (grib-src-def/domain grib-src))
             {:ok files} (file/list-dir dom-dir))
         {:reply {from-time to-time (lists/map (fn (x) (filename/join dom-dir x)) files)} state}))
-    (:stop-grib-srv 
+    (:stop-grib-srv
       ; here a termination must be started
       {:stop :normal :ok state})
     (other 

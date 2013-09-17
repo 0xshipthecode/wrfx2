@@ -14,6 +14,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/config-srv.beam \
 		ebin/grib-retr.beam \
 		ebin/grib-srv.beam \
+		ebin/static-grib-srv.beam \
 		ebin/mwest-retr.beam \
 		ebin/mwest-srv.beam \
 		ebin/ingest-srv.beam \
@@ -26,6 +27,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/filesys.beam \
 		ebin/wrfxlib.beam \
 		ebin/wrf-monitor.beam \
+		ebin/nasa-fire-sim.beam \
 		ebin/fire-sim.beam \
 		ebin/wrfx2-app.beam
 
