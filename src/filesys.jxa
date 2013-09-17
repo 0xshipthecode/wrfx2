@@ -20,6 +20,7 @@
 
 (defspec delete ((erl/string)) (erl/atom))
 
+
 (defn+ delete-dir (dname)
   "Delete the directory <dname> along with its contents."
   (jxc/let ({:ok fnames} (file/list-dir dname))
