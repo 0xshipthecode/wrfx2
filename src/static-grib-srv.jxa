@@ -1,0 +1,54 @@
+(ns static-grib-srv
+  (require lists (string :as str) plist gen_server filename (file :joxify) grib-src-def)
+  (use joxa-core utils))
+
+
+(defn+ start-link (grib-src params)
+  (let* (stor-dir (plist/get :storage-dir params)
+         log-f    (plist/get :log-func params))
+    ; start a new GRIB server and return the PID
+    (gen_server/start_link :static-grib-srv [grib-src stor-dir log-f] [])))
+
+
+;; API
+
+(defn+ retrieve-gribs (srv-pid from to at-time delta log-f)
+  (gen_server/call srv-pid {:retrieve-gribs from to at-time delta log-f} :infinity))
+
+
+;; Internal funcrions
+
+;; gen_server callbacks
+
+(defn+ init (args)
+    {:ok args})
+
+
+(defn+ handle_call (request from state)
+  (let ([grib-src stor-dir log-f] state)
+   (case request
+    ({:retrieve-gribs from-time to-time at-time delta}
+      ; GRIB files retrieved here
+      (let (dom-dir (filename/join stor-dir (grib-src-def/domain grib-src))
+            {:ok files} (file/list-dir dom-dir))
+        {:reply {from-time to-time (lists/map (fn (x) (filename/join dom-dir x)) files)} state}))
+    (:stop-grib-srv 
+      ; here a termination must be started
+      {:stop :normal :ok state})
+    (other 
+      (log-f :flash ["static-grib-srv: message ~p not understood, fix it!" other])
+      {:reply :invalid-request state}))))
+
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+
