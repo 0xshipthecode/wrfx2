@@ -1,6 +1,6 @@
 (ns fire-sim
   (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor jobstate
-           ingest-srv grib-src-def (time-arith :as ta) os
+           ingest-srv grib-src-def (time-arith :as ta) os (io_lib :as iol)
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
@@ -41,12 +41,13 @@
   (let* (fname (filename/join wdir "rsl.error.0000"))
     (receive
       ({:wrf-history-written domain-id sim-time}
-        (log-f :info ["fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
-        (log-f :info ["fire-sim result from process-frame ~p" (os/cmd "psrc/process-frame.py")])
-        (log-f :info ["fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
-                      (jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
-                      (jobstate/get jst-pid :completion-time)])
-        (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
+        (let* (pf-cmd (iol/format "psrc/process-frame.py ~s ~s/wrfout_d01_~s" [(ta/to-esmf-str sim-time) wdir (ta/to-esmf-str sim-from)]))
+          (log-f :info ["fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
+          (log-f :info ["fire-sim result from process-frame ~p" (os/cmd pf-cmd)])
+          (log-f :info ["fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
+                        (jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
+                        (jobstate/get jst-pid :completion-time)])
+          (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f)))
       ({:proc-started pid comp-start}
         (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
         (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start jst-pid log-f))
@@ -82,7 +83,7 @@
         (log-f :info ["fire-sim [~p] work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
         ; create the working directory for WPS
         (!!= :ok (filesys/create-dir work-dir))
-        (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM"))
+        (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM" []))
 
         ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
         (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
@@ -158,7 +159,7 @@
            {:wrf-inst-dir (config-srv/get-conf :wrf-install-dir)}
            {:wps-inst-dir (config-srv/get-conf :wps-install-dir)}
            {:wps-geog-dir (config-srv/get-conf :wps-geog-dir)}
-           {:num-nodes 1}
+           {:num-nodes 10}
            {:wall-time-hrs 4}
            {:grib-src-name "nam_218"} ] jst-pid)))
 
