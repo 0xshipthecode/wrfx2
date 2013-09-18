@@ -1,4 +1,4 @@
-(ns wrfx2-app
+(ns wrfx2
     (require
        jobmaster ingest-srv log-srv config-srv
 
