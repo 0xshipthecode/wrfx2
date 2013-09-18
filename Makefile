@@ -30,7 +30,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/wrf-monitor.beam \
 		ebin/nasa-fire-sim.beam \
 		ebin/fire-sim.beam \
-		ebin/wrfx2-app.beam
+		ebin/wrfx2.beam
 
 
 pre-compile: ebin/nlparser.beam ebin/file_info.beam
