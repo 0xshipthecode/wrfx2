@@ -73,7 +73,7 @@
   (try*
     (let ([job-id work-dir wps-idir wrf-idir grib-src-name ign-when num-nodes wall-time-hrs]
             (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir :grib-src-name :ign-when :num-nodes :wall-time-hrs] args)
-          trunc-jid                           (lists/nthtail 41 job-id)
+          trunc-jid                           (str/substr job-id 1 8)
           {:ok _ log-f}                       (log-srv/create-log (erl/++ "fs" trunc-jid) []))
 
       (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
@@ -147,7 +147,7 @@
 
       (catch (type body)
         (let* (syslog (log-srv/get-log "system")
-               trunc-jid (lists/nthtail 41 (plist/get :job-id args)))
+               trunc-jid (str/substr (plist/get :job-id args) 1 8))
           (log-stream/log-msg syslog :flash "nasa-fire-sim [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
                               trunc-jid type body (erl/get-stacktrace))
           (jobstate/set jst-pid :stage "failed")
@@ -174,7 +174,7 @@
 (defn+ submit (ign-when ign-where num-nodes)
   (let (uuid (make-uuid)
         {:ok jst-pid} (jobstate/start-link uuid)
-        params [ {:job-id (erl/++ "nasa-fire-sim-" uuid)}
+        params [ {:job-id uuid}
                  {:ign-when ign-when}
                  {:ign-where ign-where}
                  {:work-dir (filename/join (config-srv/get-conf :workspace-dir) uuid)}
