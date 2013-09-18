@@ -1,6 +1,6 @@
 (ns nasa-fire-sim
-  (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor jobstate
-           ingest-srv grib-src-def (time-arith :as ta) os
+  (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor jobstate jobmaster
+           ingest-srv grib-src-def (time-arith :as ta) os (io_lib :as iol)
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
@@ -39,9 +39,16 @@
    directory <wdir> while the wrf job with pid <pid> completes."
   (let* (fname (filename/join wdir "rsl.error.0000"))
     (receive
-      ({:wrf-history-written domain-id sim-time}
-        (log-f :info ["nasa-fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
-        (log-f :info ["nasa-fire-sim result from process-frame ~p" (os/cmd "psrc/process-frame.py")])
+      ({:wrf-history-written 1 sim-time}
+        (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
+      ({:wrf-history-written 2 sim-time}
+        (log-f :info ["nasa-fire-sim detected WRF history write at ~w in domain 2" sim-time 2])
+        (let* (sim-time-str (ta/to-esmf-str sim-time)
+               wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)])
+               kml-abs-name (filename/join wdir (erl/++ sim-time-str ".kmz"))
+               cmd-str      (iol/format "deps/wrf2kmz/wrf2kml.py ~s T2 ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
+          (log-f :info ["nasa-fire-sim result from wrf2kml.py ~p" (os/cmd cmd-str)])
+          (jobstate/append jst-pid :kmls kml-abs-name))
         (log-f :info ["nasa-fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
                       (jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
                       (jobstate/get jst-pid :completion-time)])
@@ -143,6 +150,7 @@
                trunc-jid (lists/nthtail 41 (plist/get :job-id args)))
           (log-stream/log-msg syslog :flash "nasa-fire-sim [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
                               trunc-jid type body (erl/get-stacktrace))
+          (jobstate/set jst-pid :stage "failed")
             :error))))
 
 
@@ -150,6 +158,7 @@
 ;  (let* (uuid (make-uuid))
   (let (uuid "49179656-7a1f-420a-b090-36902300fd9a"
         {:ok jst-pid} (jobstate/start-link uuid))
+    (jobmaster/addjob uuid (erl/self) jst-pid)
     (run [ {:job-id (erl/++ "nasa-fire-sim-" uuid)}
            {:ign-when {{2012 9 9} {4 0 0}}}
            {:ign-where {47.913 -119.116}}
@@ -161,4 +170,20 @@
            {:wall-time-hrs 4}
            {:grib-src-name "hrrr"} ] jst-pid)))
 
+
+(defn+ submit (ign-when ign-where num-nodes)
+  (let (uuid (make-uuid)
+        {:ok jst-pid} (jobstate/start-link uuid)
+        params [ {:job-id (erl/++ "nasa-fire-sim-" uuid)}
+                 {:ign-when ign-when}
+                 {:ign-where ign-where}
+                 {:work-dir (filename/join (config-srv/get-conf :workspace-dir) uuid)}
+                 {:wps-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WPS"}
+                 {:wrf-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WRFV3/test/em_barker"}
+                 {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
+                 {:num-nodes num-nodes}
+                 {:wall-time-hrs 4}
+                 {:grib-src-name "hrrr"} ])
+    (jobstate/set jst-pid :kmls [])
+    (erl/spawn (fn () (run params jst-pid)))))
 
