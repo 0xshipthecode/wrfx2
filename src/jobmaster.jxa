@@ -1,0 +1,68 @@
+(ns jobmaster
+  (require plist grib-src-def
+          lists (string :as str) gen_server filename (file :joxify)
+          (dict :joxify) (erlang :as erl))
+  (use joxa-core utils))
+
+
+(defn+ start-link (log-f)
+  (gen_server/start_link {:local :jobmaster} :jobmaster [(dict/new) log-f] []))
+
+
+;; API
+
+(defn+ addjob (job-id job-pid job-state)
+  (gen_server/call :jobmaster {:add-job job-id job-pid job-state}))
+
+(defn+ deljob (job-id)
+  (gen_server/call :jobmaster {:remove-job job-id}))
+
+(defn+ getjobstate (job-id)
+  (gen_server/call :jobmaster {:job-state job-id}))
+
+(defn+ getjobpid (job-id)
+  (gen_server/call :jobmaster {:job-pid job-id}))
+
+;; Internal funcrions
+
+;; gen_server callbacks
+
+(defn+ init (args)
+    {:ok args})
+
+
+(defn+ handle_call (request from state)
+  (let ([job-dict log-f] state)
+   (case request
+    ({:add-job job-id job-pid job-state}
+      {:reply :ok [(dict/store job-id {job-pid job-state} job-dict) log-f]})
+    ({:remove-job job-id}
+      ; here a termination must be started
+      {:reply :ok [(dict/erase job-id job-dict) log-f]})
+    ({:job-state job-id}
+      (try*
+        {:reply (erl/element 2 (dict/fetch job-id job-dict)) state}
+        (catch (type bdy)
+          {:reply :no-such-job job-dict})))
+    ({:job-pid job-id}
+      (try*
+        {:reply (erl/element 1 (dict/fetch job-id job-dict)) state}
+        (catch (t b)
+          {:reply :no-such-job job-dict})))
+    (other
+      (log-f :flash ["jobmaster: message ~p not understood, fix it!" other])
+      {:reply :invalid-request state}))))
+
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+(defn+ handle_info (info state)
+  {:noreply state})
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+

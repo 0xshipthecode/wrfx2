@@ -19,6 +19,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/mwest-srv.beam \
 		ebin/ingest-srv.beam \
 		ebin/jobstate.beam \
+		ebin/jobmaster.beam \
 		ebin/log-stream.beam \
 		ebin/log-srv.beam \
 		ebin/ext-utils.beam \
