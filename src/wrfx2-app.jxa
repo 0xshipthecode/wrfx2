@@ -1,32 +1,28 @@
 (ns wrfx2-app
     (require
+       jobmaster ingest-srv log-srv config-srv
+
        inets io (file :joxify) filename crypto
-       (application :joxify)
-       (mnesia :joxify)
-       ingest-srv
-       log-srv
-       utils
-       config-srv
-       (io_lib :as iol)
-       (erlang :as erl :joxify)
-       (filelib :joxify)
-       (joxa-core :as jxc)))
+       (application :joxify) (mnesia :joxify)
+       (io_lib :as iol) (erlang :as erl :joxify)
+       (filelib :joxify))
+    (use utils))
 
 
 (defn+ start-logging ()
   "Start the logging subsystem."
   (let* (log-dir (config-srv/get-conf :logging-dir))
-    (utils/critical-check :ok (filelib/ensure-dir (filename/join [log-dir "log-file"])))
+    (critical-check :ok (filelib/ensure-dir (filename/join [log-dir "log-file"])))
     (log-srv/start-link log-dir)))
 
 
 (defn+ start-ingest-system ()
   "Start up the ingest system."
   (let* (ingest-dir (config-srv/get-conf :ingest-storage-dir))
-    (utils/critical-check :ok (filelib/ensure-dir (filename/join [ingest-dir "fake-file"])))
+    (critical-check :ok (filelib/ensure-dir (filename/join [ingest-dir "fake-file"])))
     (log-srv/create-log "ingest-system" [])
     (ingest-srv/start-link ingest-dir (log-srv/get-log-f "ingest-system"))
-    (utils/ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] [])))
+    (ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] [])))
 
 
 (defn+ start-otp-subsystem ()
@@ -48,11 +44,7 @@
   (start-logging)
   ; start the ingest system
   (start-ingest-system)
-
   ; start the job manager
-
-  ; start the scheduler
-
-  )
+  (jobmaster/start-link (log-srv/get-log-f "system")))
 
 
