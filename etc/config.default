@@ -1,0 +1,10 @@
+[
+  {'mnesia-dir', "db"},
+  {'logging-dir', "log"},
+  {'workspace-dir',  "/Users/martin/Projects/wrfx2/wksp"},
+  {'ingest-storage-dir', "/Users/martin/Projects/wrfx2/ingest"},
+  {'wrf-install-dir', "/Users/martin/Packages/op-wrf-fire/WRFV3/run"},
+  {'wps-install-dir', "/Users/martin/Packages/op-wrf-fire/WPS"},
+  {'wps-geog-dir', "/Users/martin/Packages/WPS-GEOG"}
+].
+
