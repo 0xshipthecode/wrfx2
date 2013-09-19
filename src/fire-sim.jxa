@@ -85,6 +85,7 @@
          ign-when       (plist/get :ign-when args)
          ign-where      (plist/get :ign-where args)
          num-nodes      (plist/get :num-nodes args)
+	 ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
          grib-src       (ingest-srv/get-grib-def grib-src-name)
          sim-from       (ta/shift-by-hours ign-when -1)
@@ -144,7 +145,7 @@
     ; step 8: run WRF
     (log-f :info "fire-sim [~p] running WRF" [short-jid])
     (jobstate/set jst-pid :stage "wrf")
-    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes 2 wall-time-hrs 60000 3600000 log-f)
+    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 3600000 log-f)
       ({:running wrf-pid}
         (monitor-wrf-execution job-id wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
       ({:success exit-code}
@@ -193,6 +194,6 @@
          jst-pid (jobstate/start-link uuid)
          args [ {:job-id uuid} {:short-job-id short-uuid}
                 {:ign-where {47.5 -119.5}} {:ign-when {{2013 9 1} {4 0 0}}}
-                {:num-nodes 10} {:wall-time-hrs 4} ])
+                {:num-nodes 1} {:ppn 2} {:wall-time-hrs 4} ])
   (submit args jst-pid)))
 
