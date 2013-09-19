@@ -6,14 +6,25 @@
 
 
 (defn estimate-remaining-time (sim-now sim-end sim-acceleration)
+  "Estimates the remaining time in the simulation given that the simulation
+   is at <sim-now>, continues to <sim-end> and is <sim-acceleration> faster
+   (or slower) than real time."
   (let* (sim-time-left-s   (ta/seconds-between sim-now sim-end))
     (erl/round (erl/:'/' sim-time-left-s sim-acceleration))))
 
 
 (defn estimate-acceleration (sim-start sim-now comp-start now)
+  "Estimate the speedup/slowdown of simulation time vs real time."
   (let* (comp-time-s       (ta/seconds-between comp-start now)
          sim-time-s        (ta/seconds-between sim-start sim-now))
     (erl/:'/' sim-time-s comp-time-s)))
+
+(defn percent-complete (sim-start sim-now sim-end)
+  "Compute the percentage of the job done given simulation start/end and current timestamp."
+  (let* (done-time  (ta/seconds-between sim-start sim-now)
+         total-time (ta/seconds-between sim-start sim-end))
+    (erl/* 100.0 (erl/:'/' done-time total-time))))
+
 
 (defspec monitor-loop ((erl/device) (erl/tuple) (erl/tuple) (erl/tuple) (erl/integer) (erl/pid) (erl/pid) (erl/function)) (erl/any))
 
@@ -25,10 +36,11 @@
         (let* (now       (ta/local-time)
                sim-now   (ta/parse-esmf esmf-date)
                sim-accel (estimate-acceleration sim-start sim-now comp-start now)
-               to-go-s   (estimate-remaining-time sim-now sim-end sim-accel))
+               to-go-s   (estimate-remaining-time sim-now sim-end sim-accel)
+               perc-done (percent-complete sim-start sim-now sim-end))
           (jobstate/set-plist jst-pid
             [{:completion-time (ta/shift-by-seconds now to-go-s)} {:seconds-to-finish to-go-s}
-             {:sim-acceleration sim-accel} {:sim-time sim-now}])))))
+             {:sim-acceleration sim-accel} {:sim-time sim-now} {:percent-done perc-done}])))))
   (monitor-loop dev sim-start sim-end comp-start (incr updates-seen) jst-pid master-pid log-f))
 
 
