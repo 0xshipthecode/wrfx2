@@ -9,7 +9,7 @@
 
 (defn+ start-link (job-name)
   "Start the configuration server <log-f>."
-  (gen_server/start_link :jobstate [job-name (dict/new)] [] []))
+  (gen_server/start_link :jobstate [job-name (dict/new) []] []))
 
 
 (defn+ subscribe (pid)
@@ -73,21 +73,24 @@
 (defn+ handle_call (request from state)
   (let ([job-name state-dict tgts] state)
     (case request
-      (:get-name {:reply job-name state})
+      (:get-name
+        {:reply job-name state})
       ({:get-state key}
         {:reply (dict/find key state-dict) state})
       ({:multi-get-state ks}
         (let* (vs (lists/map (fn (x) (dict/find x state-dict)) ks))
-          (if (lists/any (fn (x) (case x (:error :true) (_ :false))) vs) :error {:ok vs})))
+          (if (lists/any (fn (x) (case x (:error :true) (_ :false))) vs)
+            {:reply :error state}
+            {:reply {:ok vs} state})))
       ({:set-state key value}
         (notify-targets tgts)
-        {:reply :ok [job-name (dict/store key value state-dict)]})
+        {:reply :ok [job-name (dict/store key value state-dict) tgts]})
       ({:append key value}
         (notify-targets tgts)
-        {:reply :ok [job-name (dict/append key value state-dict)]})
+        {:reply :ok [job-name (dict/append key value state-dict) tgts]})
       ({:multiset-state plst}
         (notify-targets tgts)
-        {:reply :ok [job-name (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst)]})
+        {:reply :ok [job-name (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst) tgts]})
       ({:add-notify-target tgt}
         {:reply :ok [job-name state-dict (tgt . tgts)]})
       ({:remove-notify-target tgt}
