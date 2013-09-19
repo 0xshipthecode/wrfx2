@@ -11,7 +11,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/nlscanner.beam \
 		ebin/time-arith.beam \
 		ebin/nlist.beam \
-		ebin/config-srv.beam \
+		ebin/configsrv.beam \
+		ebin/logsrv.beam \
 		ebin/grib-retr.beam \
 		ebin/grib-srv.beam \
 		ebin/static-grib-srv.beam \
@@ -20,8 +21,6 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/ingest-srv.beam \
 		ebin/jobstate.beam \
 		ebin/jobmaster.beam \
-		ebin/log-stream.beam \
-		ebin/log-srv.beam \
 		ebin/ext-utils.beam \
 		ebin/ext-proc.beam \
 		ebin/ext-job.beam \

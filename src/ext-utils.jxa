@@ -90,28 +90,28 @@
         (monitor-process master-pid in-dir tid os-pid exec-timeout log-f))
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
         (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
-          (log-f :info ["~s: exited with code ~p at ~w" tid exit-code exit-time])
+          (log-f :info "~s: exited with code ~p at ~w" [tid exit-code exit-time])
           {:success exit-code}))
       ({:exit-msg {:failure reason}} ; kill the rogue process
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-        (log-f :error ["~s: failed with reason ~p, process ~p killed" tid reason os-pid])
+        (log-f :error "~s: failed with reason ~p, process ~p killed" [tid reason os-pid])
         :failure)
       ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
-        (log-f :error ["~s: pid not acquired within timeout" tid])
+        (log-f :error "~s: pid not acquired within timeout" [tid])
         :failure)
       ({:pid-msg {:success pid-file}} ;; the pid file was created
         (let ({real-os-pid start-time} (read-pid-file pid-file))
-          (log-f :info ["~s: received pid ~p, process was started on ~w" tid real-os-pid start-time])
+          (log-f :info "~s: received pid ~p, process was started on ~w" [tid real-os-pid start-time])
           (erl/send master-pid {:proc-started (erl/self) start-time})
           (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
             (async-send-me {:exit-msg (wait-for-file (make-proc-file-name in-dir tid ".exitcode") remaining-exec-timeout 500)})
             (monitor-process master-pid in-dir tid real-os-pid exec-timeout log-f))))
       (unknown-msg ;; we don:t understand this message, notify
-        (log-f :flash ["~s: message not understood [~p]~n" tid unknown-msg])
+        (log-f :flash "ext-utils task [~s] message not understood [~p]!" [tid unknown-msg])
         (monitor-process master-pid in-dir tid os-pid exec-timeout log-f)))
   (catch (ex bdy)
     (do
-      (log-f :flash ["monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
+      (log-f :flash "monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" [tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
       (monitor-process master-pid in-dir tid os-pid exec-timeout log-f)))))
 
 

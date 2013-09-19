@@ -1,25 +1,8 @@
 (ns nasa-fire-sim
-  (require wrfxlib nlist plist filesys ext-utils ext-job log-srv log-stream config-srv wrf-monitor jobstate jobmaster
+  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv configsrv wrf-monitor jobstate jobmaster
            ingest-srv grib-src-def (time-arith :as ta) os (io_lib :as iol)
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
-
-
-(defn make-geogrid-namelist (wps-dir args nls0)
-  "Fill out entries relevant to geogrid in the namelist <nls> and write the namelist into
-   the wps working directory <wps-dir>.  Retrieve job parameters from <args>"
-  (let* (wps-geog-dir (plist/get :wps-geog-dir args)
-         nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls0))
-    nls1))
-
-
-(defn make-ungrib-namelist (cov-from cov-to doms nls0)
-  "Set the start/end times for WPS to <cov-from>/<cov-to> for domains <doms>
-   in the wps namelist <nls>."
-  (let* (nls1 (nlist/set-wps-start-time nls0 cov-from doms)
-         nls2 (nlist/set-wps-end-time nls1 cov-to doms)
-         nls3 (nlist/set-entry "share" "interval_seconds" [3600] nls2))
-    nls3))
 
 
 (defn make-wrf-namelist (sim-from sim-to grib-src doms nls0)
@@ -42,25 +25,25 @@
       ({:wrf-history-written 1 sim-time}
         (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
       ({:wrf-history-written 2 sim-time}
-        (log-f :info ["nasa-fire-sim detected WRF history write at ~w in domain 2" sim-time 2])
+        (log-f :info "nasa-fire-sim detected WRF history write at ~w in domain 2" [sim-time 2])
         (let* (sim-time-str (ta/to-esmf-str sim-time)
                wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)])
                kml-abs-name (filename/join wdir (erl/++ sim-time-str ".kmz"))
                cmd-str      (iol/format "deps/wrf2kmz/wrf2kml.py ~s T2 ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
-          (log-f :info ["nasa-fire-sim result from wrf2kml.py ~p" (os/cmd cmd-str)])
+          (log-f :info "nasa-fire-sim result from wrf2kml.py ~p" [(os/cmd cmd-str)])
           (jobstate/append jst-pid :kmls kml-abs-name))
-        (log-f :info ["nasa-fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
-                      (jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
+        (log-f :info "nasa-fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
+                     [(jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
                       (jobstate/get jst-pid :completion-time)])
         (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f))
       ({:proc-started pid comp-start}
-        (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
+        (log-f :info "fire-sim WRF computation started on ~w, monitoring" [comp-start])
         (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start jst-pid log-f))
           (monitor-wrf-execution wdir pid sim-from sim-to real-mon-pid jst-pid log-f)))
       ({:ext-proc-complete pid result} (erl/send mon-pid :terminate) result))))
 
 
-(defn+ run (args jst-pid)
+(defn+ run (args jst-pid log-f)
   "Execute the fire-simulation job with the given arguments:
    ign-when: start of the fire as a GMT time
    ign-where: ignition of the fire
@@ -70,120 +53,87 @@
    wps-inst-dir: WPS installation directory
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
-  (try*
-    (let ([job-id work-dir wps-idir wrf-idir grib-src-name ign-when num-nodes wall-time-hrs]
-            (plist/get-list [:job-id :work-dir :wps-inst-dir :wrf-inst-dir :grib-src-name :ign-when :num-nodes :wall-time-hrs] args)
-          trunc-jid                           (str/substr job-id 1 8)
-          {:ok _ log-f}                       (log-srv/create-log (erl/++ "fs" trunc-jid) []))
+  (let* (job-id         (plist/get :job-id args)
+         short-jid      (plist/get :short-job-id args)
+         work-dir       (plist/get :work-dir args)
+         wps-idir       (plist/get :wps-install-dir args)
+         wrf-idir       (plist/get :wrf-install-dir args)
+         grib-src-name  (plist/get :grib-src-name args)
+         ign-when       (plist/get :ign-when args)
+         ign-where      (plist/get :ign-where args)
+         num-nodes      (plist/get :num-nodes args)
+         wall-time-hrs  (plist/get :wall-time-hrs args)
+         grib-src       (ingest-srv/get-grib-def grib-src-name)
+         sim-from       (ta/shift-by-hours ign-when -1)
+         sim-to         (ta/shift-by-hours ign-when 3)
+         wps-wdir       (filename/join work-dir "wps")
+         wrf-wdir       (filename/join work-dir "wrf")
+         wps-nl0        (nlist/parse "etc/nlists/colorado2k.wps" :colorado_2k_wps0)
+         wrf-nl0        (nlist/parse "etc/nlists/colorado2k.input" :colorado_2k_wrf0)
+         all-doms       (nlist/all-domains wps-nl0))
 
-      (let* (grib-src   (ingest-srv/get-grib-def grib-src-name)
-             sim-from   (ta/shift-by-hours ign-when -1)
-             sim-to     (ta/shift-by-hours ign-when 3)
-             wps-wdir   (filename/join work-dir "wps")
-             wrf-wdir   (filename/join work-dir "wrf")
-             wps-nl0    (nlist/parse "etc/nlists/nasa-fs.wps" :nasa-fs-wps0)
-             wrf-nl0    (nlist/parse "etc/nlists/nasa-fs.input" :nasa-fs-wrf0)
-             all-doms   (nlist/all-domains wps-nl0))
+    (log-f :info "nasa-fire-sim [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
 
-        (log-f :info ["nasa-fire-sim [~p] work-dir ~p sim-from ~w sim-to ~w~n" job-id work-dir sim-from sim-to])
-        ; create the working directory for WPS
-        (!!= :ok (filesys/create-dir work-dir))
-        (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (grib-src-def/vtable-file grib-src) ["NARR-FIXED:1979-11-08_00"]))
+    ; step 1: setup the WRF working directory
+    (!!= :ok (filesys/create-dir work-dir))
+    (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+    (log-f :info "nasa-fire-sim [~p]: creating WRF working directory" [short-jid])
 
-        ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-        (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
-               wps-nl-name (filename/join wps-wdir "namelist.wps"))
-          (log-f :info ["nasa-fire-sim [~p] writing namelist.wps for geogrid" trunc-jid])
-          (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-          (jobstate/set jst-pid :stage "geogrid")
-          (wrfxlib/run-geogrid wps-wdir log-f)
+    ; step 2: symlink wrfinputs to WRF
+    
+    ; step 3: construct the WRF namelist (ignition when/where, etc.)
+    (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
+      (log-f :info "nasa-fire-sim [~p] writing namelist.input for WRF" [short-jid])
+      (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
-          ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-          (jobstate/set jst-pid :stage "GRIB d/l")
-          (log-f :info ["nasa-fire-sim [~p] retrieving GRIB files for interval ~w to ~w" trunc-jid sim-from sim-to])
-          (let ({cov-from cov-to mfest}   (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
-                wps-nl2                   (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
-            (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
-            (wrfxlib/symlink-grib-files mfest wps-wdir)
-            (log-f :info ["nasa-fire-sim [~p] writing amended namelist.wps for ungrib.exe" trunc-jid])))
+    ; step 4: run WRF
+    (log-f :info "nasa-fire-sim [~p] running WRF" [short-jid])
+    (jobstate/set jst-pid :stage "wrf queued")
+    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes 2 wall-time-hrs 60000 3600000 log-f)
+      ({:running wrf-pid}
+        (jobstate/set jst-pid :stage "wrf running")
+        (monitor-wrf-execution wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
+      ({:success exit-code}
+        (log-f :info "nasa-fire-sim [~p] job is already completed, nothing to compute" [short-jid])))
+    (log-f :info "nasa-fire-sim [~p] end of job reached" [short-jid])
+    (jobstate/set jst-pid :stage "done")
 
-        ; step 3: run ungrib & metgrid
-        (jobstate/set jst-pid :stage "ungrib")
-        (wrfxlib/run-ungrib wps-wdir log-f)
-        (jobstate/set jst-pid :stage "metgrid")
-        (wrfxlib/run-metgrid wps-wdir log-f)
+    :ok))
 
-        ; step 4: setup the WRF working directory
-        (log-f :info ["nasa-fire-sim [~p]: creating WRF working directory" trunc-jid])
-        (wrfxlib/clone-wrf wrf-idir wrf-wdir)
 
-        ; step 5: symlink all met_em* files to the wrfdir
-        (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
-          (log-f :info ["nasa-fire-sim [~p] symlinking ~p met_em* files to the wrf dir." trunc-jid (erl/length met-em-files)])
-          (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
-
-        ; step 6: construct the WRF namelist
-        (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
-          (log-f :info ["nasa-fire-sim [~p] writing namelist.input for WRF" trunc-jid])
-          (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
-
-        ;step 7: run real.exe
-        (jobstate/set jst-pid :stage "real")
-        (wrfxlib/run-real wrf-wdir log-f)
-
-        ; step 8: run WRF
-        (log-f :info ["nasa-fire-sim [~p] running WRF" trunc-jid])
-        (jobstate/set jst-pid :stage "wrf")
-        (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes 2 wall-time-hrs 60000 3600000 log-f)
-          ({:running wrf-pid}
-            (monitor-wrf-execution wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
-          ({:success exit-code}
-            (log-f :info ["nasa-fire-sim [~p] job is already completed, nothing to compute" trunc-jid])))
-
-        (log-f :info ["nasa-fire-sim [~p] end of job reached" trunc-jid])
-        (jobstate/set jst-pid :stage "done")
-
-        :ok))
-
+(defn+ wrap-run (args jst-pid)
+  (let* (short-jid (plist/get :short-job-id args)
+         log-name  (erl/++ "fs" short-jid))
+    (!!= :ok (logsrv/create-log log-name))
+    (try*
+      (do
+        (run args jst-pid (logsrv/make-log-f log-name))
+        (logsrv/close-log log-name))
       (catch (type body)
-        (let* (syslog (log-srv/get-log "system")
-               trunc-jid (str/substr (plist/get :job-id args) 1 8))
-          (log-stream/log-msg syslog :flash "nasa-fire-sim [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
-                              trunc-jid type body (erl/get-stacktrace))
-          (jobstate/set jst-pid :stage "failed")
-            :error))))
+        (do
+          (logsrv/msg "system" :error "fire-sim [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
+                      [short-jid type body (erl/get-stacktrace)])
+          (logsrv/close-log log-name)
+          :error)))))
+
+
+(defn+ submit (uuid ign-when ign-where num-nodes)
+  (let* (short-uuid (str/substr uuid 1 8)
+         jst-pid    (jobstate/start-link uuid)
+         params [ {:job-id uuid}
+                  {:short-job-id short-uuid}
+                  {:ign-when ign-when}
+                  {:ign-where ign-where}
+                  {:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
+                  {:wps-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WPS"}
+                  {:wrf-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WRFV3/test/em_barker"}
+                  {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
+                  {:num-nodes num-nodes}
+                  {:wall-time-hrs 4} ])
+    (jobstate/set jst-pid :kmls [])
+    (erl/spawn (fn () (wrap-run params jst-pid)))))
 
 
 (defn+ test ()
-;  (let* (uuid (make-uuid))
-  (let (uuid "49179656-7a1f-420a-b090-36902300fd9a"
-        {:ok jst-pid} (jobstate/start-link uuid))
-    (jobmaster/addjob uuid (erl/self) jst-pid)
-    (run [ {:job-id (erl/++ "nasa-fire-sim-" uuid)}
-           {:ign-when {{2012 9 9} {4 0 0}}}
-           {:ign-where {47.913 -119.116}}
-           {:work-dir (filename/join (config-srv/get-conf :workspace-dir) uuid)}
-           {:wps-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WPS"}
-           {:wrf-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WRFV3/test/em_barker"}
-           {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
-           {:num-nodes 1}
-           {:wall-time-hrs 4}
-           {:grib-src-name "hrrr"} ] jst-pid)))
-
-
-(defn+ submit (ign-when ign-where num-nodes)
-  (let (uuid (make-uuid)
-        {:ok jst-pid} (jobstate/start-link uuid)
-        params [ {:job-id uuid}
-                 {:ign-when ign-when}
-                 {:ign-where ign-where}
-                 {:work-dir (filename/join (config-srv/get-conf :workspace-dir) uuid)}
-                 {:wps-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WPS"}
-                 {:wrf-inst-dir "/storage/akochans/NASA_NOAA/wrf-fire/WRFV3/test/em_barker"}
-                 {:wps-geog-dir "/storage/jbeezley/git/wrfdata/geog"}
-                 {:num-nodes num-nodes}
-                 {:wall-time-hrs 4}
-                 {:grib-src-name "hrrr"} ])
-    (jobstate/set jst-pid :kmls [])
-    (erl/spawn (fn () (run params jst-pid)))))
+  (submit "49179656-7a1f-420a-b090-36902300fd9a" {{2012 9 9} {4 0 0}} {47.913 -119.116} 10))
 

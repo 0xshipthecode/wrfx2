@@ -29,30 +29,30 @@
 (defn+ run-geogrid (in-dir log-f)
   (let* (out-spec  (ext-utils/make-std-output-spec in-dir "geogrid")
          cmd       (filename/join in-dir "geogrid.exe"))
-    (log-f :info ["running GEOGRID"])
+    (log-f :info "running GEOGRID" [])
     (!!= 0 (ext-utils/wrap-run (ext-proc/run "geogrid" cmd out-spec in-dir 1200000 log-f)))
     (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of geogrid."))
-    (log-f :info ["geogrid completed successfully"])))
+    (log-f :info "geogrid completed successfully" [])))
 
 
 (defn+ run-ungrib (in-dir log-f)
   "Run ungrib.exe in the WPS directory <in-dir> and log progress to using <log-f>."
   (let* (out-spec (ext-utils/make-std-output-spec in-dir "ungrib")
          cmd      (filename/join in-dir "ungrib.exe"))
-    (log-f :info ["running UNGRIB"])
+    (log-f :info "running UNGRIB" [])
     (!!= 0 (ext-utils/wrap-run (ext-proc/run "ungrib" cmd out-spec in-dir 1800000 log-f)))
     (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of ungrib."))
-    (log-f :info ["ungrib completed succesfully."])))
+    (log-f :info "ungrib completed succesfully." [])))
 
 
 (defn+ run-metgrid (in-dir log-f)
   "Run metgrid.exe in the WPS directory <in-dir> and log progress using <log-f>."
   (let* (out-spec (ext-utils/make-std-output-spec in-dir "metgrid")
          cmd      (filename/join in-dir "metgrid.exe"))
-    (log-f :info ["running METGRID"])
+    (log-f :info "running METGRID" [])
     (!!= 0 (ext-utils/wrap-run (ext-proc/run "metgrid" cmd out-spec in-dir 1800000 log-f)))
     (!!= :found (grep-file (plist/get 1 out-spec) "Successful completion of metgrid."))
-    (log-f :info ["metgrid completed succesfully."])))
+    (log-f :info "metgrid completed succesfully." [])))
 
 
 (defn+ run-real (in-dir log-f)
@@ -61,7 +61,7 @@
          out-file     (filename/join in-dir "rsl.out.0000")
          err-file     (filename/join in-dir "rsl.error.0000")
          new-out-file (filename/join in-dir "real.stdout"))
-    (log-f :info ["running REAL"])
+    (log-f :info "running REAL" [])
     (case (ext-proc/run "real" cmd [] in-dir 1800000 log-f)
       ({:running pid}
         (case (ext-utils/wait-for-completion pid)
@@ -71,7 +71,7 @@
           (error (erl/throw error))))
       ({:success exit-code} exit-code))
     (!!= :found (grep-file new-out-file "SUCCESS COMPLETE REAL_EM"))
-    (log-f :info ["real completed succesfully"])))
+    (log-f :info "real completed succesfully" [])))
 
 
 (defn+ next-grib-suffix (suff)

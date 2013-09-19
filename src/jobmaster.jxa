@@ -1,27 +1,40 @@
 (ns jobmaster
-  (require plist grib-src-def
-          lists (string :as str) gen_server filename (file :joxify)
-          (dict :joxify) (erlang :as erl))
+  (require utils plist jobstate
+           lists (string :as str) gen_server filename (file :joxify)
+           (dict :joxify) (erlang :as erl))
   (use joxa-core utils))
 
 
 (defn+ start-link (log-f)
-  (gen_server/start_link {:local :jobmaster} :jobmaster [(dict/new) log-f] []))
+  (gen_server/start_link {:global :jobmaster} :jobmaster [(dict/new) log-f] []))
 
 
 ;; API
 
 (defn+ addjob (job-id job-pid job-state)
-  (gen_server/call :jobmaster {:add-job job-id job-pid job-state}))
+  "Add a job with name <job-id> and process <job-pid> and job state <job-state>."
+  (gen_server/call {:global :jobmaster} {:add-job job-id job-pid job-state}))
 
 (defn+ deljob (job-id)
-  (gen_server/call :jobmaster {:remove-job job-id}))
+  "Remove the job named <job-id> from the master index."
+  (gen_server/call {:globa :jobmaster} {:remove-job job-id}))
 
 (defn+ getjobstate (job-id)
-  (gen_server/call :jobmaster {:job-state job-id}))
+  "Retrieve the pid of the jobstate server for job named <job-id>."
+  (gen_server/call {:global :jobmaster} {:job-state job-id}))
 
 (defn+ getjobpid (job-id)
-  (gen_server/call :jobmaster {:job-pid job-id}))
+  "Retrieve the pid of the job named <job-id>."
+  (gen_server/call {:global :jobmaster} {:job-pid job-id}))
+
+(defn+ listjobs ()
+  "List all jobs currently indexed by the jobmaster."
+  (gen_server/call {:global :jobmaster} :list-jobs))
+
+(defn+ submitjob (mod args)
+  "Submits a job by executing <mod>/submit with args <args>.
+   Returns the job id (a uuid)."
+  (gen_server/call {:global :jobmaster} {:submit-job mod args}))
 
 ;; Internal funcrions
 
@@ -49,6 +62,15 @@
         {:reply (erl/element 1 (dict/fetch job-id job-dict)) state}
         (catch (t b)
           {:reply :no-such-job job-dict})))
+    (:list-jobs
+      {:reply (dict/fetch-keys job-dict) state})
+    ({:submit-job mod args}
+      (let* (uuid       (utils/make-uuid)
+             short-uuid (str/substr uuid 1 8)
+             args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
+             jst-pid    (jobstate/start-link uuid)
+             job-pid    (erl/apply mod :submit [args2 jst-pid]))
+        {:reply {:ok uuid jst-pid} [(dict/store uuid {job-pid jst-pid} job-dict) log-f]}))
     (other
       (log-f :flash ["jobmaster: message ~p not understood, fix it!" other])
       {:reply :invalid-request state}))))

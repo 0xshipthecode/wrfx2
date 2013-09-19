@@ -104,15 +104,15 @@
            abs-path (lists/flatten [stor-dir "/" (grib-src-def/domain grib-src) "/" ident])
            start-time (calendar/local-time))
       (filelib/ensure-dir abs-path)
-      (log-f :info ["grib-retr (~p) -> downloading ~p to ~p." (grib-src-def/name grib-src) ident abs-path])
+      (log-f :info "grib-retr (~p) -> downloading ~p to ~p." [(grib-src-def/name grib-src) ident abs-path])
       (case (httpc/request :get {url []} [] [{:stream, abs-path}])
         ({:ok, :saved_to_file} 
-          (log-f :info ["grib-retr (~p) -> finished downloading ~p after ~p seconds"
-                 (grib-src-def/name grib-src) ident (tma/seconds-elapsed-from start-time)])
+          (log-f :info "grib-retr (~p) -> finished downloading ~p after ~p seconds"
+                 [(grib-src-def/name grib-src) ident (tma/seconds-elapsed-from start-time)])
           :download-complete)
         (error 
-          (log-f :warn ["grib-retr (~p) -> failed to download downloading ~p after ~p seconds with error ~p"
-                 (grib-src-def/name grib-src) ident (tma/seconds-elapsed-from start-time) error])
+          (log-f :warn "grib-retr (~p) -> failed to download downloading ~p after ~p seconds with error ~p"
+                 [(grib-src-def/name grib-src) ident (tma/seconds-elapsed-from start-time) error])
           {:download-fail ident})))))
 
 
@@ -155,32 +155,32 @@
                   :out-of-range,
                   {:missing-gribs list-of-gribs}
                   {:failed-download url}."
-  (log-func :info ["grib-retr (~p) -> have request with from ~w to ~w at-time ~w delta ~p stor-dir ~p"
-  (grib-src-def/name grib-src) from to at-time delta stor-dir])
+  (log-func :info "grib-retr (~p) -> have request with from ~w to ~w at-time ~w delta ~p stor-dir ~p"
+            [(grib-src-def/name grib-src) from to at-time delta stor-dir])
   (case (compute-manifest from to at-time delta grib-src)
     ({cov-from cov-to manifest}
-      (log-func :info ["grib-retr (~p) -> manifest has ~p files covering from ~w to ~w"
-                       (grib-src-def/name grib-src) (erl/length manifest) cov-from cov-to])
+      (log-func :info "grib-retr (~p) -> manifest has ~p files covering from ~w to ~w"
+                      [(grib-src-def/name grib-src) (erl/length manifest) cov-from cov-to])
       (let* (gribs-to-dl (remove-local-gribs manifest stor-dir grib-src))
         (case (find-unreachable-gribs gribs-to-dl grib-src)
           ; if no gribs missing, use this source
           ([]
-            (log-func :info ["grib-retr (~p) -> downloading ~p files now"
-            (grib-src-def/name grib-src) (erl/length gribs-to-dl)])
+            (log-func :info "grib-retr (~p) -> downloading ~p files now"
+                      [(grib-src-def/name grib-src) (erl/length gribs-to-dl)])
             (case (download-gribs gribs-to-dl stor-dir grib-src log-func)
               ([]
-                (log-func :info ["grib-retr (~p) -> all ~p files downloaded succesfully, returning manifest covering ~w to ~w with ~p files"
-                                 (grib-src-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
+                (log-func :info "grib-retr (~p) -> all ~p files downloaded succesfully, returning manifest covering ~w to ~w with ~p files"
+                                 [(grib-src-def/name grib-src) (erl/length gribs-to-dl) cov-from cov-to (erl/length manifest)])
                 {cov-from cov-to (lists/reverse (lists/map (fn (x) (filename/join [stor-dir (grib-src-def/name grib-src) x])) manifest))})
               (failure failure)))
           ; in case of missing GRIBs, download
           (missing-gribs
-            (log-func :warn ["grib-retr (~p) -> source cannot satisfy request at this time, there are ~p missing gribs."
-                             (grib-src-def/name grib-src) (erl/length missing-gribs)])
+            (log-func :warn "grib-retr (~p) -> source cannot satisfy request at this time, there are ~p missing gribs."
+                            [(grib-src-def/name grib-src) (erl/length missing-gribs)])
             {:missing-gribs missing-gribs}))))
           ; could not even compute the manifest
     (:out-of-range
-      (log-func :warn ["grib-retr (~p) -> source cannot satisfy the request from ~w to ~w"
-                       (grib-src-def/name grib-src) from to])
+      (log-func :warn "grib-retr (~p) -> source cannot satisfy the request from ~w to ~w"
+                      [(grib-src-def/name grib-src) from to])
       :out-of-range)))
 

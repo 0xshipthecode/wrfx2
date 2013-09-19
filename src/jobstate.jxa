@@ -9,7 +9,9 @@
 
 (defn+ start-link (job-name)
   "Start the configuration server <log-f>."
-  (gen_server/start_link :jobstate [job-name (dict/new) []] []))
+  (case (gen_server/start_link :jobstate [job-name (dict/new) []] [])
+    ({:ok pid} pid)
+    (error (erl/throw ["error starting the job-state server" job-name]))))
 
 
 (defn+ subscribe (pid)
@@ -35,6 +37,16 @@
   (case (gen_server/call pid {:get-state key})
     ({:ok value} value)
     (:error :no-such-key)))
+
+(defn+ keys (pid)
+  "Retrieve all keys stored in jobstate pid <pid>."
+  (gen_server/call pid :get-keys))
+
+
+(defn+ get-dict (pid)
+  "Retrieve the entire state dictionary stored in
+   the jobstate <pid>."
+   (gen_server/call pid :get-dict))
 
 
 (defn+ get-list (pid ks)
@@ -95,6 +107,10 @@
         {:reply :ok [job-name state-dict (tgt . tgts)]})
       ({:remove-notify-target tgt}
         {:reply :ok [job-name state-dict (lists/delete tgt tgts)]})
+      (:get-keys
+        {:reply (dict/fetch-keys state-dict) state})
+      (:get-dict
+        {:reply state-dict state})
       (other {:reply :invalid-request state}))))
 
 

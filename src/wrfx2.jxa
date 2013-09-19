@@ -1,7 +1,6 @@
 (ns wrfx2
     (require
-       jobmaster ingest-srv log-srv config-srv
-
+       jobmaster ingest-srv configsrv logsrv
        inets io (file :joxify) filename crypto
        (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify)
@@ -11,17 +10,17 @@
 
 (defn+ start-logging ()
   "Start the logging subsystem."
-  (let* (log-dir (config-srv/get-conf :logging-dir))
+  (let* (log-dir (configsrv/get-conf :logging-dir))
     (critical-check :ok (filelib/ensure-dir (filename/join [log-dir "log-file"])))
-    (log-srv/start-link log-dir)))
+    (logsrv/start-link log-dir)))
 
 
 (defn+ start-ingest-system ()
   "Start up the ingest system."
-  (let* (ingest-dir (config-srv/get-conf :ingest-storage-dir))
+  (let* (ingest-dir (configsrv/get-conf :ingest-storage-dir))
     (critical-check :ok (filelib/ensure-dir (filename/join [ingest-dir "fake-file"])))
-    (log-srv/create-log "ingest-system" [])
-    (ingest-srv/start-link ingest-dir (log-srv/get-log-f "ingest-system"))
+    (critical-check :ok (logsrv/create-log "ingest-system"))
+    (ingest-srv/start-link ingest-dir (logsrv/make-log-f "ingest-system"))
     (ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] [])))
 
 
@@ -35,9 +34,9 @@
 
 (defn+ start ()
   ; start the configuation server
-  (config-srv/start-link)
+  (configsrv/start-link)
   ; sset the mnesia database dir from config (before starting mnesia!)
-  (application/set-env :mnesia :dir (config-srv/get-conf :mnesia-dir))
+  (application/set-env :mnesia :dir (configsrv/get-conf :mnesia-dir))
   ; start otp subsystems that we need
   (start-otp-subsystem)
   ; start logging subsystem
@@ -45,6 +44,7 @@
   ; start the ingest system
   (start-ingest-system)
   ; start the job manager
-  (jobmaster/start-link (log-srv/get-log-f "system")))
+  (jobmaster/start-link (logsrv/make-log-f "system"))
+  (logsrv/msg "system" :info "wrfx2 startup complete" []))
 
 

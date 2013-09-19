@@ -1,9 +1,9 @@
-(ns log-stream
-    (require io file lists
-	     (erlang :as erl :joxify)
-	     (joxa-core :as jxc)
-	     (calendar :joxify)
-	     (io_lib :as iol)))
+(ns logger
+  (require io file lists
+	         (erlang :as erl :joxify)
+	         (calendar :joxify)
+	         (io_lib :as iol))
+  (use joxa-core))
 
 
 (defn level-string (level)
@@ -12,7 +12,8 @@
     (:info  "info ")
     (:warn  "WARN ")
     (:error "ERROR")
-    (:flash "FLASH")))
+    (:flash "FLASH")
+    (_      "FLASH")))
 
 
 (defn+ level-number (level)
@@ -21,16 +22,19 @@
     (:info 0)
     (:warn 1)
     (:error 2)
-    (:flash 3)))
+    (:flash 3)
+    (_      3)))
 
 
 (defn+ log-msg (pid level msg)
   (erl/send pid {:msg level msg})
   :ok)
 
+
 (defn+ log-msg (pid level msg &rest args)
   (erl/send pid {:msg level (iol/format msg args)})
   :ok)
+
 
 (defn+ make-log-func (pid)
   "Construct and return a function that sends messages to
@@ -42,23 +46,6 @@
 	      ((msg . rest) (when (erl/is-list msg)) 
 	        (erl/send pid {:msg level (lists/flatten (iol/format msg rest))}))
 	      (gibberish (erl/send pid {:msg :flash (iol/format "INVALID message [~p], fix this!" [gibberish])})))))
-
-
-(defn+ info (pid msg &rest args)
-  (erl/send pid {:msg :info (iol/format msg args)})
-  :ok)
-
-(defn+ warn (pid msg &rest args)
-  (erl/send pid {:msg :warn (iol/format msg args)})
-  :ok)
-
-(defn+ error (pid msg &rest args)
-  (erl/send pid {:msg :error (iol/format msg args)})
-  :ok)
-
-(defn+ flash (pid msg &rest args)
-  (erl/send pid {:msg :flash (iol/format msg args)})
-  :ok)
 
 
 ;; send an eof request (files are closed)
@@ -73,9 +60,9 @@
 
 ;; construct a logging timestamp
 (defn timestamp ()
-  (jxc/let ({{yr mon day}, {hr min sec}} (calendar/local-time))
-      (iol/format "~4..0B~2..0B~2..0B:~2..0B~2..0B~2..0B"
-        [yr mon day hr min sec])))
+  (let ({{yr mon day}, {hr min sec}} (calendar/local-time))
+    (iol/format "~4..0B~2..0B~2..0B:~2..0B~2..0B~2..0B"
+                [yr mon day hr min sec])))
 
 
 (defn route-message (tgt msg-level log-text text)
@@ -84,9 +71,10 @@
    <text> is sent to :relay targets while <log-text> is sent to other targets."
   (let* (msg-level-num (level-number msg-level))
     (case tgt
-      ({:stdio level-num}     (jxc/if (jxc/gte msg-level-num level-num) (io/format log-text) :ok))
-      ({:device dev}          (io/format dev log-text []) :ok)
-      ({:relay pid level-num} (jxc/if (jxc/gte msg-level-num level-num) (erl/send pid {:msg msg-level text}) :ok)))))
+      ({:stdio level-num}
+        (if (gte msg-level-num level-num) (io/format log-text) :ok))
+      ({:device dev}
+        (io/format dev log-text []) :ok))))
 
 
 ;; relay the eof message to all targets
@@ -94,9 +82,10 @@
   "Interpret the :eof message for the target <tgt>.
    NOTE: :eof messages are not propagated to :relay targets."
   (case tgt
-    ({:stdio _level}      (io/format close-msg))
-    ({:device dev} (io/format dev close-msg []) (file/close dev))
-    ({:relay pid _level}  :ok)))
+    ({:stdio _level}
+      (io/format close-msg))
+    ({:device dev}
+      (io/format dev close-msg []) (file/close dev))))
 
 
 ;; the main logging loop which waits for messages in the form
@@ -108,11 +97,11 @@
   (receive
     ({:msg level text}
       ; construct a log text & route message at the given level
-      (let* (log-text [log-n " " (timestamp) " " (level-string level) " " text "\n"])
-        (lists/map (fn (tgt) (route-message tgt level log-text text)) targets)
+      (let* (log-text [log-n " " (timestamp) " " (level-string level) " " text "~n"])
+        (lists/map (fn (tgt) (route-message tgt level (lists/flatten log-text) text)) targets)
         (log-loop log-n targets)))
     (:eof
-      (lists/map (fn (tgt) (send-eof tgt [log-n " [" (timestamp) "] -> *** LOG END ***.\n"])) targets))
+      (lists/map (fn (tgt) (send-eof tgt [log-n " [" (timestamp) "] -> *** LOG END ***.~n"])) targets))
     (:exit
       :ok)))
 
@@ -127,12 +116,12 @@
 (defn+ make-dev-target (fname)
   "Create a device target for the log stream (always sinks all messages)."
   (case (file/open fname [:write])
-    ({:ok dev} {:device dev})
+    ({:ok dev} 
+      (io/format "in make-dev-target dev ~p opts ~p~n" [dev (io/getopts dev)])
+      {:device dev})
     (error :failed)))
 
 
-(defn+ make-relay-target (pid level)
-  "Create a relay target for routing messages to <pid> only with urgency equal to or above <level>."
-  (let* (level-num (level-number level))
-    {:relay pid level-num}))
-
+(defn+ start (log-n fname)
+  "Start the log <log-n> with one file target <fname>."
+  (erl/spawn (fn () (log-loop log-n [(make-dev-target fname)]))))

@@ -38,17 +38,17 @@
     (case (read-exitcode-file exit-code-f)
       ({exit-code exit-time}
         ;; just return the exit code we already obtained
-        (log-f :info ["~s: exit code ~p found, process exited on ~w returning immediately" tid exit-code exit-time])
+        (log-f :info "~s: exit code ~p found, process exited on ~w returning immediately" [tid exit-code exit-time])
         {:success exit-code})
      (:invalid
-        (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
+        (log-f :info "~s: no exit code found, will check pid file ~s" [tid pid-f])
         (case (read-pid-file pid-f)
           ({os-pid start-time}
             (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
-              (log-f :info ["~s: found pid file with pid ~p, written at ~p, waiting for another ~p ms" tid os-pid start-time remaining-exec-timeout])
+              (log-f :info "~s: found pid file with pid ~p, written at ~p, waiting for another ~p ms" [tid os-pid start-time remaining-exec-timeout])
               (begin-monitoring in-dir tid 5000 remaining-exec-timeout log-f)))
           (:invalid
-            (log-f :info ["~s: no pid file found, process ~p must be started" tid command])
+            (log-f :info "~s: no pid file found, process ~p must be started" [tid command])
             (let* (fqn (make-proc-file-name in-dir tid ".sh"))
               (write-run-script fqn (make-immed-exec-script tid command output-spec))
               (erl/open-port {:spawn fqn} [{:cd in-dir}])

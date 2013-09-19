@@ -1,4 +1,4 @@
-(ns config-srv
+(ns configsrv
   (require plist utils
            (erlang :as erl :joxify) (file :joxify) (dict :joxify)
 	         inets gen_server)
@@ -19,27 +19,28 @@
 (defn+ start-link ()
   "Start the configuration server <log-f>."
     (case (utils/execute-file "etc/config")
-      ({:ok cfg} (gen_server/start_link {:local :config-srv} :config-srv [cfg] []))
+      ({:ok cfg} (gen_server/start_link {:local :configsrv} :configsrv [cfg] []))
       (error (erl/throw error))))
+
 
 (defn+ reload-config ()
   "Reload the configuration file."
   (case (utils/execute-file "etc/config")
-    ({:ok cfg} (gen_server/call :config-srv {:reload cfg})
+    ({:ok cfg} (gen_server/call :configsrv {:reload cfg})
                :success)
     (error error)))
 
 
 (defn+ get-conf (key)
   "Retrieve the configuration value for the key <key>."
-  (case (gen_server/call :config-srv {:get-conf key})
+  (case (gen_server/call :configsrv {:get-conf key})
     (:no-such-key (erl/throw :no-such-key))
     (value value)))
 
 
 (defn+ get-keys ()
   "Retrieve all keys from the configuration server."
-  (gen_server/call :config-srv :get-keys))
+  (gen_server/call :configsrv :get-keys))
 
 
 ; Implementation

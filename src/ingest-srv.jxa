@@ -18,19 +18,19 @@
 (ns ingest-srv
     (require 
        (erlang :as erl :joxify)
-       (joxa-core :as jxc)
        plist
        (file :joxify)
        (io_lib :as iol :joxify)
        lists
        (dict :joxify)
-       inets
        gen_server
        grib-src-def
        raws-src-def
        utils
+       logsrv
        (erl_eval :joxify)
-       mwest-srv))
+       mwest-srv)
+    (use joxa-core))
 
 
 (defn+ load-src-def-file (fname)
@@ -59,7 +59,6 @@
 
 (defn+ start-link (stor-dir log-f)
   "Start the GRIB server manager that routes requests to appropriate GRIB servers."
-  (inets/start)
   (gen_server/start_link {:local :ingest-srv} :ingest-srv [(dict/new) (dict/new) (dict/new) stor-dir log-f] [])
   (reload-sources "etc/ingest/grib.sources" :restart-grib-servers)
   (reload-sources "etc/ingest/raws.sources" :restart-raws-servers))
@@ -112,8 +111,8 @@
 (defn start-servers (src-list get-mod-name-f stor-dir log-f)
   "Start a source server for each dictionary entry in <src-list>
    and store the mapping name -> pid in a dict that is returned."
-  (let* (param-dict [ {:storage-dir stor-dir} {:log-func log-f} ] 
-         start-one (fn (src) (case (erl/apply (get-mod-name-f src) :start-link [src param-dict]) ({:ok pid} pid))))
+  (let* (param-dict   [ {:storage-dir stor-dir} {:log-func log-f} ] 
+         start-one    (fn (src) (case (erl/apply (get-mod-name-f src) :start-link [src param-dict]) ({:ok pid} pid))))
     (dict/fold (fn (src-name src d) (dict/store src-name (start-one src) d)) (dict/new) src-list)))
 
 
@@ -131,9 +130,8 @@
 
 (defn+ handle_call (request from state)
   "Handle a call request (synch request/reply)."
-  (jxc/let ([grib-srv-map grib-srcs raws-srv-map stor-dir log-f] state)
+  (let ([grib-srv-map grib-srcs raws-srv-map stor-dir log-f] state)
   (case request
-    (:get-log-function {:reply log-f state})
     (:get-srv-maps {:reply {grib-srv-map raws-srv-map} state})
     ; find the PID of the gen_server managing GRIB source src-name
     ({:find-raws-server src-name}
@@ -145,21 +143,22 @@
       {:reply (dict/find src-name grib-srcs) state})
     ; reload RAWS sources file - send kill messages to current RAWS servers and create new ones
     ({:restart-raws-servers new-raws-src-list}
-      (log-f :info ["ingest-srv/handle_call: restarting RAWS servers"])
+      (log-f :info "ingest-srv/handle_call: restarting RAWS servers" [])
       (let* (new-raws-srcs (lists/foldl (fn (x d) (dict/store (raws-src-def/name x) x d)) (dict/new) new-raws-src-list)
-             new-srv-map (start-servers new-raws-srcs (fn (x) (raws-src-def/mod-name x)) stor-dir log-f))
+             new-srv-map   (start-servers new-raws-srcs (fn (x) (raws-src-def/mod-name x)) stor-dir log-f))
         (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
         {:reply :ok [grib-srv-map grib-srcs new-srv-map stor-dir log-f]}))
     ; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
     ({:restart-grib-servers new-grib-src-list}
-      (log-f :info ["ingest-srv/handle_call: restarting GRIB servers"])
+      (log-f :info "ingest-srv/handle_call: restarting GRIB servers" [])
       (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-src-def/name x) x d)) (dict/new) new-grib-src-list)
              new-srv-map (start-servers new-grib-srcs (fn (x) (grib-src-def/mod-name x)) stor-dir log-f))
         ; send termination requests to all current gen_servers
         (dict/fold (fn (k v a) (gen_server/call v :stop-grib-srv) :ok) :ok grib-srv-map)
           {:reply :ok [new-srv-map new-grib-srcs raws-srv-map stor-dir log-f]}))
     ; catch-all reply indicating failure, should be sent to logger
-    (other (log-f :warn ["ingest-srv/handle_call: message ~p not understood." other])
+    (other
+      (logsrv/error :flash "ingest-srv/handle_call: message ~p not understood" other)
       {:reply :invalid-request state}))))
 
 
