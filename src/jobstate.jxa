@@ -1,7 +1,7 @@
 (ns jobstate
   (require plist utils
            (erlang :as erl :joxify) (file :joxify) (dict :joxify)
-            inets gen_server)
+            inets gen_server lists)
   (use joxa-core))
 
 
@@ -9,7 +9,19 @@
 
 (defn+ start-link (job-name)
   "Start the configuration server <log-f>."
-  (gen_server/start_link :jobstate [job-name (dict/new)] []))
+  (gen_server/start_link :jobstate [job-name (dict/new)] [] []))
+
+
+(defn+ subscribe (pid)
+  "Add the calling process to the list of notification targets of
+  jobstate at <pid>."
+  (gen_server/call pid {:add-notify-target (erl/self)}))
+
+
+(defn+ unsubscribe (pid)
+  "Remove the calling process to the list of notification targets of
+  jobstate at <pid>."
+  (gen_server/call pid {:remove-notify-target (erl/self)}))
 
 
 (defn+ name (pid)
@@ -21,7 +33,14 @@
   "Get the state stored under the key <key> in the
    state server <pid>."
   (case (gen_server/call pid {:get-state key})
-    ({:ok state} state)
+    ({:ok value} value)
+    (:error :no-such-key)))
+
+
+(defn+ get-list (pid ks)
+  "Retrieve a list of keys <ks> from the state server <pid>."
+  (case (gen_server/call pid {:multi-get-state ks})
+    ({:ok vs} vs)
     (:error :no-such-key)))
 
 
@@ -34,6 +53,7 @@
   "Retrieve all keys from the configuration server."
   (gen_server/call pid {:set-state key value}))
 
+
 (defn+ set-plist (pid plst)
   "Set multiple keys to their values stored as a plist <plst> injobstate <pid>."
   (gen_server/call pid {:multiset-state plst}))
@@ -44,14 +64,34 @@
     {:ok args})
 
 
+(defn notify-targets (lst)
+  "Notify all targets in list if pids <lst> that the state in this
+   has been updated."
+  (lists/map (fn (x) (erl/send x {:state-changed (erl/self)})) lst))
+
+
 (defn+ handle_call (request from state)
-  (let ([job-name state-dict] state)
+  (let ([job-name state-dict tgts] state)
     (case request
       (:get-name {:reply job-name state})
-      ({:get-state key} {:reply (dict/find key state-dict) state})
-      ({:set-state key value} {:reply :ok [job-name (dict/store key value state-dict)]})
-      ({:append key value} {:reply :ok [job-name (dict/append key value state-dict)]})
-      ({:multiset-state plst} {:reply :ok [job-name (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst)]})
+      ({:get-state key}
+        {:reply (dict/find key state-dict) state})
+      ({:multi-get-state ks}
+        (let* (vs (lists/map (fn (x) (dict/find x state-dict)) ks))
+          (if (lists/any (fn (x) (case x (:error :true) (_ :false))) vs) :error {:ok vs})))
+      ({:set-state key value}
+        (notify-targets tgts)
+        {:reply :ok [job-name (dict/store key value state-dict)]})
+      ({:append key value}
+        (notify-targets tgts)
+        {:reply :ok [job-name (dict/append key value state-dict)]})
+      ({:multiset-state plst}
+        (notify-targets tgts)
+        {:reply :ok [job-name (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst)]})
+      ({:add-notify-target tgt}
+        {:reply :ok [job-name state-dict (tgt . tgts)]})
+      ({:remove-notify-target tgt}
+        {:reply :ok [job-name state-dict (lists/delete tgt tgts)]})
       (other {:reply :invalid-request state}))))
 
 
