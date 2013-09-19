@@ -44,9 +44,8 @@
         (let* (pf-cmd (iol/format "psrc/process-frame.py ~s ~s/wrfout_d01_~s" [(ta/to-esmf-str sim-time) wdir (ta/to-esmf-str sim-from)]))
           (log-f :info ["fire-sim detected WRF history write at ~w in domain ~p" sim-time domain-id])
           (log-f :info ["fire-sim result from process-frame ~p" (os/cmd pf-cmd)])
-          (log-f :info ["fire-sim simulation info - acceleration ~p time to go ~p completion at ~w"
-                        (jobstate/get jst-pid :sim-acceleration) (jobstate/get jst-pid :seconds-to-finish)
-                        (jobstate/get jst-pid :completion-time)])
+          (log-f :info ["fire-sim simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
+                        (jobstate/get-list jst-pid [:percent-done :sim-acceleration :seconds-to-finish :completion-time])])
           (monitor-wrf-execution wdir pid sim-from sim-to mon-pid jst-pid log-f)))
       ({:proc-started pid comp-start}
         (log-f :info ["fire-sim WRF computation started on ~w, monitoring" comp-start])
