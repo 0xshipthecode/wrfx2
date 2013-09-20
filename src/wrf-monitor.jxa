@@ -29,7 +29,7 @@
 (defspec monitor-loop ((erl/device) (erl/tuple) (erl/tuple) (erl/tuple) (erl/integer) (erl/pid) (erl/pid) (erl/function)) (erl/any))
 
 (defn process-timing (line dev sim-start sim-end comp-start updates-seen jst-pid master-pid log-f)
-  (when (erl/> updates-seen 10)
+  (when (erl/> updates-seen 2)
     (let* (esmf-date (str/substr line 23 19)
            domain-id (erl/list-to-integer (str/strip (str/substr line 52 4))))
       (when (erl/=:= domain-id 1)
