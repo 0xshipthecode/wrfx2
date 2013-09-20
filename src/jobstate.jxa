@@ -43,10 +43,10 @@
   (gen_server/call pid :get-keys))
 
 
-(defn+ get-dict (pid)
+(defn+ get-plist (pid)
   "Retrieve the entire state dictionary stored in
-   the jobstate <pid>."
-   (gen_server/call pid :get-dict))
+   the jobstate <pid> as a plist."
+   (gen_server/call pid :get-plist))
 
 
 (defn+ get-list (pid ks)
@@ -109,8 +109,8 @@
         {:reply :ok [job-name state-dict (lists/delete tgt tgts)]})
       (:get-keys
         {:reply (dict/fetch-keys state-dict) state})
-      (:get-dict
-        {:reply state-dict state})
+      (:get-plist
+        {:reply (dict/to-list state-dict) state})
       (other {:reply :invalid-request state}))))
 
 
