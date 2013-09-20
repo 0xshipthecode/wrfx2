@@ -4,7 +4,7 @@
        inets io (file :joxify) filename crypto
        (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify)
-       (filelib :joxify))
+       (filelib :joxify) net_adm)
     (use utils))
 
 
@@ -45,6 +45,7 @@
   (start-ingest-system)
   ; start the job manager
   (jobmaster/start-link (logsrv/make-log-f "system"))
-  (logsrv/msg "system" :info "wrfx2 startup complete" []))
+  (logsrv/msg "system" :info "wrfx2 startup complete" [])
+  (net_adm/ping :wrfx2web@gross))
 
 
