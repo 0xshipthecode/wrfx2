@@ -15,26 +15,37 @@
   "Add a job with name <job-id> and process <job-pid> and job state <job-state>."
   (gen_server/call {:global :jobmaster} {:add-job job-id job-pid job-state}))
 
+
 (defn+ deljob (job-id)
   "Remove the job named <job-id> from the master index."
   (gen_server/call {:globa :jobmaster} {:remove-job job-id}))
+
 
 (defn+ getjobstate (job-id)
   "Retrieve the pid of the jobstate server for job named <job-id>."
   (gen_server/call {:global :jobmaster} {:job-state job-id}))
 
+
 (defn+ getjobpid (job-id)
   "Retrieve the pid of the job named <job-id>."
   (gen_server/call {:global :jobmaster} {:job-pid job-id}))
+
 
 (defn+ listjobs ()
   "List all jobs currently indexed by the jobmaster."
   (gen_server/call {:global :jobmaster} :list-jobs))
 
+
 (defn+ submitjob (mod args)
   "Submits a job by executing <mod>/submit with args <args>.
    Returns the job id (a uuid)."
   (gen_server/call {:global :jobmaster} {:submit-job mod args}))
+
+
+(defn+ resubmitjob (uuid mod args)
+  "Resubmit a job with the given <uuid>."
+  (gen_server/call {:global :jobmaster} {:resubmit-job uuid mod args}))
+
 
 ;; Internal funcrions
 
@@ -67,6 +78,12 @@
     ({:submit-job mod args}
       (let* (uuid       (utils/make-uuid)
              short-uuid (str/substr uuid 1 8)
+             args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
+             jst-pid    (jobstate/start-link uuid)
+             job-pid    (erl/apply mod :submit [args2 jst-pid]))
+        {:reply {:ok uuid jst-pid} [(dict/store uuid {job-pid jst-pid} job-dict) log-f]}))
+    ({:resubmit-job uuid mod args}
+      (let* (short-uuid (str/substr uuid 1 8)
              args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
              jst-pid    (jobstate/start-link uuid)
              job-pid    (erl/apply mod :submit [args2 jst-pid]))
