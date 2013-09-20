@@ -69,7 +69,7 @@
       (logger/error-report log-text))))
 
 
-(defn+ error (level msg &rest args)
+(defn+ error (level msg args)
   "Log an error with level <level>, message <msg> (with args <args>) to the error logger."
     (logger/error-report (construct-message level msg args)))
 

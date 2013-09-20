@@ -8,7 +8,6 @@
 (defn+ start-link (log-f)
   (gen_server/start_link {:global :jobmaster} :jobmaster [(dict/new) log-f] []))
 
-
 ;; API
 
 (defn+ addjob (job-id job-pid job-state)
@@ -67,12 +66,12 @@
       (try*
         {:reply (erl/element 2 (dict/fetch job-id job-dict)) state}
         (catch (type bdy)
-          {:reply :no-such-job job-dict})))
+          {:reply :no-such-job state})))
     ({:job-pid job-id}
       (try*
         {:reply (erl/element 1 (dict/fetch job-id job-dict)) state}
         (catch (t b)
-          {:reply :no-such-job job-dict})))
+          {:reply :no-such-job state})))
     (:list-jobs
       {:reply (dict/fetch-keys job-dict) state})
     ({:submit-job mod args}

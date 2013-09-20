@@ -1,5 +1,5 @@
 
-ERLPREFIX=/usr/local/Cellar/erlang-r16/R16B01/lib/erlang
+ERLPREFIX=$(HOME)/Apps/erl16b/lib/erlang
 
 all: pre-compile compile
 
@@ -13,6 +13,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/nlist.beam \
 		ebin/configsrv.beam \
 		ebin/logsrv.beam \
+		ebin/sysmon.beam \
 		ebin/grib-retr.beam \
 		ebin/grib-srv.beam \
 		ebin/static-grib-srv.beam \

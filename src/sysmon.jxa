@@ -1,0 +1,76 @@
+(ns sysmon
+  (require plist os (dict :joxify) gen_server (erlang :as erl :joxify) 
+           (calendar :as cal :joxify) logsrv (string :as str))
+  (use joxa-core))
+
+
+; API
+
+(defn+ start-link ()
+  "Start the sysmon server.  Either starts up succesfully or throws an error."
+  (let* (host (os/cmd "hostname")
+         now  (cal/local-time))
+    (case (gen_server/start_link {:global :sysmon} :sysmon [{:host host} {:lastupdated now}] [])
+      ({:ok _} :ok)
+      (error (erl/throw {"error starting the sysmon server" error})))))
+
+
+(defn+ getstate ()
+  "Returns the current server state as a plist."
+  (gen_server/call {:global :sysmon} :getstate))
+
+
+; Internal
+
+
+(defn get-cmd-output (cmd)
+  (str/strip (os/cmd cmd) :right 10))
+
+(defn update-state (state)
+  (try*
+    (let* (total-nodes (erl/list-to-integer (get-cmd-output "pbsnodes -a | grep properties | wc -l"))
+           free-nodes  (erl/list-to-integer (get-cmd-output "pbsnodes -a | grep \"state = free\" | wc -l"))
+           queue-len   (erl/list-to-integer (get-cmd-output "qstat dque | wc -l"))
+           now         (cal/local-time))
+      (plist/update-with [{:nodes total-nodes} {:freenodes free-nodes}
+                          {:qlen (if (gte queue-len 2) (- queue-len 2) queue-len)}
+                          {:lastupdated now}] state))
+    (catch (type body)
+      (do
+        (logsrv/error :error "sysmon: failed to update state, exception ~p with body ~p, stack trace ~p" [type body (erl/get-stacktrace)])
+        state))))
+
+; gen_server callbacks
+
+(defn+ init (args)
+    (erl/send-after 10000 (erl/self) :updatestate)
+    {:ok args})
+
+
+(defn+ handle_call (request from state)
+    (case request
+      (:getstate
+        {:reply state state})
+      (other {:reply :invalid-request state})))
+
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+
+(defn+ handle_info (info state)
+  (case info
+    (:updatestate
+      (erl/send-after 10000 (erl/self) :updatestate)
+      {:noreply (update-state state)})
+    (other
+      {:noreply state})))
+
+
+(defn+ terminate (reason state)
+  :ok)
+
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+

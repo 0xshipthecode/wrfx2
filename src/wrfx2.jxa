@@ -1,6 +1,6 @@
 (ns wrfx2
     (require
-       jobmaster ingest-srv configsrv logsrv
+       jobmaster ingest-srv configsrv logsrv sysmon
        inets io (file :joxify) filename crypto
        (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify)
@@ -45,7 +45,11 @@
   (start-ingest-system)
   ; start the job manager
   (jobmaster/start-link (logsrv/make-log-f "system"))
+  ; start the system monitor
+  (sysmon/start-link)
+  ; we are ready to go
   (logsrv/msg "system" :info "wrfx2 startup complete" [])
+  ; check if the webserver is up, if yes, connect
   (net_adm/ping :wrfx2web@gross))
 
 

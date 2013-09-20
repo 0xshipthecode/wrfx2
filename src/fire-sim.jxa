@@ -152,7 +152,7 @@
         (log-f :info "fire-sim [~p] job is already completed, nothing to compute" [short-jid])))
 
     (log-f :info "fire-sim [~p] end of job reached" [short-jid])
-    (jobstate/set jst-pid :stage "done")
+    (jobstate/set jst-pid :stage "COMPLETE")
     (jobstate/set jst-pid :percent-done 100.0)
 
     :ok))
@@ -168,7 +168,7 @@
         (logsrv/close-log log-name))
       (catch (type body)
         (do
-          (jobstate/set jst-pid :stage :failed)
+          (jobstate/set jst-pid :stage "FAILED")
           (jobstate/set jst-pid :reason (iol/format "crashed with exception ~p" [type]))
           (logsrv/msg "system" :error "fire-sim [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
                       [short-jid type body (erl/get-stacktrace)])

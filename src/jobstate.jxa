@@ -38,6 +38,13 @@
     ({:ok value} value)
     (:error :no-such-key)))
 
+
+(defn+ isactive (pid)
+  (case (get pid :stage)
+    ("COMPLETE"  :false)
+    ("FAILED"    :false)
+    (_           :true)))
+
 (defn+ keys (pid)
   "Retrieve all keys stored in jobstate pid <pid>."
   (gen_server/call pid :get-keys))
