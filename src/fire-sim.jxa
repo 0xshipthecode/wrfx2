@@ -106,11 +106,11 @@
            wps-nl-name (filename/join wps-wdir "namelist.wps"))
       (log-f :info "fire-sim [~p] writing namelist.wps for geogrid" [short-jid])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-      (jobstate/set jst-pid :stage "geogrid")
+      (jobstate/set jst-pid :stage "GEOGRID (1/6)")
       (wrfxlib/run-geogrid wps-wdir log-f)
 
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-      (jobstate/set jst-pid :stage "GRIB download")
+      (jobstate/set jst-pid :stage "GRIB retrieval (2/6)")
       (log-f :info "fire-sim [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
       (let ({cov-from cov-to mfest}  (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
              wps-nl2                 (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
@@ -119,9 +119,9 @@
         (log-f :info "fire-sim [~p] writing amended namelist.wps for ungrib.exe" [short-jid])))
 
     ; step 3: run ungrib & metgrid
-    (jobstate/set jst-pid :stage "ungrib")
+    (jobstate/set jst-pid :stage "UNGRIB (3/6)")
     (wrfxlib/run-ungrib wps-wdir log-f)
-    (jobstate/set jst-pid :stage "metgrid")
+    (jobstate/set jst-pid :stage "METGRID (4/6)")
     (wrfxlib/run-metgrid wps-wdir log-f)
 
     ; step 4: setup the WRF working directory
@@ -139,12 +139,12 @@
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
     ;step 7: run real.exe
-    (jobstate/set jst-pid :stage "real")
+    (jobstate/set jst-pid :stage "REAL (5/6)")
     (wrfxlib/run-real wrf-wdir log-f)
 
     ; step 8: run WRF
     (log-f :info "fire-sim [~p] running WRF" [short-jid])
-    (jobstate/set jst-pid :stage "wrf")
+    (jobstate/set jst-pid :stage "WRF (6/6)")
     (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 3600000 log-f)
       ({:running wrf-pid}
         (monitor-wrf-execution job-id wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
