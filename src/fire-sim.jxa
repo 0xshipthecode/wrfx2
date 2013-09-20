@@ -153,6 +153,7 @@
 
     (log-f :info "fire-sim [~p] end of job reached" [short-jid])
     (jobstate/set jst-pid :stage "done")
+    (jobstate/set jst-pid :percent-done 100.0)
 
     :ok))
 
