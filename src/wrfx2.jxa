@@ -44,7 +44,7 @@
   ; start the ingest system
   (start-ingest-system)
   ; start the job manager
-  (jobmaster/start-link (logsrv/make-log-f "system"))
+  (jobmaster/start-link)
   ; start the system monitor
   (sysmon/start-link)
   ; we are ready to go

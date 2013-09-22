@@ -1,12 +1,12 @@
 (ns jobmaster
-  (require utils plist jobstate
+  (require utils plist jobstate logsrv
            lists (string :as str) gen_server filename (file :joxify)
-           (dict :joxify) (erlang :as erl))
+           (dict :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
 
-(defn+ start-link (log-f)
-  (gen_server/start_link {:global :jobmaster} :jobmaster [(dict/new) log-f] []))
+(defn+ start-link ()
+  (gen_server/start_link {:global :jobmaster} :jobmaster {(dict/new) [] (logsrv/make-log-f "system")} []))
 
 ;; API
 
@@ -17,7 +17,7 @@
 
 (defn+ deljob (job-id)
   "Remove the job named <job-id> from the master index."
-  (gen_server/call {:globa :jobmaster} {:remove-job job-id}))
+  (gen_server/call {:global :jobmaster} {:remove-job job-id}))
 
 
 (defn+ getjobstate (job-id)
@@ -35,6 +35,11 @@
   (gen_server/call {:global :jobmaster} :list-jobs))
 
 
+(defn+ activejobs()
+  "Returns the active jobs."
+  (gen_server/call {:global :jobmaster} :active-jobs))
+
+
 (defn+ submitjob (mod args)
   "Submits a job by executing <mod>/submit with args <args>.
    Returns the job id (a uuid)."
@@ -48,6 +53,7 @@
 
 ;; Internal funcrions
 
+
 ;; gen_server callbacks
 
 (defn+ init (args)
@@ -55,13 +61,13 @@
 
 
 (defn+ handle_call (request from state)
-  (let ([job-dict log-f] state)
+  (let ({job-dict active-jobs log-f} state)
    (case request
     ({:add-job job-id job-pid job-state}
-      {:reply :ok [(dict/store job-id {job-pid job-state} job-dict) log-f]})
+      {:reply :ok {(dict/store job-id {job-pid job-state} job-dict) active-jobs log-f}})
     ({:remove-job job-id}
       ; here a termination must be started
-      {:reply :ok [(dict/erase job-id job-dict) log-f]})
+      {:reply :ok {(dict/erase job-id job-dict) active-jobs log-f}})
     ({:job-state job-id}
       (try*
         {:reply (erl/element 2 (dict/fetch job-id job-dict)) state}
@@ -75,31 +81,49 @@
     (:list-jobs
       {:reply (dict/fetch-keys job-dict) state})
     ({:submit-job mod args}
-      (let* (uuid       (utils/make-uuid)
-             short-uuid (str/substr uuid 1 8)
-             args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
-             jst-pid    (jobstate/start-link uuid)
-             job-pid    (erl/apply mod :submit [args2 jst-pid]))
-        {:reply {:ok uuid jst-pid} [(dict/store uuid {job-pid jst-pid} job-dict) log-f]}))
+      (if (empty? active-jobs)
+        (let* (uuid       (utils/make-uuid)
+               short-uuid (str/substr uuid 1 8)
+               args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
+               jst-pid    (jobstate/start-link uuid)
+               job-pid    (erl/apply mod :submit [args2 jst-pid]))
+          (log-f :info "jobmaster: job ~p activated" [uuid])
+          {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) (uuid . active-jobs) log-f}})
+        {:reply :busy state}))
     ({:resubmit-job uuid mod args}
       (let* (short-uuid (str/substr uuid 1 8)
              args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
              jst-pid    (jobstate/start-link uuid)
              job-pid    (erl/apply mod :submit [args2 jst-pid]))
-        {:reply {:ok uuid jst-pid} [(dict/store uuid {job-pid jst-pid} job-dict) log-f]}))
+        {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) active-jobs log-f}}))
+    ({:job-activated uuid}
+      (if (erl/not (lists/member uuid active-jobs))
+        (do
+          (log-f :info "jobmaster: job ~p activated" [uuid])
+          {:reply :ok {job-dict (uuid . active-jobs) log-f}})
+        {:reply :ok state}))
+    ({:job-deactivated uuid}
+      (io/format "JOBMASTER: received deactivation message for job ~p~n" [uuid])
+      (log-f :info "jobmaster: job ~p done" [uuid])
+      {:reply :ok {job-dict (lists/delete uuid active-jobs) log-f}})
+    (:active-jobs
+      {:reply active-jobs state})
     (other
-      (log-f :flash ["jobmaster: message ~p not understood, fix it!" other])
+      (logsrv/error :flash "jobmaster: message ~p not understood, fix it!" [other])
       {:reply :invalid-request state}))))
 
 
 (defn+ handle_cast (msg state)
   {:noreply state})
 
+
 (defn+ handle_info (info state)
   {:noreply state})
 
+
 (defn+ terminate (reason state)
   :ok)
+
 
 (defn+ code_change (old-vsn state extra)
   {:ok state})

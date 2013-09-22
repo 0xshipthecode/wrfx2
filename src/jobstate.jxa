@@ -7,11 +7,12 @@
 
 ; API
 
-(defn+ start-link (job-name)
+(defn+ start-link (uuid)
   "Start the configuration server <log-f>."
-  (case (gen_server/start_link :jobstate [job-name (dict/new) []] [])
-    ({:ok pid} pid)
-    (error (erl/throw ["error starting the job-state server" job-name]))))
+  (let* (init-state (dict/from-list [{:kmls []} {:stage "INIT"}]))
+    (case (gen_server/start_link :jobstate {uuid init-state []} [])
+      ({:ok pid} pid)
+      (error (erl/throw ["error starting the job-state server" uuid])))))
 
 
 (defn+ subscribe (pid)
@@ -44,6 +45,7 @@
     ("COMPLETE"  :false)
     ("FAILED"    :false)
     (_           :true)))
+
 
 (defn+ keys (pid)
   "Retrieve all keys stored in jobstate pid <pid>."
@@ -90,10 +92,10 @@
 
 
 (defn+ handle_call (request from state)
-  (let ([job-name state-dict tgts] state)
+  (let ({uuid state-dict tgts} state)
     (case request
       (:get-name
-        {:reply job-name state})
+        {:reply uuid state})
       ({:get-state key}
         {:reply (dict/find key state-dict) state})
       ({:multi-get-state ks}
@@ -103,17 +105,22 @@
             {:reply {:ok vs} state})))
       ({:set-state key value}
         (notify-targets tgts)
-        {:reply :ok [job-name (dict/store key value state-dict) tgts]})
+        (when (and (erl/== key :stage) (lists/member value ["COMPLETE" "FAILED"]))
+          (io/format "JOBSTATE detected job completion in job ~p!~n" [uuid])
+          (gen_server/call {:global :jobmaster} {:job-deactivated uuid}))
+        {:reply :ok {uuid (dict/store key value state-dict) tgts}})
       ({:append key value}
         (notify-targets tgts)
-        {:reply :ok [job-name (dict/append key value state-dict) tgts]})
+        {:reply :ok {uuid (dict/append key value state-dict) tgts}})
       ({:multiset-state plst}
         (notify-targets tgts)
-        {:reply :ok [job-name (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst) tgts]})
+        (when (lists/member (plist/get :stage :no-such-key plst) ["COMPLETE" "FAILED"])
+          (erl/send {:global :jobmaster} {:job-deactivated uuid}))
+        {:reply :ok {uuid (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst) tgts}})
       ({:add-notify-target tgt}
-        {:reply :ok [job-name state-dict (tgt . tgts)]})
+        {:reply :ok {uuid state-dict (tgt . tgts)}})
       ({:remove-notify-target tgt}
-        {:reply :ok [job-name state-dict (lists/delete tgt tgts)]})
+        {:reply :ok {uuid state-dict (lists/delete tgt tgts)}})
       (:get-keys
         {:reply (dict/fetch-keys state-dict) state})
       (:get-plist
