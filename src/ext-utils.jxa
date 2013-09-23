@@ -9,44 +9,51 @@
   (use joxa-core utils))
 
 
-(defn+ read-ints-from-file (fname)
+(defn+ read-ints-from-file (fname num-ints)
   "Read integers separated by newlines from file <fname>."
-  (case (file/read-file fname)
-    ({:ok data}
-      (let* (tokens (str/tokens (erl/binary-to-list data) " \n"))
-        (lists/map (fn (x) (erl/list-to-integer (str/strip x))) tokens)))
-    ({:error reason} :invalid)))
+  (with-file-content fname
+    (fn (data)
+      (try*
+        (let* (tokens   (str/tokens data " \n")
+               to-int-f (fn (x) (erl/list-to-integer (str/strip x)))
+               ints     (lists/map to-int-f tokens))
+          (if (erl/== num-ints (erl/length ints)) ints :invalid))
+        (catch (type body)
+          {:error {type body}})))))
 
 
-(defn+ read-int-from-file (fname)
-  "A convenience shortcut when only one integer is to be read from <fname>."
-  (case (read-ints-from-file fname)
-    (:invalid :invalid)
-    ([] :invalid)
-    ([int] int)))
+(defn+ read-ints-from-file-robust (fname num-ints)
+  "Read <num-ints> integers from file <fname>.  Try up to
+   4 times with 250ms pauses inbetween.  Succeed if a list with
+   <num-ints> integers is read in, otherwise fail."
+  (let* (fail?  (fn (x)
+                  (case x
+                    ({:error _} :true)
+                    (_ :false))))
+  (retry-at-most 4 250 fail? (fn () (read-ints-from-file fname num-ints)))))
 
 
 (defn+ read-pid-file (fname)
   "Read a pid file <fname> to obtain the pid of the process and
    the time when it was started."
-  (case (read-ints-from-file fname)
+  (case (read-ints-from-file fname 2)
     ([pid unix-ts] {pid (ta/from-unix-timestamp unix-ts)})
-    (:invalid :invalid)))
+    ({:error _} :invalid)))
 
 
 (defn+ read-exitcode-file (fname)
   "Read the exit code file <fname> to obtain the exitcode of the process and
    the time when it was started."
-  (case (read-ints-from-file fname)
+  (case (read-ints-from-file fname 2)
     ([exit-code unix-ts] {exit-code (ta/from-unix-timestamp unix-ts)})
-    (:invalid :invalid)))
+    ({:error _} :invalid)))
 
 
 (defn+ read-submit-file (fname)
   "Read the submit file <fname> that only contains the date submitted."
-  (case (read-ints-from-file fname)
-    (:invalid :invalid)
-    ([unix-ts] (ta/from-unix-timestamp unix-ts))))
+  (case (read-ints-from-file fname 1)
+    ([unix-ts] (ta/from-unix-timestamp unix-ts))
+    ({:error _} :invalid)))
 
 
 ;; construct the name of a process output file from

@@ -15,7 +15,7 @@
 ;    with this program; if not, write to the Free Software Foundation, Inc.,
 ;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-(ns utils 
+(ns utils
     (require lists filelib timer erl_scan erl_parse
              (erl_eval :joxify) (mnesia :joxify) (file :joxify)
              (string :as str) (io_lib :as iol) (erlang :as erl :joxify)
@@ -100,14 +100,22 @@
 ;; opens file file-name with mode mode and
 ;; passes the device to func/1
 ;; after function is executed, the device is closed
-;; TODO: try/catch block should be added
 (defn+ with-file (file-name mode func)
   (case (file/open file-name mode)
-  ({:ok device}
-   (let* (res (func device))
-     (file/close device)
-     {:success res}))
-  ({:error reason} {:failure reason})))
+    ({:ok device}
+      (let* (res (func device))
+        (file/close device)
+        {:success res}))
+      ({:error reason} {:failure reason})))
+
+
+(defn+ with-file-content (file-name func)
+  "Read in the file content of <file-name> and execute
+   the function <func> on it.  If unsuccesfull reading
+   the data, return {:error reason}."
+  (case (file/read-file file-name)
+    ({:ok data} (func (erl/binary-to-list data)))
+    ({:error reason} {:error reason})))
 
 
 ;; sends a message to multiple targets
@@ -237,4 +245,24 @@
     (lists/flatten
       (iol/format "~8.16.0b-~4.16.0b-4~3.16.0b-~4.16.0b-~12.16.0b"
                   [a, b, (erl/band c 4095) (erl/bor (erl/band d 16383) 32768) e]))))
+
+
+(defn+ retry-at-most (num-times wait-ms fail? func)
+  "Retry a function <func> at most <num-times> with waiting <wait-ms> between retries.
+   Failure is defined as function <fail?> returning true on result of <func>."
+  (let* (result (func))
+    (if (fail? result)
+      (if (erl/> num-times 0)
+        (do
+          (timer/sleep wait-ms)
+          (retry-at-most (decr num-times) wait-ms fail? func))
+        result)
+      result)))
+
+
+
+(defmacro+ != (a b)
+  "A not-equal macro to get rid of ugly syntax in joxa.
+   Returns true if not <a> == <b> in the erlang == sense."
+  `(erl/:'/=' ~a ~b))
 

@@ -22,12 +22,10 @@
       "echo `date +%s` > $TID.submit\n"
       "mpirun -np ~p -hostfile $PBS_NODEFILE ~s &\n"
       "PID=$!\n"
-      "echo $PID > $TID.pid\n"
-      "echo `date +%s` >> $TID.pid\n"
+      "echo $PID `date +%s` > $TID.pid\n"
       "wait $PID\n"
-      "echo $? > $TID.exitcode\n"
-      "echo `date +%s` >> $TID.exitcode\n"])
-        [num-nodes ppn wall-time-hrs tid tid (erl/* num-nodes ppn) cmd]))
+      "echo $? `date +%s` > $TID.exitcode\n" ])
+      [num-nodes ppn wall-time-hrs tid tid (erl/* num-nodes ppn) cmd]))
 
 
 (defn+ run (tid command in-dir num-nodes ppn wall-time-hrs pid-timeout exec-timeout log-f)

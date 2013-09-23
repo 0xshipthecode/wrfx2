@@ -19,11 +19,9 @@
       (lists/map (fnm1 {_fd tgt} (iol/format "touch ~s~n" [tgt])) output-spec)
       cmd (lists/map (fnm1 {fd tgt} (iol/format " ~p>> ~s" [fd tgt])) output-spec) " &\n"
       "PID=$!\n"
-      "echo $PID > $PIDFILE\n"
-      "echo `date +%s` >> $PIDFILE\n"
+      "echo $PID `date +%s` > $PIDFILE\n"
       "wait $PID\n"
-      "echo $? > $DONEFILE\n"]
-      "echo `date +%s` >> $DONEFILE\n")
+      "echo $? `date +%s` > $DONEFILE\n"])
         [cmd tid]))
 
 
