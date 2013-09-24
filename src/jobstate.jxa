@@ -97,6 +97,13 @@
   (lists/map (fn (x) (erl/send x {:state-changed (erl/self)})) lst))
 
 
+(defn job-complete? (stage-value)
+  "Jobs can complete as COMPLETE/FAILED/KILLED.  We only check if <stage-value>
+   is one of COMPLETE or FAILED here.  KILLED jobs are killed by the jobmaster,
+   which will handle deactivation itself in that case."
+  (lists/member stage-value ["COMPLETE" "FAILED"]))
+
+
 (defn+ handle_call (request from state)
   (let ({uuid state-dict tgts} state)
     (case request
@@ -111,7 +118,7 @@
             {:reply {:ok vs} state})))
       ({:set key value}
         (notify-targets tgts)
-        (when (and (erl/== key :stage) (lists/member value ["COMPLETE" "FAILED"]))
+        (when (and (erl/== key :stage) (job-complete? value))
           (gen_server/call {:global :jobmaster} {:job-deactivated uuid}))
         {:reply :ok {uuid (dict/store key value state-dict) tgts}})
       ({:unset key}
@@ -121,7 +128,7 @@
         {:reply :ok {uuid (dict/append key value state-dict) tgts}})
       ({:update-with plst}
         (notify-targets tgts)
-        (when (lists/member (plist/get :stage :no-such-key plst) ["COMPLETE" "FAILED"])
+        (when (job-complete? (plist/get :stage :no-such-key plst))
           (erl/send {:global :jobmaster} {:job-deactivated uuid}))
         {:reply :ok {uuid (lists/foldl (fn (x d) (let ({k v} x) (dict/store k v d))) state-dict plst) tgts}})
       ({:add-notify-target tgt}

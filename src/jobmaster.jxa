@@ -81,6 +81,7 @@
 
 (defn kill-job (jpid jstate)
   (erl/exit jpid :kill)
+  (jobstate/set jstate :stage "KILLED")
   (case (jobstate/get jstate :qid)
     (:no-such-key :ok)
     (qid (os/cmd (iol/format "qdel ~p" [qid])))))
@@ -135,12 +136,12 @@
     (:active-jobs
       {:reply active-jobs state})
     ({:kill-job uuid}
-      (case (dict/fetch uuid job-dict)
+      (case (dict/find uuid job-dict)
         ({:ok {jpid jstate}}
           (log-f :info "jobmaster: job ~p killed by request." [uuid])
           (erl/spawn (fn () (kill-job jpid jstate)))
-          {:reply :job-killed state})
-        (error
+          {:reply :job-killed {job-dict (lists/delete uuid active-jobs) log-f}})
+        (:error
           {:reply :no-such-job state})))
     (other
       (logsrv/error :flash "jobmaster: message ~p not understood, fix it!" [other])
