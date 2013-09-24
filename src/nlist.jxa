@@ -11,7 +11,7 @@
 (defn+ parse (fname nlname)
   (case (nlparser/parse (nlscanner/scan fname))
     ({:ok nls} {:nls nlname nls})
-    ({:error {lineno module text}} {:error (lists/flatten (iol/format "~p on line ~p" [text lineno]))})))
+    ({:error {lineno module text}} (erl/throw {:error (lists/flatten (iol/format "~p on line ~p" [text lineno]))}))))
 
 
 (defn+ render-value (v)
@@ -217,4 +217,11 @@
   (let* (dt-str (ta/to-esmf-str dt))
     (set-values-for-doms nls "share" [{"end_date" dt-str}] doms)))
 
+
+(defn+ set-ignition-1 (nls ign-lat ign-lon ign-tdelta dom)
+  "Set the ignition position at ignition <ign-ndx> to <ign-lat> and <ign-lon> in domains <doms>."
+  (set-values-for-dom nls "fire" [{"fire_ignition_start_lon1" ign-lon} {"fire_ignition_start_lat1" ign-lat}
+                                  {"fire_ignition_end_lon1" ign-lon} {"fire_ignition_end_lat1" ign-lat}
+                                  {"fire_ignition_radius1" 50} {"fire_ignition_start_time1" ign-tdelta}
+                                  {"fire_ignition_end_time1" (erl/+ ign-tdelta 1500)}] dom))
 

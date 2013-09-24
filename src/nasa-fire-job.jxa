@@ -1,0 +1,146 @@
+(ns nasa-fire-job
+  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv configsrv wrf-monitor jobstate jobmaster
+           ingest-srv grib-src-def (time-arith :as ta) os (io_lib :as iol) (filelib :joxify)
+           (string :as str) filename (file :joxify) (erlang :as erl :joxify))
+  (use joxa-core utils))
+
+
+(defn make-wrf-namelist (sim-from sim-to ign-where ign-when nls0)
+  "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
+   the grib source needs."
+  (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from [1 2])
+         nls2     (nlist/set-wrf-end-time nls1 sim-to [1 2])
+         nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to [1])
+         nls4     (nlist/set-entry "time_control" "history_interval" [30 15] nls3))
+    (let ({ign-lat ign-lon} ign-where)
+      (nlist/set-ignition-1 nls4 ign-lat ign-lon (ta/seconds-between sim-from ign-when) 2))))
+
+
+(defn monitor-wrf-execution (job-id wdir pid sim-from sim-to mon-pid jst-pid log-f)
+  "Parse the error output of the process with rank 0 in the working
+   directory <wdir> while the wrf job with pid <pid> completes."
+  (let* (fname (filename/join wdir "rsl.error.0000"))
+    (receive
+      ({:wrf-history-written 1 sim-time}
+        (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid jst-pid log-f))
+      ({:wrf-history-written 2 sim-time}
+        (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
+               sim-time-str (ta/to-esmf-str sim-time)
+               wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)])
+               kml-basename (erl/++ sim-time-str ".kmz")
+               kml-abs-name (filename/join [kml-dir job-id kml-basename]))
+            (filelib/ensure-dir kml-abs-name)
+            (let* (cmd-str (iol/format "deps/wrf2kmz/wrf2kml.py ~s FGRNHFX ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
+              (log-f :info "nasa-fire-job detected WRF history write at ~w in domain 2" [sim-time])
+              (log-f :info "nasa-fire-job result from wrf2kml ~p" [(os/cmd cmd-str)])
+              (jobstate/append jst-pid :kmls kml-basename)
+              (log-f :info "nasa-fire-job simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
+                            [(jobstate/get jst-pid :percent-done) (jobstate/get jst-pid :sim-acceleration)
+                             (jobstate/get jst-pid :seconds-to-finish) (jobstate/get jst-pid :completion-time)])
+          (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid jst-pid log-f))))
+      ({:proc-started pid comp-start}
+        (log-f :info "nasa-fire-job WRF computation started on ~w, monitoring" [comp-start])
+        (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start jst-pid log-f))
+          (monitor-wrf-execution job-id wdir pid sim-from sim-to real-mon-pid jst-pid log-f)))
+      ({:ext-proc-complete pid result}
+        (case mon-pid
+          (:undefined :ok)
+          (valid-pid (erl/send mon-pid :terminate)))
+        result))))
+
+
+(defn+ run (args jst-pid log-f)
+  "Execute the fire-simulation job with the given arguments:
+   ign-when: start of the fire as a GMT time
+   ign-where: ignition of the fire
+   job-id: unique identifier of the job
+   work-dir: working directory
+   wrf-inst-dir: WRF installation directory
+   wps-geog-dir: WPS geography data directory
+   grib-src-name: name of the GRIB source"
+  (let* (job-id         (plist/get :job-id args)
+         short-jid      (plist/get :short-job-id args)
+         work-dir       (plist/get :work-dir args)
+         wrf-idir       (plist/get :wrf-install-dir args)
+         ign-when       (plist/get :ign-when args)
+         ign-where      (plist/get :ign-where args)
+         num-nodes      (plist/get :num-nodes args)
+         fc-len-hrs     (plist/get :forecast-length-hrs args)
+         wall-time-hrs  (plist/get :wall-time-hrs args)
+         sim-from       (ta/shift-by-hours ign-when -1)
+         sim-to         (ta/shift-by-hours sim-from fc-len-hrs)
+         wrf-wdir       (filename/join work-dir "wrf")
+         wrf-nl0        (nlist/parse "etc/nlists/nasa-fs.input" :nasa_fs_wrf0)
+         all-doms       (nlist/all-domains wrf-nl0))
+
+    (log-f :info "nasa-fire-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
+
+    ; step 1: setup the WRF working directory
+    (!!= :ok (filesys/create-dir work-dir))
+    (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+    (log-f :info "nasa-fire-job [~p]: created WRF working directory" [short-jid])
+
+    ; step 2: symlink wrfinputs to WRF
+    (let ({:ok cwd} (file/get-cwd))
+      (!!= :ok (filesys/symlink-files-to-dir ["wrfinput_d01" "wrfinput_d02" "wrfbdy_d01"]
+                                             (filename/join cwd "precomputed/nasa-fire-job")
+                                             wrf-wdir)))
+    (log-f :info "nasa-fire-job [~p]: symlinked precomputed files" [short-jid])
+    
+    ; step 3: construct the WRF namelist (ignition when/where, etc.)
+    (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to ign-where ign-when wrf-nl0))
+      (log-f :info "nasa-fire-job [~p] writing namelist.input for WRF" [short-jid])
+      (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
+
+    ; step 4: run WRF
+    (log-f :info "nasa-fire-job [~p] running WRF" [short-jid])
+    (jobstate/set jst-pid :stage "WRF queued")
+    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes 2 wall-time-hrs 60000 3600000 log-f)
+      ({:running wrf-pid}
+        (jobstate/set jst-pid :stage "WRF running")
+        (monitor-wrf-execution job-id wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
+      ({:success exit-code}
+        (log-f :info "nasa-fire-job [~p] job is already completed, nothing to compute" [short-jid])))
+    (log-f :info "nasa-fire-job [~p] end of job reached" [short-jid])
+
+    (jobstate/set jst-pid :stage "COMPLETE")
+    (jobstate/set jst-pid :percent-done 100.0)
+
+    :ok))
+
+
+(defn+ wrap-run (args jst-pid)
+  (let* (short-jid (plist/get :short-job-id args)
+         log-name  (erl/++ "nfs" short-jid))
+    (!!= :ok (logsrv/create-log log-name))
+    (try*
+      (do
+        (run args jst-pid (logsrv/make-log-f log-name))
+        (logsrv/close-log log-name))
+      (catch (type body)
+        (do
+          (jobstate/set jst-pid :stage "FAILED")
+          (jobstate/set jst-pid :reason (iol/format "crashed with exception ~p" [type]))
+          (logsrv/msg "system" :error "nasa-fire-job [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
+                      [short-jid type body (erl/get-stacktrace)])
+          (logsrv/close-log log-name)
+          :error)))))
+
+
+(defn+ submit (args jst-pid)
+  (let* (uuid    (plist/get :job-id args)
+         args2   (plist/update-with [{:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
+                                     {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}] args))
+    (erl/spawn (fn () (wrap-run args2 jst-pid)))))
+
+
+(defn+ test ()
+  (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f"
+         short-uuid (str/substr uuid 1 8)
+         jst-pid (jobstate/start-link uuid)
+         args [ {:job-id uuid} {:short-job-id short-uuid}
+                {:ign-where {47.913, -119.118}} {:ign-when {{2012 9 9} {1 0 0}}}
+                {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 12} ])
+  (submit args jst-pid)))
+
+

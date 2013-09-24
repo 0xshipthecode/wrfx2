@@ -28,8 +28,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/filesys.beam \
 		ebin/wrfxlib.beam \
 		ebin/wrf-monitor.beam \
-		ebin/nasa-fire-sim.beam \
-		ebin/fire-sim.beam \
+		ebin/nasa-fire-job.beam \
+		ebin/wfc-job.beam \
 		ebin/wrfx2.beam
 
 

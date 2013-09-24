@@ -79,10 +79,10 @@
           (monitor-loop dev sim-start sim-end comp-start 0 jst-pid master-pid log-f)
           (file/close dev)))
       ({:failure :timeout}
-        (log-f :error ["fire-sim waited 120 seconds for file ~p to appear and timed out." fname])
+        (log-f :error "fire-sim waited 120 seconds for file ~p to appear and timed out." [fname])
          :failure))
     (catch (type bdy)
-      (log-f :flash ["wrf-monitor crash with exc ~p ~p~nstacktrace ~p~n" type bdy (erl/get-stacktrace)]))))
+      (log-f :flash "wrf-monitor crash with exc ~p ~p~nstacktrace ~p~n" [type bdy (erl/get-stacktrace)]))))
 
 
 (defn+ start (fname sim-start sim-end comp-start jst-pid log-f)

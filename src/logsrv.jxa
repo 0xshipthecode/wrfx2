@@ -43,7 +43,7 @@
 (defn construct-message (level msg args)
   "Construct a standardized messag string from a <level>, <msg> and <args>."
   (let* (text     (iol/format msg args))
-    (lists/flatten [(timestamp) " " (level-string level) " " (iol/format msg args) "~n"])))
+    (lists/flatten [(timestamp) " " (level-string level) " " (iol/format msg args) "\n"])))
 
 
 ;; API
