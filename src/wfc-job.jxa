@@ -208,21 +208,10 @@
     (erl/spawn (fn () (wrap-run args2 jst-pid)))))
 
 
-(defn+ test2 ()
+(defn+ test ()
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
     (jobmaster/resubmitjob uuid :wfc-job 
         [{:sim-from {{2013 9 1} {0 0 0}}} {:wps-nl "etc/nlists/colorado2k.wps"} {:wrf-nl "etc/nlists/colorado2k.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
 
-
-(defn+ test ()
-  (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f"
-         short-uuid (str/substr uuid 1 8)
-         jst-pid (jobstate/start-link uuid)
-         args [ {:job-id uuid} {:short-job-id short-uuid}
-                {:sim-from {{2013 9 1} {0 0 0}}}
-                {:wps-nl "etc/nlists/colorado2k.wps"}
-                {:wrf-nl "etc/nlists/colorado2k.input"}
-                {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])
-  (submit args jst-pid)))
 
