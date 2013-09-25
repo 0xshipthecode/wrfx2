@@ -103,12 +103,12 @@
          wrf-idir       (plist/get :wrf-install-dir args)
          grib-src-name  (plist/get :grib-src-name args)
          sim-from       (plist/get :sim-from args)
-         fc-len-hrs     (plist/get :forecast-length-hrs args)
+         fc-hrs         (plist/get :forecast-length-hrs args)
          num-nodes      (plist/get :num-nodes args)
          ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
          grib-src       (ingest-srv/get-grib-def grib-src-name)
-         sim-to         (ta/shift-by-hours sim-from fc-len-hrs)
+         sim-to         (ta/shift-by-hours sim-from fc-hrs)
          wps-wdir       (filename/join work-dir "wps")
          wrf-wdir       (filename/join work-dir "wrf")
          wps-nl0        (nlist/parse (plist/get :wps-nl args) :weather-sim-wps)
@@ -164,7 +164,7 @@
     ; step 8: run WRF
     (log-f :info "wfc-job [~p] running WRF" [short-jid])
     (jobstate/set jst-pid :stage "WRF (6/6)")
-    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 3600000 log-f)
+    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 (erl/* (+ fc-hrs 0.1) 3600000) log-f)
       ({:running wrf-pid qid}
         (jobstate/set jst-pid :qid qid)
         (monitor-wrf-execution job-id wrf-wdir wrf-pid sim-from sim-to :undefined jst-pid log-f))
