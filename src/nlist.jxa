@@ -130,6 +130,7 @@
          all-dom-vals (plist/get-list keys nl))
     (lists/map (fn (x) (lists/nth dom x)) all-dom-vals)))
 
+
 (defn set-values-for-dom (nls nlname kvs dom)
   (let* (nl (get-nl nlname nls)
          keys (lists/map (fn (x) (erl/element 1 x)) kvs)
@@ -146,7 +147,6 @@
          upd-kv (fn (key val ndxs ps) (plist/set key (update-list ndxs val (plist/get key ps)) ps))
          new-nl (lists/foldl (fn (x acc) (let ({key val} x) (upd-kv key val doms acc))) nl kvs))
     (set-nl nlname new-nl nls)))
-
 
 
 (defn+ get-wrf-start-time (nls dom)
@@ -218,14 +218,37 @@
     (set-values-for-doms nls "share" [{"end_date" dt-str}] doms)))
 
 
-(defn+ set-ignition (nls ign-ndx ign-lat ign-lon ign-tdelta dom)
-  "Set the ignition position at ignition <ign-ndx> to <ign-lat> and <ign-lon> in domains <doms>."
-  (let* (ign-vars  ["fire_ignition_start_lon" "fire_ignition_start_lat" "fire_ignition_end_lon"
-                    "fire_ignition_end_lat" "fire_ignition_radius" "fire_ignition_start_time"
-                    "fire_ignition_end_time"]
-         ign-ndx-s (erl/integer-to-list ign-ndx)
-         igni-vars (lists/map (fn (x) (erl/++ x ign-ndx-s)) ign-vars)
-         igni-vals [ign-lon ign-lat ign-lon ign-lat 50 ign-tdelta (erl/+ ign-tdelta 1500)])
-    (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom)))
+(defn+ set-ignition (nls ign-ndx ign-spec dom)
+ "Sets the ignition position and time in the namelist <nls> from the ignition specification <ign-spec>.
+  The <ign-spec> can be either:
+    {{ign-lat ign-lon} {ign-tdelta ign-tlen}} - ignition latitude/longitude and start/end time
+    {{ign-lat1 ign-lon1} {ign-lat2 ign-lon2} {ign-tdelta ign-tlen}} - ignition lon/lat start to lon/lat end and start/end time
+    In the second case the ignition is a line ingition."
+ (let* (ign-vars  ["fire_ignition_start_lon" "fire_ignition_start_lat" "fire_ignition_end_lon"
+                   "fire_ignition_end_lat" "fire_ignition_radius" "fire_ignition_start_time"
+                   "fire_ignition_end_time"]
+        ign-ndx-s (erl/integer-to-list ign-ndx)
+        igni-vars (lists/map (fn (x) (erl/++ x ign-ndx-s)) ign-vars))
+  (case ign-spec
+    ({{ign-lat ign-lon} {ign-tdelta ign-tlen}}
+      (let* (igni-vals [ign-lon ign-lat ign-lon ign-lat 50 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
+        (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom)))
+    ({{ign-lat1 ign-lon1} {ign-lat2 ign-lon2} {ign-tdelta ign-tlen}}
+      (let* (igni-vals [ign-lon1 ign-lat1 ign-lon2 ign-lat2 50 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
+        (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom))))))
 
+
+
+(defn set-ignitions (nls ign-specs dom ign-ndx)
+  (case ign-specs
+    ([] nls)
+    ((ign-spec . rest)
+      (set-ignitions (nlist/set-ignition nls ign-ndx ign-spec dom) rest dom (incr ign-ndx)))))
+
+
+(defn+ set-ignitions (nls ign-specs dom)
+  "Set multiple ignitions from a list of ignition specifications <ign-spec> in dom <dom>
+   of the namelist <nls>."
+  (let* (nls1 (set-values-for-dom nls "fire" [{"fire_num_ignitions" (erl/length ign-specs)}] 2))
+    (set-ignitions nls1 ign-specs dom 1)))
 
