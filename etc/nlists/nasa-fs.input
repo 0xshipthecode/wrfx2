@@ -25,7 +25,7 @@
  io_form_restart                     = 2
  io_form_input                       = 2
  io_form_boundary                    = 2
- debug_level                         = 1000
+ debug_level                         = 0
  /
 
  &domains
@@ -175,8 +175,8 @@
  fire_lfn_ext_up=       0,  1.,   ! 0.=extend level set function at boundary by reflection, 1.=always up
  fire_test_steps=       0,  0,    ! >0 = on first call, do specified number of steps and terminate (testing only)
  fire_topo_from_atm=    0,  0,    ! 0 = expect fire mesh topo set correctly on entry, 1 = populate by interpolating from atmosphere
- fmoist_run =           .false., .false., 
- fmoist_interp =        .false., .false., 
+ fmoist_run =           .false., .true., 
+ fmoist_interp =        .false., .true., 
  fire_fmc_read =        0,  0,    ! 0 not set use wrfinput, 1 from namelist.fire, 2 read from file in ideal!
 /
 
