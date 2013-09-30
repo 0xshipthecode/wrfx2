@@ -1,6 +1,6 @@
 (ns sysmon
   (require plist os (dict :joxify) gen_server (erlang :as erl :joxify) 
-           (calendar :as cal :joxify) logsrv (string :as str))
+           (calendar :as cal :joxify) logsrv (string :as str) configsrv)
   (use joxa-core))
 
 
@@ -9,8 +9,12 @@
 (defn+ start-link ()
   "Start the sysmon server.  Either starts up succesfully or throws an error."
   (let* (host (os/cmd "hostname")
-         now  (cal/local-time))
-    (case (gen_server/start_link {:global :sysmon} :sysmon [{:host host} {:lastupdated now}] [])
+         now  (cal/local-time)
+	 count-nodes (configsrv/get-conf :sysdiag-get-nodes)
+         free-nodes  (configsrv/get-conf :sysdiag-get-free-nodes)
+  	 queue-len   (configsrv/get-conf :sysdiag-qlen)
+ 	 cmds        [count-nodes free-nodes queue-len])
+    (case (gen_server/start_link {:global :sysmon} :sysmon { cmds [{:host host} {:lastupdated now}] } [])
       ({:ok _} :ok)
       (error (erl/throw {"error starting the sysmon server" error})))))
 
@@ -27,18 +31,20 @@
   (str/strip (os/cmd cmd) :right 10))
 
 (defn update-state (state)
-  (try*
-    (let* (total-nodes (erl/list-to-integer (get-cmd-output "pbsnodes -a | grep properties | wc -l"))
-           free-nodes  (erl/list-to-integer (get-cmd-output "pbsnodes -a | grep \"state = free\" | wc -l"))
-           queue-len   (erl/list-to-integer (get-cmd-output "qstat dque | wc -l"))
-           now         (cal/local-time))
-      (plist/update-with [{:nodes total-nodes} {:freenodes free-nodes}
-                          {:qlen (if (gte queue-len 2) (- queue-len 2) queue-len)}
-                          {:lastupdated now}] state))
+  (let ({cmds ss}        state
+        [count-nodes-cmd free-nodes-cmd qlen-cmd] cmds)
+    (try*
+      (let* (total-nodes (erl/list-to-integer (get-cmd-output count-nodes-cmd))
+             free-nodes  (erl/list-to-integer (get-cmd-output free-nodes-cmd))
+             queue-len   (erl/list-to-integer (get-cmd-output qlen-cmd))
+             now         (cal/local-time))
+	{cmds (plist/update-with [{:nodes total-nodes} {:freenodes free-nodes}
+                                  {:qlen (if (gte queue-len 2) (- queue-len 2) queue-len)}
+                                  {:lastupdated now}] ss)})
     (catch (type body)
       (do
         (logsrv/error :error "sysmon: failed to update state, exception ~p with body ~p, stack trace ~p" [type body (erl/get-stacktrace)])
-        state))))
+        state)))))
 
 ; gen_server callbacks
 
@@ -48,10 +54,11 @@
 
 
 (defn+ handle_call (request from state)
+  (let ({cmds ss} state)
     (case request
       (:getstate
-        {:reply state state})
-      (other {:reply :invalid-request state})))
+        {:reply ss state})
+      (other {:reply :invalid-request state}))))
 
 
 (defn+ handle_cast (msg state)
