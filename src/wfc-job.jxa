@@ -19,7 +19,7 @@
 
 (ns wfc-job
   (require wrfxlib nlist plist filesys ext-utils ext-job logsrv configsrv wrf-monitor jobstate jobmaster
-           ingest-srv grib-src-def (time-arith :as ta) os (io_lib :as iol)
+           ingest-srv grib-src-def (timelib :as ta) os (io_lib :as iol)
            (string :as str) filename (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
   (use joxa-core utils))
 

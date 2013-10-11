@@ -25,7 +25,7 @@
            (file :joxify)
            (joxa-lists :as jxl)
            (string :as str)
-           (time-arith :as ta))
+           (timelib :as ta))
   (use joxa-core utils))
 
 

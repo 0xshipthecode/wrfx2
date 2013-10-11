@@ -23,7 +23,7 @@
              (file :joxify)
              (filelib :joxify)
              (string :as str)
-             (time-arith :as ta)
+             (timelib :as ta)
              (io_lib :as iol)
              (erlang :as erl :joxify))
     (use utils joxa-core ext-utils))

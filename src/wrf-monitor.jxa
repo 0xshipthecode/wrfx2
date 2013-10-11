@@ -1,5 +1,5 @@
 (ns wrf-monitor
-  (require (time-arith :as ta) lists utils jobstate
+  (require (timelib :as ta) lists utils jobstate
            re (file :joxify) (erlang :as erl :joxify)
            (string :as str :joxify))
   (use joxa-core utils))

@@ -1,6 +1,6 @@
 (ns nlist
   (require file nlscanner nlparser plist lists
-           (time-arith :as ta)
+           (timelib :as ta)
            (erlang :as erl :joxify)
            (io_lib :as iol)
            (joxa-lists :as jxl)

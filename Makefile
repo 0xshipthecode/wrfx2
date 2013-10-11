@@ -9,7 +9,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/utils.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
-		ebin/time-arith.beam \
+		ebin/timelib.beam \
 		ebin/nlist.beam \
 		ebin/configsrv.beam \
 		ebin/logsrv.beam \

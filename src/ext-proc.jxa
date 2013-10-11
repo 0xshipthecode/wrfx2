@@ -22,7 +22,7 @@
     (require file lists filename io os
              (string :as str)
              (io_lib :as iol)
-             (time-arith :as ta)
+             (timelib :as ta)
              (erlang :as erl :joxify))
     (use utils joxa-core ext-utils))
 

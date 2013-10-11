@@ -20,7 +20,7 @@
               (mnesia :joxify)
               raws-src-def
               (dict :joxify)
-              (time-arith :as ta)
+              (timelib :as ta)
               (erlang :as erl :joxify)
               (string :as str :joxify)
               (io_lib :as iol)

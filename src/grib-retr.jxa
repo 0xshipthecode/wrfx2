@@ -6,7 +6,7 @@
        (filelib :joxify)
        (joxa-lists :as jxl)
        (joxa-core :as jxc)
-       (time-arith :as tma))
+       (timelib :as tma))
     (use utils))
 
 
