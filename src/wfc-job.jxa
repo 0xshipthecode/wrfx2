@@ -18,9 +18,10 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns wfc-job
-  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv configsrv wrf-monitor jobstate jobmaster
-           ingest-srv grib-src-def (timelib :as ta) os (io_lib :as iol)
-           (string :as str) filename (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
+  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv
+           configsrv wrf-monitor jobstate jobmaster ingest-srv grib-src-def
+           (timelib :as ta) os (io_lib :as iol) (string :as str) filename
+           (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
   (use joxa-core utils))
 
 
@@ -41,7 +42,7 @@
     nls3))
 
 
-(defn make-wrf-namelist (sim-from sim-to grib-src doms nls0)
+(defn make-wrf-namelist (sim-from sim-to grib-src history-intervals doms nls0)
   "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
    the grib source needs."
   (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from doms)
@@ -50,7 +51,7 @@
          grib-upd (grib-src-def/nl-keys grib-src)
          nls4     (nlist/set-entries grib-upd nls3)
          nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
-         nls6     (nlist/set-entry "time_control" "history_interval" [30] nls5))
+         nls6     (nlist/set-entry "time_control" "history_interval" history-intervals nls5))
     nls6))
 
 
@@ -107,6 +108,7 @@
          num-nodes      (plist/get :num-nodes args)
          ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
+         hist-ints      (plist/get :history-interval args)
          grib-src       (ingest-srv/get-grib-def grib-src-name)
          sim-to         (ta/shift-by-hours sim-from fc-hrs)
          wps-wdir       (filename/join work-dir "wps")
@@ -153,7 +155,7 @@
       (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
     ; step 6: construct the WRF namelist
-    (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src all-doms wrf-nl0))
+    (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src hist-ints all-doms wrf-nl0))
       (log-f :info "wfc-job [~p] writing namelist.input for WRF" [short-jid])
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
@@ -199,7 +201,7 @@
 
 (defn+ submit (args jst-pid)
   (let* (uuid    (plist/get :job-id args)
-         args2   (plist/update-with [{:write-interval 600}
+         args2   (plist/update-with [{:history-interval [60 30 15]}
                                      {:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
                                      {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
                                      {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
@@ -211,7 +213,9 @@
 (defn+ test ()
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
     (jobmaster/resubmitjob uuid :wfc-job 
-        [{:sim-from {{2013 9 1} {0 0 0}}} {:wps-nl "etc/nlists/colorado2k.wps"} {:wrf-nl "etc/nlists/colorado2k.input"}
+        [{:sim-from {{2013 9 1} {0 0 0}}}
+         {:wps-nl "etc/nlists/colorado2k.wps"}
+         {:wrf-nl "etc/nlists/colorado2k.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
 
 
