@@ -30,7 +30,7 @@
                kml-basename (erl/++ sim-time-str ".kmz")
                kml-abs-name (filename/join [kml-dir job-id kml-basename]))
             (filelib/ensure-dir kml-abs-name)
-            (let* (cmd-str (iol/format "deps/wrf2kmz/wrf2kml.py ~s ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
+            (let* (cmd-str (iol/format "deps/viswrf/contour2kml.py ~s FIRE_AREA ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
               (log-f :info "nasa-fire-job detected WRF history write at ~w in domain 2" [sim-time])
               (log-f :info "nasa-fire-job result from wrf2kml ~p" [(os/cmd cmd-str)])
               (jobstate/append jst-pid :kmls kml-basename)
