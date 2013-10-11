@@ -27,6 +27,19 @@
  "nam_218",
  lists:flatten([lists:seq(0, 36), lists:map(fun(X) -> X * 3 end, lists:seq(13, 28))]),
  1,
- [{"num_metgrid_levels", [40]}]}
+ [{"domains", [{"num_metgrid_levels", [40]}]}] },
 
+{'grib-def',
+ "hrrr",
+ 'static-grib-srv',
+ [],
+ 0,
+ "fake-url",
+ fun(D,T) -> ok end,
+ "ungrib/Variable_Tables/Vtable.RUCb",
+ "hrrr",
+ [],
+ 0,
+ []
+ }
 ].

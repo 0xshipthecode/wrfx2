@@ -1,0 +1,55 @@
+(ns wrfx2
+    (require
+       jobmaster ingest-srv configsrv logsrv sysmon
+       inets io (file :joxify) filename crypto
+       (application :joxify) (mnesia :joxify)
+       (io_lib :as iol) (erlang :as erl :joxify)
+       (filelib :joxify) net_adm)
+    (use utils))
+
+
+(defn+ start-logging ()
+  "Start the logging subsystem."
+  (let* (log-dir (configsrv/get-conf :logging-dir))
+    (critical-check :ok (filelib/ensure-dir (filename/join [log-dir "log-file"])))
+    (logsrv/start-link log-dir)))
+
+
+(defn+ start-ingest-system ()
+  "Start up the ingest system."
+  (let* (ingest-dir (configsrv/get-conf :ingest-storage-dir))
+    (critical-check :ok (filelib/ensure-dir (filename/join [ingest-dir "fake-file"])))
+    (critical-check :ok (logsrv/create-log "ingest-system"))
+    (ingest-srv/start-link ingest-dir (logsrv/make-log-f "ingest-system"))
+    (ensure-table-exists [:mwestraws :ts-and-stcode-tuple :obs-time :observations] [])))
+
+
+(defn+ start-otp-subsystem ()
+  "Start the OTP subsystems required for wrfx2 platform services."
+  (inets/start)
+  (mnesia/create-schema [(erl/node)])
+  (mnesia/start)
+  (crypto/start))
+
+
+(defn+ start ()
+  ; start the configuation server
+  (configsrv/start-link)
+  ; sset the mnesia database dir from config (before starting mnesia!)
+  (application/set-env :mnesia :dir (configsrv/get-conf :mnesia-dir))
+  ; start otp subsystems that we need
+  (start-otp-subsystem)
+  ; start logging subsystem
+  (start-logging)
+  ; start the ingest system
+  (start-ingest-system)
+  ; start the job manager
+  (jobmaster/start-link)
+  ; start the system monitor
+  (sysmon/start-link)
+  ; we are ready to go
+  (logsrv/msg "system" :info "wrfx2 startup complete" [])
+  ; check if the webserver is up, if yes, connect
+  (net_adm/ping :wrfx2web@gross))
+
+

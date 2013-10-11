@@ -1,3 +1,23 @@
+; Copyright (C) 2013 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
 (ns ext-proc
     (require file lists filename io os
              (string :as str)
@@ -7,6 +27,17 @@
     (use utils joxa-core ext-utils))
 
 
+(defn+ begin-monitoring (in-dir tid pid-timeout exec-timeout log-f)
+  "Begin monitoring the execution of the process <tid> in dir <in-dir>."
+  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
+    (let* (myself  (erl/self)
+           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process myself in-dir tid :undefined exec-timeout log-f)}))
+      ;; construct the first watcher that scans for pids
+      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
+      {:running pid})))
+
+
+;
 ;; construct an immediate run script
 (defn+ make-immed-exec-script (tid cmd output-spec)
   (iol/format
@@ -19,11 +50,9 @@
       (lists/map (fnm1 {_fd tgt} (iol/format "touch ~s~n" [tgt])) output-spec)
       cmd (lists/map (fnm1 {fd tgt} (iol/format " ~p>> ~s" [fd tgt])) output-spec) " &\n"
       "PID=$!\n"
-      "echo $PID > $PIDFILE\n"
-      "echo `date +%s` >> $PIDFILE\n"
+      "echo $PID `date +%s` > $PIDFILE\n"
       "wait $PID\n"
-      "echo $? > $DONEFILE\n"]
-      "echo `date +%s` >> $DONEFILE\n")
+      "echo $? `date +%s` > $DONEFILE\n"])
         [cmd tid]))
 
 
@@ -38,17 +67,17 @@
     (case (read-exitcode-file exit-code-f)
       ({exit-code exit-time}
         ;; just return the exit code we already obtained
-        (log-f :info ["~s: exit code ~p found, process exited on ~w returning immediately" tid exit-code exit-time])
+        (log-f :info "~s: exit code ~p found, process exited on ~w returning immediately" [tid exit-code exit-time])
         {:success exit-code})
      (:invalid
-        (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
+        (log-f :info "~s: no exit code found, will check pid file ~s" [tid pid-f])
         (case (read-pid-file pid-f)
           ({os-pid start-time}
             (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
-              (log-f :info ["~s: found pid file with pid ~p, written at ~p, waiting for another ~p ms" tid os-pid start-time remaining-exec-timeout])
+              (log-f :info "~s: found pid file with pid ~p, written at ~p, waiting for another ~p ms" [tid os-pid start-time remaining-exec-timeout])
               (begin-monitoring in-dir tid 5000 remaining-exec-timeout log-f)))
           (:invalid
-            (log-f :info ["~s: no pid file found, process ~p must be started" tid command])
+            (log-f :info "~s: no pid file found, process ~p must be started" [tid command])
             (let* (fqn (make-proc-file-name in-dir tid ".sh"))
               (write-run-script fqn (make-immed-exec-script tid command output-spec))
               (erl/open-port {:spawn fqn} [{:cd in-dir}])

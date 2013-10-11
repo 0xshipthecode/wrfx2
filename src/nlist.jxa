@@ -11,7 +11,7 @@
 (defn+ parse (fname nlname)
   (case (nlparser/parse (nlscanner/scan fname))
     ({:ok nls} {:nls nlname nls})
-    ({:error {lineno module text}} {:error (lists/flatten (iol/format "~p on line ~p" [text lineno]))})))
+    ({:error {lineno module text}} (erl/throw {:error (lists/flatten (iol/format "~p on line ~p" [text lineno]))}))))
 
 
 (defn+ render-value (v)
@@ -41,6 +41,12 @@
     (lists/map render-nlist/1 nlists)))
 
 
+(defn+ has-nl (nlname nls)
+  "Check if the namelists <nls> contain a particular namelist <nlname>."
+  (let ({:nls _name nlists} nls)
+    (plist/contains nlname nlists)))
+
+
 (defn+ get-nl (nlname nls)
   "Retrieve the namelist <nlname> from the namelists <nls>."
   (let ({:nls name nlists} nls)
@@ -60,7 +66,20 @@
 
 (defn+ set-entry (nlname key vals nls)
   "Set the entry <key> to values <vals> inside the namelist <nlname> of the namelists <nls>."
-  (set-nl nlname (plist/set key vals (get-nl nlname nls)) nls))
+  (if (erl/is-list vals)
+    (set-nl nlname (plist/set key vals (get-nl nlname nls)) nls)
+    (erl/throw "set-entry: vals must be a list")))
+
+
+(defn update-namelist-entries (entries nls)
+  "Update the namelists <nls> with the plist <kvs>."
+  (let ({nlname kvs} entries)
+    (set-nl nlname (plist/update-with kvs (get-nl nlname nls)) nls)))
+
+
+(defn+ set-entries (entries nls)
+  "Set entries to given keys in the namelists <nls>."
+  (lists/foldl (fn (el nl) (update-namelist-entries el nl)) nls entries))
 
 
 (defn+ update-list (lst val ndx curr acc)
@@ -111,6 +130,7 @@
          all-dom-vals (plist/get-list keys nl))
     (lists/map (fn (x) (lists/nth dom x)) all-dom-vals)))
 
+
 (defn set-values-for-dom (nls nlname kvs dom)
   (let* (nl (get-nl nlname nls)
          keys (lists/map (fn (x) (erl/element 1 x)) kvs)
@@ -127,7 +147,6 @@
          upd-kv (fn (key val ndxs ps) (plist/set key (update-list ndxs val (plist/get key ps)) ps))
          new-nl (lists/foldl (fn (x acc) (let ({key val} x) (upd-kv key val doms acc))) nl kvs))
     (set-nl nlname new-nl nls)))
-
 
 
 (defn+ get-wrf-start-time (nls dom)
@@ -160,29 +179,76 @@
                                              {"end_day" day} {"end_hour" h}
                                              {"end_minute" min} {"end_second" s}] doms)))
 
+(defn+ set-wrf-run-time (nls from to doms)
+  "Set the four keys run_days, run_hours, run_minutes, run_seconds in namelist <nls> according
+   to the simulation extent <from> to <to>."
+  (let ([days hrs mins secs]   (ta/days-hrs-mins-secs-between from to))
+    (set-values-for-doms nls "time_control" [{"run_days" days} {"run_hours" hrs}
+                                             {"run_minutes" mins} {"run_seconds" secs}] doms)))
+
+
 (defn+ max-domains (nls)
-  "Retrieve the max_dom key from the namelist domains in <nls>."
-  (jxl/hd (get-entry "domains" "max_dom" nls)))
+  "Retrieve the max_dom key from the namelist 'domains' in <nls> if this
+   is a WRF namelist or in the share namelist in a WPS namelist."
+  (if (has-nl "domains" nls)
+    (jxl/hd (get-entry "domains" "max_dom" nls))
+    (jxl/hd (get-entry "share" "max_dom" nls))))
+
 
 (defn+ all-domains (nls)
   "Returns a list of all domains in the namelist <nls>."
   (lists/seq 1 (max-domains nls)))
 
+
 (defn+ set-wps-start-time (nls dt doms)
   "Set the start time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
-  (let* (dt-str (ta/to-esmf-string dt))
-    (set-values-for-doms nls "share" [{"start_time" dt-str}] doms)))
+  (let* (dt-str (ta/to-esmf-str dt))
+    (set-values-for-doms nls "share" [{"start_date" dt-str}] doms)))
 
 
 (defn+ get-wps-start-time (nls dom)
   "Return the start time in the WPS namelist <nls> for domain <dom>."
   (io/format "nth element is ~p~n" [(lists/nth dom (get-entry "share" "start_date" nls))])
-  (ta/parse-esmf-str (lists/nth dom (get-entry "share" "start_date" nls))))
+  (ta/parse-esmf (lists/nth dom (get-entry "share" "start_date" nls))))
 
 
 (defn+ set-wps-end-time (nls dt doms)
   "Set the end time of the WPS preprocessing cycle in the namelist <nls> to <dt> for domains <doms>."
-  (let* (dt-str (ta/to-esmf-string dt))
+  (let* (dt-str (ta/to-esmf-str dt))
     (set-values-for-doms nls "share" [{"end_date" dt-str}] doms)))
 
+
+(defn+ set-ignition (nls ign-ndx ign-spec dom)
+ "Sets the ignition position and time in the namelist <nls> from the ignition specification <ign-spec>.
+  The <ign-spec> can be either:
+    {{ign-lat ign-lon} {ign-tdelta ign-tlen}} - ignition latitude/longitude and start/end time
+    {{ign-lat1 ign-lon1} {ign-lat2 ign-lon2} {ign-tdelta ign-tlen}} - ignition lon/lat start to lon/lat end and start/end time
+    In the second case the ignition is a line ingition."
+ (let* (ign-vars  ["fire_ignition_start_lon" "fire_ignition_start_lat" "fire_ignition_end_lon"
+                   "fire_ignition_end_lat" "fire_ignition_radius" "fire_ignition_start_time"
+                   "fire_ignition_end_time"]
+        ign-ndx-s (erl/integer-to-list ign-ndx)
+        igni-vars (lists/map (fn (x) (erl/++ x ign-ndx-s)) ign-vars))
+  (case ign-spec
+    ({{ign-lat ign-lon} {ign-tdelta ign-tlen}}
+      (let* (igni-vals [ign-lon ign-lat ign-lon ign-lat 200 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
+        (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom)))
+    ({{ign-lat1 ign-lon1} {ign-lat2 ign-lon2} {ign-tdelta ign-tlen}}
+      (let* (igni-vals [ign-lon1 ign-lat1 ign-lon2 ign-lat2 200 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
+        (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom))))))
+
+
+
+(defn set-ignitions (nls ign-specs dom ign-ndx)
+  (case ign-specs
+    ([] nls)
+    ((ign-spec . rest)
+      (set-ignitions (nlist/set-ignition nls ign-ndx ign-spec dom) rest dom (incr ign-ndx)))))
+
+
+(defn+ set-ignitions (nls ign-specs dom)
+  "Set multiple ignitions from a list of ignition specifications <ign-spec> in dom <dom>
+   of the namelist <nls>."
+  (let* (nls1 (set-values-for-dom nls "fire" [{"fire_num_ignitions" (erl/length ign-specs)}] 2))
+    (set-ignitions nls1 ign-specs dom 1)))
 

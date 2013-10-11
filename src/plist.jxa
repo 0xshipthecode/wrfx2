@@ -57,7 +57,7 @@
   "Returns true if the property list <ps> contains <k>, false otherwise."
   (case ps
     ([] :false)
-    ((k . _rest) :true)
+    (({k _} . _rest) :true)
     ((other . rest) (contains k rest))))
 
 

@@ -1,19 +1,21 @@
-;    Second generation WRF execution platform services.
-;    Copyright (C) 2013 Martin Vejmelka
+; Copyright (C) 2013 Martin Vejmelka, UC Denver
 ;
-;    This program is free software; you can redistribute it and/or modify
-;    it under the terms of the GNU General Public License as published by
-;    the Free Software Foundation; either version 2 of the License, or
-;    (at your option) any later version.
-
-;    This program is distributed in the hope that it will be useful,
-;    but WITHOUT ANY WARRANTY; without even the implied warranty of
-;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-;    GNU General Public License for more details.
-
-;    You should have received a copy of the GNU General Public License along
-;    with this program; if not, write to the Free Software Foundation, Inc.,
-;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns time-arith
     (require io
@@ -23,16 +25,20 @@
     (use joxa-core))
 
 
+(defn+ shift-by-seconds (datetime secs)
+  "Shift an erlang <datetime> by <secs> seconds positive -> future, negative -> past."
+  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
+    (cal/gregorian-seconds-to-datetime (+ gs secs))))
+
+
 (defn+ shift-by-hours (datetime hrs)
   "Shift an erlang <datetime> by <hrs> hours, positive -> future, negative -> past."
-  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (+ gs (erl/* hrs 3600)))))
+  (shift-by-seconds datetime (erl/* hrs 3600)))
 
 
 (defn+ shift-by-days (datetime d)
   "Shift an erlang <datetime> by <d> days, positive -> future, negaive -> past."
-  (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (+ gs (erl/* d 86400)))))
+  (shift-by-seconds datetime (erl/* d 86400)))
 
 
 (defn+ set-hour (datetime new-h)
@@ -56,6 +62,14 @@
   (let* (from-s (cal/datetime-to-gregorian-seconds from)
          to-s (cal/datetime-to-gregorian-seconds to))
     (erl/- to-s from-s)))
+
+
+(defn+ days-hrs-mins-secs-between (from to)
+  "Find the number of days/hours/minutes/seconds between <from> and <to> and
+   return it as a list."
+  (let* (total-seconds (seconds-between from to)
+         fold-secs     (fn (d s) {(erl/div s d) (erl/rem s d)}))
+    (erl/element 1 (lists/mapfoldl fold-secs total-seconds [86400 3600 60 1]))))
 
 
 (defn+ hours-between (from to)
@@ -88,6 +102,7 @@
   "Retrieve the local time from calendar - convenience function."
   (cal/local-time))
 
+
 (defn+ list-hours (from to)
   "List timestamps starting with <from> and incrementing by 1 hour,
    continue until past <to>."
@@ -96,13 +111,13 @@
     (from . (list-hours (shift-by-hours from 1) to))))
 
 
-(defn+ to-esmf-string (dt)
+(defn+ to-esmf-str (dt)
   "Render datetime <dt> as an ESMF date time string YYYY-MM-DD_HH:mm:SS."
   (let ({{y mon day} {h min s}} dt)
     (iol/format "~4..0B-~2..0B-~2..0B_~2..0B:~2..0B:~2..0B" [y mon day h min s])))
 
 
-(defn+ parse-esmf-str (str)
+(defn+ parse-esmf (str)
   "Parse an ESMF date/time string (format: YYYY-MM-DD_HH:mm:SS) <str> into an erlang datetime."
   (let ([y1 y2 y3 y4 :\- m1 m2 :\- d1 d2 :\_ h1 h2 :\: min1 min2 :\: s1 s2] str)
     {{(erl/list-to-integer [y1 y2 y3 y4]) (erl/list-to-integer [m1 m2]) (erl/list-to-integer [d1 d2])}
@@ -117,4 +132,8 @@
 (defn+ from-unix-timestamp (ts)
   "Convert a unix timestamp <ts> to an erlang datetime."
   (cal/universal-time-to-local-time (cal/gregorian-seconds-to-datetime (+ ts (erl/* 719528 86400)))))
+
+(defn+ unix-timestamp ()
+  "Return a unix timestamp for the current time instant."
+  (to-unix-timestamp (local-time)))
 

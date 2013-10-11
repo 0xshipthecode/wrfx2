@@ -1,3 +1,23 @@
+; Copyright (C) 2013 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
 (ns ext-job
     (require lists filename io os plist
              (file :joxify)
@@ -9,30 +29,46 @@
     (use utils joxa-core ext-utils))
 
 
+(defn+ read-submit-file (fname)
+  "Read the submit file <fname> that only contains the date submitted."
+  (case (read-ints-from-file fname 2)
+    ([qid unix-ts] {qid (ta/from-unix-timestamp unix-ts)})
+    ({:error _} :invalid)))
+
+
+(defn+ begin-monitoring (in-dir tid qid pid-timeout exec-timeout log-f)
+  "Begin monitoring the execution of the process <tid> in dir <in-dir>."
+  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
+    (let* (myself  (erl/self)
+           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process myself in-dir tid :undefined exec-timeout log-f)}))
+      ;; construct the first watcher that scans for pids
+      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
+      {:running pid qid})))
+
+;
 ;; construct an job script
-(defn+ make-script (tid cmd num-nodes wall-time-hrs)
+(defn make-script (tid cmd num-nodes ppn wall-time-hrs)
   (iol/format
    (lists/flatten
     [ "#!/usr/bin/env bash\n"
-      "TID=~p\n"
-      "PIDFILE=$TID.pid\n"
-      "DONEFILE=$TID.exitcode\n"
-      "#PBS -l nodes=~p:ppn=12\n"
+      "#PBS -l nodes=~p:ppn=~p\n"
       "#PBS -l walltime=~p:00:00\n"
       "#PBS -N ~s\n"
+      "TID=~p\n"
       "cd $PBS_O_WORKDIR\n"
-      "echo `date +%s` > $TID.submit\n"
       "mpirun -np ~p -hostfile $PBS_NODEFILE ~s &\n"
       "PID=$!\n"
-      "echo $PID > $PIDFILE\n"
-      "echo `date +%s` >> $PIDFILE\n"
+      "echo $PID `date +%s` > $TID.pid\n"
       "wait $PID\n"
-      "echo $? > $DONEFILE\n"
-      "echo `date +%s` >> $DONEFILE\n"])
-        [tid num-nodes wall-time-hrs tid (erl/* num-nodes 12) cmd]))
+      "echo $? `date +%s` > $TID.exitcode\n" ])
+      [num-nodes ppn wall-time-hrs tid tid (erl/* num-nodes ppn) cmd]))
+
+(defn strip-qid (rqid)
+  "Strip the non-integer part from the raw job id <rqid> and return the integer."
+  (erl/list-to-integer (str/substr rqid 1 (decr (str/chr rqid 46)))))
 
 
-(defn+ run (tid command in-dir num-nodes wall-time-hrs pid-timeout exec-timeout log-f)
+(defn+ run (tid command in-dir num-nodes ppn wall-time-hrs pid-timeout exec-timeout log-f)
   "Execute an external process <command> with id <tid> in directory <in-dir> using a job queuing system.
    The process will use <num-nodes> nodes and up to <wall-time-hrs> hours.  The monitor will wait
    <pid-timeout> ms for the execution to commence and then <exec-timeout> for the execution to complete.
@@ -41,27 +77,32 @@
     (case (read-exitcode-file exit-code-f)
       ({exit-code end-time}
         ;; just return the exit code we already obtained
-        (log-f :info ["~s: process completed on ~w with exit code ~p, returning immediately" tid end-time exit-code])
+        (log-f :info "~s: process completed on ~w with exit code ~p, returning immediately" [tid end-time exit-code])
         {:success exit-code})
       (:invalid
-        (log-f :info ["~s: no exit code found, will check pid file ~s" tid pid-f])
+        (log-f :info "~s: no exit code found, will check pid file ~s" [tid pid-f])
         (case (read-pid-file pid-f)
           ({os-pid start-time}
             (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
-              (log-f :info ["~s: found pid file with pid ~p, process started on ~w, waiting for completion another ~p ms" tid os-pid start-time remaining-exec-timeout])
-              (begin-monitoring in-dir tid pid-timeout remaining-exec-timeout log-f)))
+              (let ({qid submit-time}     (read-submit-file submit-f))
+                (log-f :info "~s: found pid file with pid ~p, process started on ~w, job id is ~p, waiting for completion another ~p ms"
+                             [tid os-pid start-time qid remaining-exec-timeout])
+              (begin-monitoring in-dir tid qid pid-timeout remaining-exec-timeout log-f))))
           (:invalid
-            (log-f :info ["~s: no pid file found, checking for submission file ~p" tid submit-f])
+            (log-f :info "~s: no pid file found, checking for submission file ~p" [tid submit-f])
             (case (read-submit-file submit-f)
-              (:invalid
-                (log-f :info ["~s: job has not been submitted yet, submitting job now" tid])
-                (let* (fqn (make-proc-file-name in-dir tid ".sh"))
-                  (write-run-script fqn (make-script tid command num-nodes wall-time-hrs))
-                  (erl/open-port {:spawn (lists/flatten ["qsub " fqn])} [{:cd in-dir}])
-                  (begin-monitoring in-dir tid pid-timeout exec-timeout log-f)))
-              (submit-time
+              ({qid submit-time}
                 (let* (remaining-pid-timeout (- pid-timeout (erl/* (ta/seconds-elapsed-from submit-time) 1000)))
-                  (log-f :info ["~s: already submitted on ~w, waiting for job start for another ~p ms" tid submit-time remaining-pid-timeout])
-                  (begin-monitoring in-dir tid remaining-pid-timeout exec-timeout log-f))))))))))
+                  (log-f :info "~s: already submitted on ~w, job id is ~p waiting for job start for another ~p ms"
+                               [tid qid submit-time remaining-pid-timeout])
+                  (begin-monitoring in-dir tid qid remaining-pid-timeout exec-timeout log-f)))
+              (:invalid
+                (log-f :info "~s: job has not been submitted yet, submitting job now" [tid])
+                (let* (fqn (make-proc-file-name in-dir tid ".sh"))
+                  (write-run-script fqn (make-script tid command num-nodes ppn wall-time-hrs))
+                  (let* (raw-qid (os/cmd (lists/flatten ["cd " in-dir " && qsub " tid ".sh"]))
+                         qid     (strip-qid raw-qid))
+                    (file/write-file submit-f (iol/format "~p~n~p~n" [qid (ta/unix-timestamp)]))
+                    (begin-monitoring in-dir tid qid pid-timeout exec-timeout log-f)))))))))))
 
 

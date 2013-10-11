@@ -1,5 +1,25 @@
+; Copyright (C) 2013 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
 (ns ext-utils
-  (require filename lists os io
+  (require filename lists os io logsrv
            (io_lib :as iol)
            (erlang :as erl :joxify)
            (file :joxify)
@@ -9,46 +29,47 @@
   (use joxa-core utils))
 
 
-(defn+ read-ints-from-file (fname)
+(defn+ read-ints-from-file (fname num-ints)
   "Read integers separated by newlines from file <fname>."
-  (case (file/read-file fname)
-    ({:ok data}
-      (let* (tokens (str/tokens (erl/binary-to-list data) " \n"))
-        (lists/map (fn (x) (erl/list-to-integer (str/strip x))) tokens)))
-    ({:error reason} :invalid)))
+  (with-file-content fname
+    (fn (data)
+      (try*
+        (let* (tokens   (str/tokens data " \n")
+               to-int-f (fn (x) (erl/list-to-integer (str/strip x)))
+               ints     (lists/map to-int-f tokens))
+          (if (erl/== num-ints (erl/length ints)) ints {:error :wrong-int-count}))
+        (catch (type body)
+          {:error {type body}})))))
 
 
-(defn+ read-int-from-file (fname)
-  "A convenience shortcut when only one integer is to be read from <fname>."
-  (case (read-ints-from-file fname)
-    (:invalid :invalid)
-    ([] :invalid)
-    ([int] int)))
+(defn+ read-ints-from-file-robust (fname num-ints)
+  "Read <num-ints> integers from file <fname>.  Try up to
+   4 times with 250ms pauses inbetween.  Succeed if a list with
+   <num-ints> integers is read in, otherwise fail."
+  (let* (fail?  (fn (x)
+                  (case x
+                    ({:error _} :true)
+                    (_ :false))))
+  (retry-at-most 4 250 fail? (fn () (read-ints-from-file fname num-ints)))))
 
 
 (defn+ read-pid-file (fname)
   "Read a pid file <fname> to obtain the pid of the process and
    the time when it was started."
-  (case (read-ints-from-file fname)
+  (case (read-ints-from-file fname 2)
     ([pid unix-ts] {pid (ta/from-unix-timestamp unix-ts)})
-    (:invalid :invalid)))
+    ({:error _} :invalid)))
 
 
 (defn+ read-exitcode-file (fname)
   "Read the exit code file <fname> to obtain the exitcode of the process and
    the time when it was started."
-  (case (read-ints-from-file fname)
+  (case (read-ints-from-file fname 2)
     ([exit-code unix-ts] {exit-code (ta/from-unix-timestamp unix-ts)})
-    (:invalid :invalid)))
-
-(defn+ read-submit-file (fname)
-  "Read the submit file <fname> that only contains the date submitted."
-  (case (read-ints-from-file fname)
-    (:invalid :invalid)
-    ([unix-ts] (ta/from-unix-timestamp unix-ts))))
+    ({:error _} :invalid)))
 
 
-;; construct the name of a process output file from
+; construct the name of a process output file from
 ;; run directory, task name and suffix
 (defn+ make-proc-file-name (in-dir tid suffix)
   (filename/join in-dir (lists/append tid suffix)))
@@ -80,56 +101,48 @@
 ;; messages from external helper processes.
 ;; one helper process sends the :pid-msg message with either a pid or a timeout
 ;; another helper monitors the exitcode file and sends the :exited message
-(defn monitor-process (in-dir tid os-pid exec-timeout log-f)
+(defn+ monitor-process (master-pid in-dir tid os-pid exec-timeout log-f)
   "Monitor the execution of an external process with id <tid> in directory <in-dir>."
   (try*
     (receive
       (:kill-9
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-        (monitor-process in-dir tid os-pid exec-timeout log-f))
+        (monitor-process master-pid in-dir tid os-pid exec-timeout log-f))
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
         (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
-          (log-f :info ["~s: exited with code ~p at ~w" tid exit-code exit-time])
+          (log-f :info "~s: exited with code ~p at ~w" [tid exit-code exit-time])
           {:success exit-code}))
       ({:exit-msg {:failure reason}} ; kill the rogue process
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-        (log-f :error ["~s: failed with reason ~p, process ~p killed" tid reason os-pid])
+        (log-f :error "~s: failed with reason ~p, process ~p killed" [tid reason os-pid])
         :failure)
       ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
-        (log-f :error ["~s: pid not acquired within timeout" tid])
+        (log-f :error "~s: pid not acquired within timeout" [tid])
         :failure)
       ({:pid-msg {:success pid-file}} ;; the pid file was created
         (let ({real-os-pid start-time} (read-pid-file pid-file))
-          (log-f :info ["~s: received pid ~p, process was started on ~w" tid real-os-pid start-time])
+          (log-f :info "~s: received pid ~p, process was started on ~w" [tid real-os-pid start-time])
+          (erl/send master-pid {:proc-started (erl/self) start-time})
           (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
             (async-send-me {:exit-msg (wait-for-file (make-proc-file-name in-dir tid ".exitcode") remaining-exec-timeout 500)})
-            (monitor-process in-dir tid real-os-pid exec-timeout log-f))))
+            (monitor-process master-pid in-dir tid real-os-pid exec-timeout log-f))))
       (unknown-msg ;; we don:t understand this message, notify
-        (log-f :flash ["~s: message not understood [~p]~n" tid unknown-msg])
-        (monitor-process in-dir tid os-pid exec-timeout log-f)))
+        (log-f :flash "ext-utils task [~s] message not understood [~p]!" [tid unknown-msg])
+        (monitor-process master-pid in-dir tid os-pid exec-timeout log-f)))
   (catch (ex bdy)
     (do
-      (log-f :flash ["monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
-      (monitor-process in-dir tid os-pid exec-timeout log-f)))))
+      (log-f :flash "monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" [tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
+      (monitor-process master-pid in-dir tid os-pid exec-timeout log-f)))))
 
 
-(defn+ begin-monitoring (in-dir tid pid-timeout exec-timeout log-f)
-  "Begin monitoring the execution of the process <tid> in dir <in-dir>."
-  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (let* (myself  (erl/self)
-           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process in-dir tid :undefined exec-timeout log-f)}))
-      ;; construct the first watcher that scans for pids
-      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
-      {:running {pid exit-code-f}})))
-
-
-;; simplest wait-for-completion stub, which just returns result
+; simplest wait-for-completion stub, which just returns result
 ;; of the :ext-proc-complete message
 ;; more sophisticated clients should handle this message themselves
 (defn+ wait-for-completion (pid)
   "Blocks until a :ext-proc-complete message is obtained from the correct monitoring procedure <pid>."
   (receive
-   ({:ext-proc-complete pid result} result)))
+    ({:proc-started pid _} (wait-for-completion pid))
+    ({:ext-proc-complete pid result} result)))
 
 
 (defmacro+ wrap-run (exec-func)
@@ -139,7 +152,7 @@
          error (gensym)
          exit-code (gensym))
     `(case ~exec-func
-      ({:running {~pid _}}
+      ({:running ~pid}
         (case (ext-utils/wait-for-completion ~pid)
           ({:success ~exit-code} ~exit-code)
           (~error (erl/throw ~error))))
