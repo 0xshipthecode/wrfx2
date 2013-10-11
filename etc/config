@@ -1,7 +1,0 @@
-[
-  {'mnesia-dir', "db"},
-  {'logging-dir', "log"},
-  {'workspace-dir',  "workspace"},
-  {'ingest-storage-dir', "ingest"}
-].
-
