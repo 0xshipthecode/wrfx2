@@ -5,83 +5,23 @@
        (calendar :joxify)
        (filelib :joxify)
        (joxa-lists :as jxl)
-       (joxa-core :as jxc)
-       (timelib :as tma))
-    (use utils))
+       (timelib :as ta) io)
+    (use utils joxa-core cycles network))
 
 
-(defn get-cycle-at (datetime delay runs)
-  "Retrieve most recent cycle that can provide GRIB source data for the given timestamp."
-    (jxc/let ({date {h _m _s}} (tma/shift-by-hours datetime (jxc/- delay)))
-      (case (lists/foldl (fn (x a) (jxc/if (jxc/gte h x) x a)) :undefined runs)
-      ; if all of the runs on the same day are after our request, try again with
-      ; datetime an hour before
-      (:undefined (get-cycle-at (tma/shift-by-hours datetime -1) delay runs))
-      (last-cycle-hr {date {last-cycle-hr 0 0}}))))
-
-
-(defn+ move-cycle (run-ndx run-len by)
-  "Shift a run <run-ndx> left or right by <by> element steps.  Returns a new cycle
-   run hour and a day shift (left or right). <by> \in \{ +1, -1\}."
-  (let* (new-run (jxc/+ run-ndx by))
-    (case new-run
-    (nr (when (jxc/lte new-run 0)) {(jxc/+ new-run run-len) -1})
-    (nr (when (erl/> new-run run-len)) {(jxc/- new-run run-len) 1})
-    (nr {nr 0}))))
-
-
-(defn shift-cycle-by (cycle run-ndx run-len runs delta)
-  "Shift the cycle <cycle> at the run ndx <run-ndx> of the day <delta> cycles into the future
-   (if <delta> is positive) or into the past (<delta> is negative)."
-  (case delta
-    (0 cycle)
-    (d (let* (step (erl/- (sign delta)))
-      (jxc/let ({new-ndx day-delta} (move-cycle run-ndx run-len step))
-         (shift-cycle-by (tma/shift-by-days (tma/set-hour cycle (lists/nth new-ndx runs)) day-delta)
-                         new-ndx run-len runs (erl/+ delta step)))))))
-
-
-(defn shift-cycle-by (cycle delta grib-src)
-  "Find a cycle <delta> steps into the past if <delta> is negative or into the future if <delta> is positive.
-   The function requires the run scheduling per day contained in the <grib-src> info structure."
-  (jxc/let ({_date, {h _m _s}} cycle)
-    (let* (runs (grib-src-def/runs grib-src)
-           run-ndx (string/chr runs h)
-           run-len (erl/length runs))
-      (shift-cycle-by cycle run-ndx run-len runs delta))))
-
-
-(defn cull-cycle (c by-c)
-  "Ensure cycle <c> is not later than cycle <by-c>."
-  (jxc/if (erl/> c by-c) by-c c))
-
-
-(defn forecast-hour (h grib-src)
-  "Returns the highest file hour that is smaller than <h> for grib source <grib-src>."
-  (case (lists/dropwhile (fn (x) (erl/< x h)) (grib-src-def/file-hours grib-src))
-    ([] :beyond-end)
-    (rest (jxl/hd rest))))
-
-
-(defn build-file-list (now to-adj latest-cycle cov-from cov-to last-ref grib-src files)
+(defn build-file-list (now to-adj latest-cycle cov-from cov-to grib-src files)
   "Build a file list recursively covering the period from <now> to <to-adj>."
-  (case (erl/> to-adj cov-to)
-    (:true
-      (let* (next-now (tma/shift-by-hours now 1)
-             cycle (cull-cycle (get-cycle-at now 0 (grib-src-def/runs grib-src)) latest-cycle)
-             fc-hr (forecast-hour (tma/hours-between cycle now) grib-src))
-        (case {cycle fc-hr}
-          ({_ :beyond-end} :out-of-range)
-            ; the reference is the same as the last reference, no changes in list, move to next forecast hour
-          (last-ref (build-file-list next-now to-adj latest-cycle cov-from cov-to last-ref grib-src files))
-          (new-last-ref
-            ; we have a new file reference that must be appended to the file list
-            (let* (new-file (lists/flatten ((grib-src-def/name-fun grib-src) cycle fc-hr))
-                   new-time (tma/shift-by-hours cycle fc-hr))
-              (build-file-list next-now to-adj latest-cycle (tma/min-time cov-from new-time) (tma/max-time cov-to new-time)
-                               new-last-ref grib-src (new-file . files)))))))
-    (:false
-      {cov-from cov-to files})))
+  ;(io/format "now ~w to ~w cycle ~w from ~w to ~w files ~w~n" [now to-adj latest-cycle cov-from cov-to files])
+  (if (gte cov-to to-adj)
+    {cov-from cov-to files}
+    (let* (next-now  (ta/shift-by-hours now 1)
+           delay-now (ta/shift-by-hours now (erl/- (grib-src-def/delay grib-src)))
+           now-cycle (cull-cycle (get-cycle-for delay-now (grib-src-def/runs grib-src)) latest-cycle))
+      (let ([lgrib rgrib] (cover-time now now-cycle (grib-src-def/file-hours grib-src)))
+        (build-file-list next-now to-adj latest-cycle
+                         (ta/min-time cov-from (cycle-fc-to-time lgrib))
+                         (ta/max-time cov-to   (cycle-fc-to-time rgrib))
+                         grib-src (lgrib . (rgrib . files)))))))
 
 
 (defn+ compute-manifest (from to at-time delta grib-src)
@@ -89,11 +29,15 @@
    between <from> and <to> (inclusive) as available at time <at-time>, also skip
    <delta> last cycles - this can be used to prevent use of a possibly incomplete
    cycle."
-  (let* (cycle-at-time (get-cycle-at at-time (grib-src-def/delay grib-src) (grib-src-def/runs grib-src))
-         latest-avail-cycle (shift-cycle-by cycle-at-time delta grib-src)
-         from-adj (tma/round-hours from :down)
-         to-adj (tma/round-hours to :up))
-    (build-file-list from-adj to-adj latest-avail-cycle from-adj (tma/shift-by-hours from-adj -1) :undefined grib-src [])))
+  (let* (delay               (grib-src-def/delay grib-src)
+         delayed-at          (ta/shift-by-hours at-time (erl/- delay))
+         cycle-at-time       (get-cycle-for delayed-at (grib-src-def/runs grib-src))
+         latest-avail-cycle  (shift-cycle-by cycle-at-time delta grib-src)
+         from-adj            (ta/round-hours from :down)
+         to-adj              (ta/round-hours to :up))
+    (let ({cov-from cov-to infolst} (build-file-list from-adj to-adj latest-avail-cycle from-adj (ta/shift-by-hours from-adj -1) grib-src [])
+           namefun (grib-src-def/name-fun grib-src))
+      {cov-from cov-to (lists/map (fn (x) (let ({c h} x) (lists/flatten (namefun c h)))) infolst)})))
 
 
 (defn make-stream-func (stor-dir grib-src log-f)
@@ -108,11 +52,11 @@
       (case (httpc/request :get {url []} [] [{:stream, abs-path}])
         ({:ok, :saved_to_file} 
           (log-f :info "grib-retr (~p) -> finished downloading ~p after ~p seconds"
-                 [(grib-src-def/name grib-src) ident (tma/seconds-elapsed-from start-time)])
+                 [(grib-src-def/name grib-src) ident (ta/seconds-elapsed-from start-time)])
           :download-complete)
         (error 
           (log-f :warn "grib-retr (~p) -> failed to download downloading ~p after ~p seconds with error ~p"
-                 [(grib-src-def/name grib-src) ident (tma/seconds-elapsed-from start-time) error])
+                 [(grib-src-def/name grib-src) ident (ta/seconds-elapsed-from start-time) error])
           {:download-fail ident})))))
 
 
@@ -121,13 +65,6 @@
    Returns any failed downloads in a list, thus an empty list is returned if the function succeeded."
   (let* (result-list (pmap (make-stream-func stor-dir grib-src log-f) (grib-src-def/max-downloads grib-src) manifest))
         (lists/filter (fn (x) (case x (:download-complete :false) (_ :true))) result-list)))
-
-
-(defn url-exists? (url)
-  "Checks if a URL exists."
-  (case (httpc/request :head {url []} [] [])
-    ({:ok {{_ 200 _} _ _}} :true)
-    (_notok :false)))
 
 
 (defn+ find-unreachable-gribs (manifest grib-src)

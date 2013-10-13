@@ -1,0 +1,9 @@
+(ns network
+  (require httpc))
+
+
+(defn+ url-exists? (url)
+  "Checks if a URL exists."
+  (case (httpc/request :head {url []} [] [])
+    ({:ok {{_ 200 _} _ _}} :true)
+    (_notok :false)))

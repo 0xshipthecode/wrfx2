@@ -28,7 +28,7 @@
 (defn+ shift-by-seconds (datetime secs)
   "Shift an erlang <datetime> by <secs> seconds positive -> future, negative -> past."
   (let* (gs (cal/datetime-to-gregorian-seconds datetime))
-    (cal/gregorian-seconds-to-datetime (+ gs secs))))
+    (cal/gregorian-seconds-to-datetime (erl/+ gs secs))))
 
 
 (defn+ shift-by-hours (datetime hrs)

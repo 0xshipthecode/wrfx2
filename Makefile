@@ -10,11 +10,14 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
 		ebin/timelib.beam \
+		ebin/network.beam \
+		ebin/cycles.beam \
 		ebin/nlist.beam \
 		ebin/configsrv.beam \
 		ebin/logsrv.beam \
 		ebin/sysmon.beam \
 		ebin/grib-retr.beam \
+		ebin/grib-retr2.beam \
 		ebin/grib-srv.beam \
 		ebin/static-grib-srv.beam \
 		ebin/mwest-retr.beam \
