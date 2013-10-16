@@ -10,10 +10,10 @@
   "Start the sysmon server.  Either starts up succesfully or throws an error."
   (let* (host (os/cmd "hostname")
          now  (cal/local-time)
-	 count-nodes (configsrv/get-conf :sysdiag-get-nodes)
+         count-nodes (configsrv/get-conf :sysdiag-get-nodes)
          free-nodes  (configsrv/get-conf :sysdiag-get-free-nodes)
-  	 queue-len   (configsrv/get-conf :sysdiag-qlen)
- 	 cmds        [count-nodes free-nodes queue-len])
+         queue-len   (configsrv/get-conf :sysdiag-qlen)
+         cmds        [count-nodes free-nodes queue-len])
     (case (gen_server/start_link {:global :sysmon} :sysmon { cmds [{:host host} {:lastupdated now}] } [])
       ({:ok _} :ok)
       (error (erl/throw {"error starting the sysmon server" error})))))

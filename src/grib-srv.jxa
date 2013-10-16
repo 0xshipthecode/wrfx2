@@ -28,9 +28,9 @@
 (defn+ handle_call (request from state)
   (jxc/let ([grib-src stor-dir log-f] state)
    (case request
-	 ({:retrieve-gribs from-time to-time at-time delta}
+	 ({:retrieve-gribs from-time to-time at-time}
 	  ; GRIB files retrieved here
-	  {:reply (grib-retr/retrieve-gribs from-time to-time at-time delta stor-dir grib-src log-f) state})
+	  {:reply (grib-retr/retrieve-gribs from-time to-time at-time 0 2 stor-dir grib-src log-f) state})
 	 (:stop-grib-srv 
 	  ; here a termination must be started
 	  {:stop :normal :ok state})

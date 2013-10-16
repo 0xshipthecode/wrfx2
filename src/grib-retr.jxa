@@ -5,19 +5,17 @@
        (calendar :joxify)
        (filelib :joxify)
        (joxa-lists :as jxl)
-       (timelib :as ta) io)
+       (timelib :as ta))
     (use utils joxa-core cycles network))
 
 
 (defn build-file-list (now to-adj latest-cycle cov-from cov-to grib-src files)
   "Build a file list recursively covering the period from <now> to <to-adj>."
-  ;(io/format "now ~w to ~w cycle ~w from ~w to ~w files ~w~n" [now to-adj latest-cycle cov-from cov-to files])
   (if (gte cov-to to-adj)
-    {cov-from cov-to files}
+    {cov-from cov-to (lists/usort files)}
     (let* (next-now  (ta/shift-by-hours now 1)
-           delay-now (ta/shift-by-hours now (erl/- (grib-src-def/delay grib-src)))
-           now-cycle (cull-cycle (get-cycle-for delay-now (grib-src-def/runs grib-src)) latest-cycle))
-      (let ([lgrib rgrib] (cover-time now now-cycle (grib-src-def/file-hours grib-src)))
+           now-cycle (cull-cycle (get-cycle-for now (grib-src-def/runs grib-src)) latest-cycle))
+      (let ([lgrib rgrib] (get-gribs-for-time now now-cycle (grib-src-def/file-hours grib-src)))
         (build-file-list next-now to-adj latest-cycle
                          (ta/min-time cov-from (cycle-fc-to-time lgrib))
                          (ta/max-time cov-to   (cycle-fc-to-time rgrib))
@@ -50,7 +48,7 @@
       (filelib/ensure-dir abs-path)
       (log-f :info "grib-retr (~p) -> downloading ~p to ~p." [(grib-src-def/name grib-src) ident abs-path])
       (case (httpc/request :get {url []} [] [{:stream, abs-path}])
-        ({:ok, :saved_to_file} 
+        ({:ok :saved_to_file} 
           (log-f :info "grib-retr (~p) -> finished downloading ~p after ~p seconds"
                  [(grib-src-def/name grib-src) ident (ta/seconds-elapsed-from start-time)])
           :download-complete)
@@ -63,8 +61,9 @@
 (defn+ download-gribs (manifest stor-dir grib-src log-f)
   "Downloads grib files identified in <manifest> from grib source <grib-src> and stores them in <stor-dir>.
    Returns any failed downloads in a list, thus an empty list is returned if the function succeeded."
-  (let* (result-list (pmap (make-stream-func stor-dir grib-src log-f) (grib-src-def/max-downloads grib-src) manifest))
-        (lists/filter (fn (x) (case x (:download-complete :false) (_ :true))) result-list)))
+  (let* (downloader  (make-stream-func stor-dir grib-src log-f)
+         result-list (pmap downloader (grib-src-def/max-downloads grib-src) manifest))
+    (lists/filter (fn (x) (case x (:download-complete :false) (_ :true))) result-list)))
 
 
 (defn+ find-unreachable-gribs (manifest grib-src)
@@ -73,18 +72,16 @@
     (lists/filter (fn (f) (erl/not (url-exists? (lists/flatten [prefix "/" f])))) manifest)))
 
 
-(defn+ is-grib-local? (ident stor-dir grib-src)
-  "Check if a GRIB file identified by <ident> from source <grib-src> is cached locally in <stor-dir>."
-  (let* (abs-path (lists/flatten [stor-dir "/" (grib-src-def/domain grib-src) "/" ident]))
-    (filelib/is-regular abs-path)))
-
-
 (defn+ remove-local-gribs (manifest stor-dir grib-src)
   "Remove GRIB files from manifest that are already available locally."
-  (lists/filter (fn (x) (erl/not (is-grib-local? x stor-dir grib-src))) manifest))
+  (let* (is-grib-local? (fn (ident stor-dir grib-src)
+                          (filelib/is-regular
+                            (lists/flatten
+                              [stor-dir "/" (grib-src-def/domain grib-src) "/" ident]))))
+    (lists/filter (fn (x) (erl/not (is-grib-local? x stor-dir grib-src))) manifest)))
 
 
-(defn+ retrieve-gribs (from to at-time delta stor-dir grib-src log-func)
+(defn+ retrieve-gribs (from to at-time delta max-delta stor-dir grib-src log-func)
   "Computes the GRIB files needed for the simulation covering the time interval <from> to <to>
    which use <delta> cycles before the last cycle and downloads them from the grib source <grib-src>.
    Files already available in <stor-dir> are not redownloaded.
@@ -114,7 +111,10 @@
           (missing-gribs
             (log-func :warn "grib-retr (~p) -> source cannot satisfy request at this time, there are ~p missing gribs."
                             [(grib-src-def/name grib-src) (erl/length missing-gribs)])
-            {:missing-gribs missing-gribs}))))
+            ; hard-coded maximum of going at most two cycles back when looking for grib files
+            (if (erl/< delta max-delta)
+              (retrieve-gribs from to at-time (incr delta) max-delta stor-dir grib-src log-func)
+              {:missing-gribs missing-gribs})))))
           ; could not even compute the manifest
     (:out-of-range
       (log-func :warn "grib-retr (~p) -> source cannot satisfy the request from ~w to ~w"

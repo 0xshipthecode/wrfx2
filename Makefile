@@ -17,7 +17,6 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/logsrv.beam \
 		ebin/sysmon.beam \
 		ebin/grib-retr.beam \
-		ebin/grib-retr2.beam \
 		ebin/grib-srv.beam \
 		ebin/static-grib-srv.beam \
 		ebin/mwest-retr.beam \

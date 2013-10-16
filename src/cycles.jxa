@@ -1,5 +1,5 @@
 (ns cycles
-  (require (erlang :as erl) (timelib :as ta) string grib-src-def lists io)
+  (require (erlang :as erl) (timelib :as ta) string grib-src-def lists)
   (use utils joxa-core))
 
 
@@ -29,41 +29,6 @@
       (ta/set-hour (ta/shift-by-days cycle day-delta) (lists/nth new-ndx cycle-runs)))))
 
 
-(defn left-fc-hour (h fc-hrs)
-  "Returns the highest forecast hour that is smaller than or equal to <h> for grib source <grib-src>."
-  (case (lists/takewhile (fn (x) (lte x h)) fc-hrs)
-    ([]    (erl/throw :unsatisfiable))
-    (taken (lists/last taken))))
-
-
-(defn right-fc-hour (h fc-hrs)
-  "Returns the smallest forecast hour that is higher than or equal to <h> for grib source <grib-src>."
-  (case (lists/dropwhile (fn (x) (erl/< x h)) fc-hrs)
-    ([]           (erl/throw :unsatisfiable))
-    ((rfc . rest) rfc)))
-
-
-(defn+ cover-fc-hours (h1 h2 fc-hrs)
-  "Returns a list of forecast hours that cover all hours between and
-   including <h1> and <h2> from the forecast hours <fc-hrs>.
-   We require that <h1> <= <h2>."
-  (case (lists/partition (fn (x) (erl/> x h1)) (lists/reverse fc-hrs))
-    ({_ []} (erl/throw :unsatisfiable))
-    ({gth1 (h1b . _)}
-      (case (lists/partition (fn (x) (erl/< x h2)) (lists/reverse gth1))
-        ({[] _} (erl/throw :unsatisfiable))
-        ({lth2 (h2b . _)}
-          (h1b . (lists/flatten [lth2 [h2b]])))))))
-
-
-(defn+ cover-time (ts cycle fc-hrs)
-  "Provide the left and right GRIB2 source files for time <ts> in the cycle
-   <cycle> of the grib source <grib-src>."
-  ;(io/format "cover-time: ts ~w cycle ~w~n" [ts cycle])
-  (let* (dhr    (ta/hours-between cycle ts))
-    [{cycle (left-fc-hour dhr fc-hrs)} {cycle (right-fc-hour dhr fc-hrs)}]))
-
-
 (defn+ cull-cycle (c by-c)
   "Ensure cycle <c> is not later than cycle <by-c>."
   (if (erl/> c by-c) by-c c))
@@ -78,6 +43,29 @@
         ; datetime an hour before
         (:undefined (get-cycle-for (ta/set-hour (ta/shift-by-days ts -1) 23) runs))
         (last-cycle-hr {date {last-cycle-hr 0 0}}))))
+
+
+
+(defn left-fc-hour (h fc-hrs)
+  "Returns the highest forecast hour that is smaller than or equal to <h> for grib source <grib-src>."
+  (case (lists/takewhile (fn (x) (lte x h)) fc-hrs)
+    ([]    (erl/throw :unsatisfiable))
+    (taken (lists/last taken))))
+
+
+(defn right-fc-hour (h fc-hrs)
+  "Returns the smallest forecast hour that is higher than or equal to <h> for grib source <grib-src>."
+  (case (lists/dropwhile (fn (x) (erl/< x h)) fc-hrs)
+    ([]           (erl/throw :unsatisfiable))
+    ((rfc . rest) rfc)))
+
+
+(defn+ get-gribs-for-time (ts cycle fc-hrs)
+  "Provide the left and right GRIB2 source files for time <ts> in the cycle
+   <cycle> of the grib source <grib-src>."
+  ;(io/format "cover-time: ts ~w cycle ~w~n" [ts cycle])
+  (let* (dhr    (ta/hours-between cycle ts))
+    [{cycle (left-fc-hour dhr fc-hrs)} {cycle (right-fc-hour dhr fc-hrs)}]))
 
 
 (defn+ cycle-fc-to-time (x)
