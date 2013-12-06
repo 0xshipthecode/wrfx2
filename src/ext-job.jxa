@@ -46,7 +46,7 @@
       {:running pid qid})))
 
 ;
-;; construct an job script
+;; construct a job script for the PBS (Portable Batch System)
 (defn make-pbs-script (tid in-dir cmd num-nodes ppn wall-time-hrs)
   (iol/format
     (lists/flatten
@@ -64,6 +64,7 @@
     [num-nodes ppn wall-time-hrs tid tid in-dir (erl/* num-nodes ppn) cmd]))
 
 
+;; construct a job script for the LSF (Load Sharing Facility)
 (defn make-lsf-script (tid in-dir cmd num-nodes ppn wall-time-hrs)
   (iol/format
     (lists/flatten
@@ -71,6 +72,7 @@
         "#BSUB -J ~s\n"
         "#BSUB -R \"span[ptile=~p]\"\n"
         "#BSUB -n ~p\n"
+        "#BSUB -W ~p\n"
         "TID=~p\n"
         "cd ~s\n"
         "mpirun -np ~p -hostfile /home/mvejmelka/ibhostfile ~s &\n"
@@ -79,13 +81,32 @@
         "echo $PID `date +%s` > $TID.pid\n"
         "wait $PID\n"
         "echo $? `date +%s` > $TID.exitcode\n" ])
-   [tid ppn num-nodes tid in-dir (erl/* num-nodes ppn) cmd]))
+   [tid ppn num-nodes (erl/* 60 wall-time-hrs) tid in-dir (erl/* num-nodes ppn) cmd]))
+
+
+;; construct a script for OGE (Open Grid Engine)
+(defn make-oge-script (tid in-dir cmd num-nodes ppn wall-time-hrs)
+  (iol/format
+    (lists/flatten
+      ["#!/usr/bin/env bash\n"
+        "#$ -N ~s\n"
+        "#$ -l h_rt=~p:00:00\n"
+        "#$ -pe mpi ~p\n"
+        "cd ~s\n"
+        "cp $PE_HOSTFILE oge_hostfile"
+        "mpirun -np ~p -hostfile oge_hostfile ~s &\n"
+        "PID=$!\n"
+        "echo $PID `date +%s` > $TID.pid\n"
+        "wait $PID\n"
+        "echo $? `date +%s` > $TID.exitcode\n" ])
+    [tid wall-time-hrs (erl/* num-nodes ppn) in-dir (erl/* num-nodes ppn) cmd]))
 
 
 (defn make-script (backend tid in-dir cmd num-nodes ppn wall-time-hrs)
   (case backend
-    (:pbs  (make-pbs-script tid in-dir cmd num-nodes ppn wall-time-hrs))
-    (:lsf  (make-lsf-script tid in-dir cmd num-nodes ppn wall-time-hrs))))
+    (:pbs  (make-pbs-script tid in-dir cmd num-nodes ppn wall-time-hrs))   ; portable batch system
+    (:lsf  (make-lsf-script tid in-dir cmd num-nodes ppn wall-time-hrs))   ; load sharing facility
+    (:oge  (make-oge-script tid in-dir cmd num-nodes ppn wall-time-hrs)))) ; open grid engine
 
 
 (defn strip-qid (rqid)
