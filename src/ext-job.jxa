@@ -19,7 +19,7 @@
 
 
 (ns ext-job
-    (require lists filename io os plist
+    (require lists filename io os plist re configsrv
              (file :joxify)
              (filelib :joxify)
              (string :as str)
@@ -47,25 +47,52 @@
 
 ;
 ;; construct an job script
-(defn make-script (tid cmd num-nodes ppn wall-time-hrs)
+(defn make-pbs-script (tid in-dir cmd num-nodes ppn wall-time-hrs)
   (iol/format
-   (lists/flatten
-    [ "#!/usr/bin/env bash\n"
-      "#PBS -l nodes=~p:ppn=~p\n"
-      "#PBS -l walltime=~p:00:00\n"
-      "#PBS -N ~s\n"
-      "TID=~p\n"
-      "cd $PBS_O_WORKDIR\n"
-      "mpirun -np ~p -hostfile $PBS_NODEFILE ~s &\n"
-      "PID=$!\n"
-      "echo $PID `date +%s` > $TID.pid\n"
-      "wait $PID\n"
-      "echo $? `date +%s` > $TID.exitcode\n" ])
-      [num-nodes ppn wall-time-hrs tid tid (erl/* num-nodes ppn) cmd]))
+    (lists/flatten
+      [ "#!/usr/bin/env bash\n"
+        "#PBS -l nodes=~p:ppn=~p\n"
+        "#PBS -l walltime=~p:00:00\n"
+        "#PBS -N ~s\n"
+        "TID=~p\n"
+        "cd ~s\n"
+        "mpirun -np ~p ~s &\n"
+        "PID=$!\n"
+        "echo $PID `date +%s` > $TID.pid\n"
+        "wait $PID\n"
+        "echo $? `date +%s` > $TID.exitcode\n" ])
+    [num-nodes ppn wall-time-hrs tid tid in-dir (erl/* num-nodes ppn) cmd]))
+
+
+(defn make-lsf-script (tid in-dir cmd num-nodes ppn wall-time-hrs)
+  (iol/format
+    (lists/flatten
+      [ "#!/usr/bin/env bash\n"
+        "#BSUB -J ~s\n"
+        "#BSUB -R \"span[ptile=~p]\"\n"
+        "#BSUB -n ~p\n"
+        "TID=~p\n"
+        "cd ~s\n"
+        "mpirun -np ~p -hostfile /home/mvejmelka/ibhostfile ~s &\n"
+	"echo \"fake job id <1111>\"\n"
+        "PID=$!\n"
+        "echo $PID `date +%s` > $TID.pid\n"
+        "wait $PID\n"
+        "echo $? `date +%s` > $TID.exitcode\n" ])
+   [tid ppn num-nodes tid in-dir (erl/* num-nodes ppn) cmd]))
+
+
+(defn make-script (backend tid in-dir cmd num-nodes ppn wall-time-hrs)
+  (case backend
+    (:pbs  (make-pbs-script tid in-dir cmd num-nodes ppn wall-time-hrs))
+    (:lsf  (make-lsf-script tid in-dir cmd num-nodes ppn wall-time-hrs))))
+
 
 (defn strip-qid (rqid)
   "Strip the non-integer part from the raw job id <rqid> and return the integer."
-  (erl/list-to-integer (str/substr rqid 1 (decr (str/chr rqid 46)))))
+  (case (re/run rqid "([0-9]+)" [{:capture :first :list}])
+    ({:match [str-qid]} (erl/list-to-integer str-qid))
+    (error              -1)))
 
 
 (defn+ run (tid command in-dir num-nodes ppn wall-time-hrs pid-timeout exec-timeout log-f)
@@ -98,9 +125,10 @@
                   (begin-monitoring in-dir tid qid remaining-pid-timeout exec-timeout log-f)))
               (:invalid
                 (log-f :info "~s: job has not been submitted yet, submitting job now" [tid])
-                (let* (fqn (make-proc-file-name in-dir tid ".sh"))
-                  (write-run-script fqn (make-script tid command num-nodes ppn wall-time-hrs))
-                  (let* (raw-qid (os/cmd (lists/flatten ["cd " in-dir " && qsub " tid ".sh"]))
+                (let* (fqn     (make-proc-file-name in-dir tid ".sh")
+		       backend (configsrv/get-conf :hpc-backend))
+                  (write-run-script fqn (make-script backend tid in-dir command num-nodes ppn wall-time-hrs))
+                  (let* (raw-qid (lists/flatten (os/cmd (lists/flatten ["cd " in-dir " && ./" tid ".sh &"])))
                          qid     (strip-qid raw-qid))
                     (file/write-file submit-f (iol/format "~p~n~p~n" [qid (ta/unix-timestamp)]))
                     (begin-monitoring in-dir tid qid pid-timeout exec-timeout log-f)))))))))))
