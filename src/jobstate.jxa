@@ -1,7 +1,7 @@
 (ns jobstate
   (require plist utils
            (erlang :as erl :joxify) (file :joxify) (dict :joxify)
-            inets gen_server lists)
+            gen_server lists)
   (use joxa-core))
 
 
