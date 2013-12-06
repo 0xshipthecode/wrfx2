@@ -1,2 +1,3 @@
 #!/usr/bin/env bash
-erl -sname wrfx2_cons -remsh wrfx2@gross
+HOST=`hostname -s`
+erl -sname wrfx2_cons -remsh wrfx2@$HOST
