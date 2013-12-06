@@ -152,3 +152,15 @@
          {:wall-time-hrs wall-time-hrs} {:forecast-length-hrs fc-len}])))
 
 
+(defn+ test-colibri (fc-len wall-time-hrs)
+  (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f")
+    (jobmaster/resubmitjob uuid :nasa-fire-job
+        [{:ign-specs [ {{47.913  -119.116} {10800 100}}
+                       {{48.0271149 -119.39029} {8599 100}}
+                       {{48.0313339 -119.3838} {8523 100}}
+                       {{48.0315704 -119.3807} {8523 100}}
+                       {{48.0265465 -119.38021} {8523 100}} ]}
+         {:sim-from {{2012 9 9} {0 0 0}}} {:num-nodes 16} {:ppn 16}
+         {:wall-time-hrs wall-time-hrs} {:forecast-length-hrs fc-len}])))
+
+
