@@ -133,7 +133,7 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobstate/set jst-pid :stage "GRIB retrieval (2/6)")
       (log-f :info "wfc-job [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
-      (let ({cov-from cov-to mfest}  (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 0 3600000)
+      (let ({cov-from cov-to mfest}  (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
              wps-nl2                 (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
