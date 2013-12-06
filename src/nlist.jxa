@@ -231,10 +231,10 @@
         igni-vars (lists/map (fn (x) (erl/++ x ign-ndx-s)) ign-vars))
   (case ign-spec
     ({{ign-lat ign-lon} {ign-tdelta ign-tlen}}
-      (let* (igni-vals [ign-lon ign-lat ign-lon ign-lat 50 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
+      (let* (igni-vals [ign-lon ign-lat ign-lon ign-lat 200 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
         (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom)))
     ({{ign-lat1 ign-lon1} {ign-lat2 ign-lon2} {ign-tdelta ign-tlen}}
-      (let* (igni-vals [ign-lon1 ign-lat1 ign-lon2 ign-lat2 50 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
+      (let* (igni-vals [ign-lon1 ign-lat1 ign-lon2 ign-lat2 200 ign-tdelta (erl/+ ign-tdelta ign-tlen)])
         (set-values-for-dom nls "fire" (lists/zip igni-vars igni-vals) dom))))))
 
 

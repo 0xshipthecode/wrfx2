@@ -56,9 +56,9 @@
   (gen_server/call {:global :jobmaster} :list-jobs))
 
 
-(defn+ activejobs()
+(defn+ livejobs()
   "Returns the active jobs."
-  (gen_server/call {:global :jobmaster} :active-jobs))
+  (gen_server/call {:global :jobmaster} :live-jobs))
 
 
 (defn+ submitjob (mod args)
@@ -93,13 +93,13 @@
 
 
 (defn+ handle_call (request from state)
-  (let ({job-dict active-jobs log-f} state)
+  (let ({job-dict live-jobs log-f} state)
    (case request
     ({:add-job job-id job-pid job-state}
-      {:reply :ok {(dict/store job-id {job-pid job-state} job-dict) active-jobs log-f}})
+      {:reply :ok {(dict/store job-id {job-pid job-state} job-dict) live-jobs log-f}})
     ({:remove-job job-id}
       ; here a termination must be started
-      {:reply :ok {(dict/erase job-id job-dict) active-jobs log-f}})
+      {:reply :ok {(dict/erase job-id job-dict) live-jobs log-f}})
     ({:job-state job-id}
       (try*
         {:reply (erl/element 2 (dict/fetch job-id job-dict)) state}
@@ -113,34 +113,34 @@
     (:list-jobs
       {:reply (dict/fetch-keys job-dict) state})
     ({:submit-job mod args}
-      (if (empty? active-jobs)
+      (if (empty? live-jobs)
         (let* (uuid       (utils/make-uuid)
                short-uuid (str/substr uuid 1 8)
                args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
                jst-pid    (jobstate/start-link uuid)
                job-pid    (erl/apply mod :submit [args2 jst-pid]))
           (log-f :info "jobmaster: job ~p activated" [uuid])
-          {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) (uuid . active-jobs) log-f}})
+          {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) (uuid . live-jobs) log-f}})
         {:reply :busy state}))
     ({:resubmit-job uuid mod args}
       (let* (short-uuid (str/substr uuid 1 8)
              args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
              jst-pid    (jobstate/start-link uuid)
              job-pid    (erl/apply mod :submit [args2 jst-pid])
-             act-jobs2  (if (lists/member uuid active-jobs) active-jobs (uuid . active-jobs)))
+             act-jobs2  (if (lists/member uuid live-jobs) live-jobs (uuid . live-jobs)))
         (log-f :info "jobmaster: job ~p resubmitted (and activated)" [uuid])
         {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) act-jobs2 log-f}}))
     ({:job-deactivated uuid}
       (log-f :info "jobmaster: job ~p done" [uuid])
-      {:reply :ok {job-dict (lists/delete uuid active-jobs) log-f}})
-    (:active-jobs
-      {:reply active-jobs state})
+      {:reply :ok {job-dict (lists/delete uuid live-jobs) log-f}})
+    (:live-jobs
+      {:reply live-jobs state})
     ({:kill-job uuid}
       (case (dict/find uuid job-dict)
         ({:ok {jpid jstate}}
           (log-f :info "jobmaster: job ~p killed by request." [uuid])
           (erl/spawn (fn () (kill-job jpid jstate)))
-          {:reply :job-killed {job-dict (lists/delete uuid active-jobs) log-f}})
+          {:reply :job-killed {job-dict (lists/delete uuid live-jobs) log-f}})
         (:error
           {:reply :no-such-job state})))
     (other
