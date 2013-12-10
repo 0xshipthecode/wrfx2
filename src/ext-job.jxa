@@ -88,18 +88,20 @@
 (defn make-oge-script (tid in-dir cmd num-nodes ppn wall-time-hrs)
   (iol/format
     (lists/flatten
-      ["#!/usr/bin/env bash\n"
+      [ "#$ -S /bin/bash\n"
         "#$ -N ~s\n"
+        "#$ -wd ~s\n"
         "#$ -l h_rt=~p:00:00\n"
         "#$ -pe mpi ~p\n"
-        "cd ~s\n"
-        "awk '{for (i=1;i<=$2;i++) print $1}' $PE_HOSTFILE > machinefile\n"
-        "mpirun -np ~p -machinefile machinefile ~s &\n"
+        "TID=~p\n"
+        "cp $PE_HOSTFILE pe_hostfile\n"
+        "awk '{for (i=1;i<=$2;i++) print $1}' pe_hostfile > machinefile\n"
+        "mpirun --mca plm_rsh_disable_qrsh 1 -np ~p -machinefile machinefile ~s &\n"
         "PID=$!\n"
         "echo $PID `date +%s` > $TID.pid\n"
         "wait $PID\n"
         "echo $? `date +%s` > $TID.exitcode\n" ])
-    [tid wall-time-hrs (erl/* num-nodes ppn) in-dir (erl/* num-nodes ppn) cmd]))
+    [tid in-dir wall-time-hrs (erl/* num-nodes ppn) tid  (erl/* num-nodes ppn) cmd]))
 
 
 (defn make-script (backend tid in-dir cmd num-nodes ppn wall-time-hrs)
@@ -147,9 +149,9 @@
               (:invalid
                 (log-f :info "~s: job has not been submitted yet, submitting job now" [tid])
                 (let* (fqn     (make-proc-file-name in-dir tid ".sh")
-		       backend (configsrv/get-conf :hpc-backend))
+                       backend (configsrv/get-conf :hpc-backend))
                   (write-run-script fqn (make-script backend tid in-dir command num-nodes ppn wall-time-hrs))
-                  (let* (raw-qid (lists/flatten (os/cmd (lists/flatten ["cd " in-dir " && ./" tid ".sh &"])))
+                  (let* (raw-qid (lists/flatten (os/cmd (lists/flatten ["cd " in-dir " && qsub " tid ".sh"])))
                          qid     (strip-qid raw-qid))
                     (file/write-file submit-f (iol/format "~p~n~p~n" [qid (ta/unix-timestamp)]))
                     (begin-monitoring in-dir tid qid pid-timeout exec-timeout log-f)))))))))))
