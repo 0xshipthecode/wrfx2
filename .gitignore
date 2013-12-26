@@ -4,3 +4,6 @@ deps
 *.beam
 *.plt
 wksp
+src/nlparser.erl
+src/file_info.jxa
+
