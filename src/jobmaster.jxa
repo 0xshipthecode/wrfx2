@@ -19,10 +19,9 @@
 
 
 (ns jobmaster
-  (require utils plist jobstate logsrv
+  (require utils plist logsrv
            lists (string :as str) gen_server filename (file :joxify)
-           (dict :joxify) (erlang :as erl :joxify) (io_lib :as iol)
-           os)
+           (dict :joxify) (erlang :as erl :joxify) (io_lib :as iol) os)
   (use joxa-core utils))
 
 
@@ -31,9 +30,9 @@
 
 ;; API
 
-(defn+ addjob (job-id job-pid job-state)
-  "Add a job with name <job-id> and process <job-pid> and job state <job-state>."
-  (gen_server/call {:global :jobmaster} {:add-job job-id job-pid job-state}))
+(defn+ addjob (job-id job-pid info-plist)
+  "Add a job with name <job-id> and process <job-pid> and current job state plist <info-plist>."
+  (gen_server/call {:global :jobmaster} {:add-job job-id job-pid info-plist}))
 
 
 (defn+ deljob (job-id)
@@ -41,9 +40,19 @@
   (gen_server/call {:global :jobmaster} {:remove-job job-id}))
 
 
-(defn+ getjobstate (job-id)
-  "Retrieve the pid of the jobstate server for job named <job-id>."
-  (gen_server/call {:global :jobmaster} {:job-state job-id}))
+(defn+ getstate (job-id)
+  "Retrieve the plist containing the information about job <job-id>."
+  (gen_server/call {:global :jobmaster} {:get-job-state job-id}))
+
+
+(defn+ updatestate (job-id new-state)
+  "Update the plist containing the information about job <job-id> with the plist <new-state>."
+  (gen_server/call {:global :jobmaster} {:update-job-state job-id new-state}))
+
+
+(defn+ removestate (job-id keys)
+  "Remove the keys <keys> from the state of job with id <job-id>."
+  (gen_server/call {:global :jobmaster} {:remove-job-state job-id keys}))
 
 
 (defn+ getjobpid (job-id)
@@ -57,7 +66,7 @@
 
 
 (defn+ livejobs()
-  "Returns the active jobs."
+  "List all currently running jobs."
   (gen_server/call {:global :jobmaster} :live-jobs))
 
 
@@ -68,30 +77,32 @@
 
 
 (defn+ resubmitjob (uuid mod args)
-  "Resubmit a job with the given <uuid>."
+  "Resubmit a job executed by module <mod> with arguments <args> and with the given <uuid>."
   (gen_server/call {:global :jobmaster} {:resubmit-job uuid mod args}))
 
 
 (defn+ killjob (uuid)
-  "Kill the job <uuid> if it still running."
+  "Kill the job <uuid> if it still running.  Job is not removed from the jobmaster lists."
   (gen_server/call {:global :jobmaster} {:kill-job uuid}))
 
 
 ;; Internal funcrions
 
-(defn kill-job (jpid jstate)
+(defn kill-job (uuid jpid)
+  "The jobmaster will kill any external queued/running process that is registered as :qid in the job state."
   (erl/exit jpid :kill)
-  (jobstate/set jstate :stage "KILLED")
-  (case (jobstate/get jstate :qid)
-    (:no-such-key :ok)
-    (qid (os/cmd (iol/format "qdel ~p" [qid])))))
+  (updatestate uuid [:stage "KILLED"])
+  (let* (info-plist (getstate uuid))
+    (case (plist/get :qid :no-such-key uuid)
+      (:no-such-key :ok)
+      (qid (os/cmd (iol/format "qdel ~p" [qid]))))))
 
 ;; gen_server callbacks
 
 (defn+ init (args)
     {:ok args})
 
-
+;; The job-dict contains entries {job-pid job-state}
 (defn+ handle_call (request from state)
   (let ({job-dict live-jobs log-f} state)
    (case request
@@ -100,16 +111,26 @@
     ({:remove-job job-id}
       ; here a termination must be started
       {:reply :ok {(dict/erase job-id job-dict) live-jobs log-f}})
-    ({:job-state job-id}
-      (try*
-        {:reply (erl/element 2 (dict/fetch job-id job-dict)) state}
-        (catch (type bdy)
+    ({:get-job-state job-id}
+      (case (dict/find job-id job-dict)
+        ({:ok {job-pid job-state}} {:reply job-state state})
+        (:error                    {:reply :no-such-job state})))
+    ({:update-job-state job-id new-state}
+      (case (dict/find job-id job-dict)
+        ({:ok {job-pid job-state}}
+          {:reply :ok {(dict/store job-id {job-pid (plist/update-with new-state job-state)} job-dict) live-jobs log-f}})
+        (:error
+          {:reply :no-such-job state})))
+    ({:remove-job-state job-id ks}
+      (case (dict/find job-id job-dict)
+        ({:ok {job-pid job-state}}
+          {:reply :ok {(dict/store job-id {job-pid (plist/remove-list ks job-state)} job-dict) live-jobs log-f}})
+        (:error
           {:reply :no-such-job state})))
     ({:job-pid job-id}
-      (try*
-        {:reply (erl/element 1 (dict/fetch job-id job-dict)) state}
-        (catch (t b)
-          {:reply :no-such-job state})))
+      (case (dict/find job-id job-dict)
+        ({:ok {job-pid job-state}} {:reply job-pid state})
+        (:error                    {:reply :no-such-job state})))
     (:list-jobs
       {:reply (dict/fetch-keys job-dict) state})
     ({:submit-job mod args}
@@ -117,19 +138,17 @@
         (let* (uuid       (utils/make-uuid)
                short-uuid (str/substr uuid 1 8)
                args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
-               jst-pid    (jobstate/start-link uuid)
-               job-pid    (erl/apply mod :submit [args2 jst-pid]))
+               job-pid    (erl/apply mod :submit [args2]))
           (log-f :info "jobmaster: job ~p activated" [uuid])
-          {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) (uuid . live-jobs) log-f}})
+          {:reply {:ok uuid} {(dict/store uuid {job-pid []} job-dict) (uuid . live-jobs) log-f}})
         {:reply :busy state}))
     ({:resubmit-job uuid mod args}
       (let* (short-uuid (str/substr uuid 1 8)
              args2      (plist/update-with [{:job-id uuid} {:short-job-id short-uuid}] args)
-             jst-pid    (jobstate/start-link uuid)
-             job-pid    (erl/apply mod :submit [args2 jst-pid])
+             job-pid    (erl/apply mod :submit [args2])
              act-jobs2  (if (lists/member uuid live-jobs) live-jobs (uuid . live-jobs)))
         (log-f :info "jobmaster: job ~p resubmitted (and activated)" [uuid])
-        {:reply {:ok uuid jst-pid} {(dict/store uuid {job-pid jst-pid} job-dict) act-jobs2 log-f}}))
+        {:reply {:ok uuid} {(dict/store uuid {job-pid []} job-dict) act-jobs2 log-f}}))
     ({:job-deactivated uuid}
       (log-f :info "jobmaster: job ~p done" [uuid])
       {:reply :ok {job-dict (lists/delete uuid live-jobs) log-f}})
@@ -137,9 +156,9 @@
       {:reply live-jobs state})
     ({:kill-job uuid}
       (case (dict/find uuid job-dict)
-        ({:ok {jpid jstate}}
+        ({:ok {jpid info-plist}}
           (log-f :info "jobmaster: job ~p killed by request." [uuid])
-          (erl/spawn (fn () (kill-job jpid jstate)))
+          (erl/spawn (fn () (kill-job uuid jpid)))
           {:reply :job-killed {job-dict (lists/delete uuid live-jobs) log-f}})
         (:error
           {:reply :no-such-job state})))
