@@ -74,6 +74,11 @@
     ((other . rest) (other . (remove k rest)))))
 
 
+(defn+ remove-list (ks ps)
+  "Remove the list of keys <ks> from the property list <ps>."
+  (lists/foldl (fn (k a) (remove k a)) ps ks))
+
+
 (defn+ update-with (new-ps ps)
   "Update the property list <ps> with the properties in <new-ps>,
    in case of a collision, values in <new-ps> have a priority."
