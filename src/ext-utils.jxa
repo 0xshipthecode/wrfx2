@@ -101,13 +101,19 @@
 ;; messages from external helper processes.
 ;; one helper process sends the :pid-msg message with either a pid or a timeout
 ;; another helper monitors the exitcode file and sends the :exited message
-(defn+ monitor-process (master-pid in-dir tid os-pid exec-timeout log-f)
+(defn+ monitor-process (master-pid in-dir tid os-pid qid exec-timeout log-f)
   "Monitor the execution of an external process with id <tid> in directory <in-dir>."
   (try*
     (receive
-      (:kill-9
-        (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-        (monitor-process master-pid in-dir tid os-pid exec-timeout log-f))
+      (:kill
+        (case qid
+          (:undefined
+            (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+            (log-f :warn "~s: monitor-process received kill command, OS process with pid ~p terminated" [tid os-pid]))
+          (_
+            (os/cmd (iol/format "qdel ~p" [qid]))
+            (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid])))
+        :killed)
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
         (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
           (log-f :info "~s: exited with code ~p at ~w" [tid exit-code exit-time])
@@ -125,14 +131,14 @@
           (erl/send master-pid {:proc-started (erl/self) start-time})
           (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
             (async-send-me {:exit-msg (wait-for-file (make-proc-file-name in-dir tid ".exitcode") remaining-exec-timeout 500)})
-            (monitor-process master-pid in-dir tid real-os-pid exec-timeout log-f))))
+            (monitor-process master-pid in-dir tid real-os-pid qid exec-timeout log-f))))
       (unknown-msg ;; we don:t understand this message, notify
         (log-f :flash "ext-utils task [~s] message not understood [~p]!" [tid unknown-msg])
-        (monitor-process master-pid in-dir tid os-pid exec-timeout log-f)))
+        (monitor-process master-pid in-dir tid os-pid qid exec-timeout log-f)))
   (catch (ex bdy)
     (do
       (log-f :flash "monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" [tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
-      (monitor-process master-pid in-dir tid os-pid exec-timeout log-f)))))
+      (monitor-process master-pid in-dir tid os-pid qid exec-timeout log-f)))))
 
 
 ; simplest wait-for-completion stub, which just returns result

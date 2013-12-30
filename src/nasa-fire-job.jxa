@@ -36,7 +36,7 @@
               (jobmaster/updatestate job-id [:kmls kml-basename])
               (let* (jstate (jobmaster/getstate job-id))
                 (log-f :info "nasa-fire-job simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
-                            (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time] jstate)))
+                            (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time] :not-available jstate)))
           (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid log-f))))
       ({:proc-started pid comp-start}
         (log-f :info "nasa-fire-job WRF computation started on ~w, monitoring" [comp-start])

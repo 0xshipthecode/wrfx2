@@ -18,7 +18,7 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns wfc-job
-  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv
+  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv io
            configsrv wrf-monitor jobmaster ingest-srv grib-src-def
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
@@ -58,33 +58,33 @@
 (defn monitor-wrf-execution (job-id wdir pid sim-from sim-to mon-pid log-f)
   "Parse the error output of the process with rank 0 in the working
    directory <wdir> while the wrf job with pid <pid> completes."
-  (let* (fname (filename/join wdir "rsl.error.0000"))
-    (receive
-      ({:wrf-history-written domain-id sim-time}
-        (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
-               sim-time-str (ta/to-esmf-str sim-time)
-               wrfout-name  (iol/format "~s/wrfout_d01_~s" [wdir (ta/to-esmf-str sim-from)])
-               kml-basename (erl/++ sim-time-str ".kmz")
-               kml-abs-name (filename/join [kml-dir job-id kml-basename]))
-            (filelib/ensure-dir kml-abs-name)
-            (let* (cmd-str (iol/format "deps/wrf2kmz/wrf2kml.py ~s T2 ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
-              (log-f :info "wfc-job detected WRF history write at ~w in domain ~p" [sim-time domain-id])
-              (log-f :info "wfc-job result from wrf2kml ~p" [(os/cmd cmd-str)])
-              (jobmaster/updatestate job-id [:kmls kml-basename])
-              (let* (job-state (jobmaster/getstate job-id))
-                (log-f :info "wfc-job simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
-                  (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time] job-state)))
-          (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid log-f))))
-      ({:proc-started pid comp-start}
-        (log-f :info "wfc-job WRF computation started on ~w, monitoring" [comp-start])
-        (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start job-id log-f))
-          (monitor-wrf-execution job-id wdir pid sim-from sim-to real-mon-pid log-f)))
-      ({:ext-proc-complete pid result}
-        (jobmaster/removestate job-id [:qid])
-        (case mon-pid
-          (:undefined :ok)
-          (valid-pid (erl/send mon-pid :terminate)))
-        result))))
+  (receive
+    ({:wrf-history-written domain-id sim-time}
+      (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
+             sim-time-str (ta/to-esmf-str sim-time)
+             wrfout-name  (iol/format "~s/wrfout_d01_~s" [wdir (ta/to-esmf-str sim-from)])
+             kml-basename (erl/++ sim-time-str ".kmz")
+             kml-abs-name (filename/join [kml-dir job-id kml-basename]))
+          (filelib/ensure-dir kml-abs-name)
+          (let* (cmd-str (iol/format "deps/wrf2kmz/wrf2kml.py ~s T2 ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
+            (log-f :info "wfc-job detected WRF history write at ~w in domain ~p" [sim-time domain-id])
+            (log-f :info "wfc-job result from wrf2kml ~p" [(os/cmd cmd-str)])
+            (jobmaster/updatestate job-id [{:kmls kml-basename}]))
+          (log-f :info "wfc-job simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
+                 (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
+                                 :not-available (jobmaster/getstate job-id))))
+        (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid log-f))
+    ({:proc-started pid comp-start}
+      (log-f :info "wfc-job WRF computation started on ~w, monitoring" [comp-start])
+      (let* (fname (filename/join wdir "rsl.error.0000")
+             real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start job-id log-f))
+        (monitor-wrf-execution job-id wdir pid sim-from sim-to real-mon-pid log-f)))
+    ({:ext-proc-complete pid result}
+      (jobmaster/removestate job-id [:ext-mon-pid])
+      (case mon-pid
+        (:undefined :ok)
+        (valid-pid (erl/send mon-pid :terminate)))
+      result)))
 
 
 (defn+ run (args log-f)
@@ -167,14 +167,16 @@
     (log-f :info "wfc-job [~p] running WRF" [short-jid])
     (jobmaster/updatestate job-id [{:stage "WRF (6/6)"}])
     (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 (erl/* (+ fc-hrs 0.1) 3600000) log-f)
-      ({:running wrf-pid qid}
-        (jobmaster/updatestate job-id [{:qid qid}])
-        (monitor-wrf-execution job-id wrf-wdir wrf-pid sim-from sim-to :undefined log-f))
+      ({:running ext-mon-pid qid}
+        (log-f :info "wfc-job [~p] WRF is queued with id ~p" [short-jid qid])
+        (jobmaster/updatestate job-id [{:ext-mon-pid ext-mon-pid}])
+        (monitor-wrf-execution job-id wrf-wdir ext-mon-pid sim-from sim-to :undefined log-f))
       ({:success exit-code}
         (log-f :info "wfc-job [~p] job is already completed, nothing to compute" [short-jid])))
 
     (log-f :info "wfc-job [~p] end of job reached" [short-jid])
     (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])
+    (jobmaster/job-done job-id)
 
     :ok))
 
@@ -187,7 +189,8 @@
     (try*
       (do
         (run args (logsrv/make-log-f log-name))
-        (logsrv/close-log log-name))
+        (logsrv/close-log log-name)
+        :success)
       (catch (type body)
         (do
           (jobmaster/updatestate uuid [{:stage "FAILED"} {:reason (iol/format "crashed with exception ~p" [type])}])
@@ -197,8 +200,7 @@
           :error)))))
 
 
-
-(defn+ submit (args jst-pid)
+(defn+ submit (args)
   (let* (uuid    (plist/get :job-id args)
          args2   (plist/update-with [{:history-interval [60 30 15]}
                                      {:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
@@ -217,4 +219,12 @@
          {:wrf-nl "etc/nlists/colorado2k.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
 
+
+(defn+ test (from)
+  (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
+    (jobmaster/submitjob uuid :wfc-job 
+        [{:sim-from from}
+         {:wps-nl "etc/nlists/colorado2k.wps"}
+         {:wrf-nl "etc/nlists/colorado2k.input"}
+         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
 

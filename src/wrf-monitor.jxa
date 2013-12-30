@@ -48,7 +48,7 @@
   (let* (esmf-date (str/substr line 31 19)
          domain-id (erl/list-to-integer (str/strip (str/substr line 61 9)))
          sim-time  (ta/parse-esmf esmf-date))
-    (jobmaster/updatestate job-id [:wrf-history-written {domain-id sim-time}])
+    (jobmaster/updatestate job-id [{:wrf-history-written {domain-id sim-time}}])
     (erl/send master-pid {:wrf-history-written domain-id sim-time})
     (monitor-loop dev sim-start sim-end comp-start updates-seen job-id master-pid log-f)))
 

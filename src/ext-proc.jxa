@@ -31,7 +31,7 @@
   "Begin monitoring the execution of the process <tid> in dir <in-dir>."
   (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
     (let* (myself  (erl/self)
-           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process myself in-dir tid :undefined exec-timeout log-f)}))
+           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process myself in-dir tid :undefined :undefined exec-timeout log-f)}))
       ;; construct the first watcher that scans for pids
       (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
       {:running pid})))

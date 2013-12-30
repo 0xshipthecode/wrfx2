@@ -53,6 +53,12 @@
   (lists/map (fn (k) (get k ps)) ks))
 
 
+(defn+ get-list (ks def ps)
+  "Retrieve the list values associated with property keys <ks> in the list <ps>,
+   for any key which does not exist, <def> is returned."
+  (lists/map (fn (k) (get k def ps)) ks))
+
+
 (defn+ contains (k ps)
   "Returns true if the property list <ps> contains <k>, false otherwise."
   (case ps
