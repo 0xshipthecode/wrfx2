@@ -22,7 +22,6 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/mwest-retr.beam \
 		ebin/mwest-srv.beam \
 		ebin/ingest-srv.beam \
-		ebin/jobstate.beam \
 		ebin/jobmaster.beam \
 		ebin/ext-utils.beam \
 		ebin/ext-proc.beam \

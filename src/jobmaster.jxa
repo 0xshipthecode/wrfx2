@@ -70,10 +70,10 @@
   (gen_server/call {:global :jobmaster} :live-jobs))
 
 
-(defn+ submitjob (mod args)
+(defn+ submitjob (uuid mod args)
   "Submits a job by executing <mod>/submit with args <args>.
    Returns the job id (a uuid)."
-  (gen_server/call {:global :jobmaster} {:submit-job mod args}))
+  (gen_server/call {:global :jobmaster} {:submit-job uuid mod args}))
 
 
 (defn+ killjob (uuid)
