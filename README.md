@@ -11,12 +11,12 @@ defined services useful towards running WPS/WRF either operationally or on-deman
 wrfx2 platform services
 =======================
 
-  * logging
+  * logging subsystem
   * WRF/WPS/arbitrary external process execution
-  * a plan runner
+  * a library of functions to manipulate the filesystem
   * a scheduler
-  * an event detection/distribution system plus triggers (run this plan when a file appears)
   * external data ingest (e.g. GRIB download)
   * namelist parsing/rewriting, verification against a specification
   * job monitoring/execution/watchdog services
+  * job state storage/query mechanism
  
