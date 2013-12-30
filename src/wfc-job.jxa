@@ -212,7 +212,7 @@
 
 (defn+ test ()
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/resubmitjob uuid :wfc-job 
+    (jobmaster/submitjob uuid :wfc-job 
         [{:sim-from {{2013 9 1} {0 0 0}}}
          {:wps-nl "etc/nlists/colorado2k.wps"}
          {:wrf-nl "etc/nlists/colorado2k.input"}

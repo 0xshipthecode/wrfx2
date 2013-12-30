@@ -141,7 +141,7 @@
 
 (defn+ test (fc-len wall-time-hrs)
   (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/resubmitjob uuid :nasa-fire-job
+    (jobmaster/submitjob uuid :nasa-fire-job
         [{:ign-specs [ {{47.913  -119.116} {10800 100}}
                        {{48.0271149 -119.39029} {8599 100}}
                        {{48.0313339 -119.3838} {8523 100}}
@@ -153,7 +153,7 @@
 
 (defn+ test-colibri (fc-len wall-time-hrs)
   (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/resubmitjob uuid :nasa-fire-job
+    (jobmaster/submitjob uuid :nasa-fire-job
         [{:ign-specs [ {{47.913  -119.116} {10800 100}}
                        {{48.0271149 -119.39029} {8599 100}}
                        {{48.0313339 -119.3838} {8523 100}}
