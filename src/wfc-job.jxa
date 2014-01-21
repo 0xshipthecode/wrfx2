@@ -213,8 +213,14 @@
 
 (defn+ test ()
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/submitjob uuid :wfc-job 
-        [{:sim-from {{2013 9 1} {0 0 0}}}
+    (jobmaster/submit uuid :wfc-job 
+        [{:history-interval [60 30 15]}
+         {:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
+         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
+         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
+         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
+         {:grib-src-name "nam_218"}
+         {:sim-from {{2013 9 1} {0 0 0}}}
          {:wps-nl "etc/nlists/colorado2k.wps"}
          {:wrf-nl "etc/nlists/colorado2k.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
@@ -222,7 +228,7 @@
 
 (defn+ test (from)
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/submitjob uuid :wfc-job 
+    (jobmaster/submit uuid :wfc-job 
         [{:sim-from from}
          {:wps-nl "etc/nlists/colorado2k.wps"}
          {:wrf-nl "etc/nlists/colorado2k.input"}

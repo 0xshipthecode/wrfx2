@@ -36,9 +36,10 @@
   (gen_server/call {:global :jobmaster} {:job-done job-id}))
 
 
-(defn+ addjob (job-id job-pid info-plist)
-  "Add a job with name <job-id> and process <job-pid> and current job state plist <info-plist>."
-  (gen_server/call {:global :jobmaster} {:add-job job-id job-pid info-plist}))
+(defn+ submit (uuid mod args)
+  "Submits a job by executing <mod>/submit with args <args>.
+   Returns the job id (a uuid)."
+  (gen_server/call {:global :jobmaster} {:submit-job uuid mod args}))
 
 
 (defn+ deljob (job-id)
@@ -76,13 +77,7 @@
   (gen_server/call {:global :jobmaster} :live-jobs))
 
 
-(defn+ submitjob (uuid mod args)
-  "Submits a job by executing <mod>/submit with args <args>.
-   Returns the job id (a uuid)."
-  (gen_server/call {:global :jobmaster} {:submit-job uuid mod args}))
-
-
-(defn+ killjob (uuid)
+(defn+ kill (uuid)
   "Kill the job <uuid> if it still running.  Job is not removed from the jobmaster lists."
   (gen_server/call {:global :jobmaster} {:kill-job uuid}))
 
@@ -94,7 +89,28 @@
     {:ok {(ets/new :jmtbl []) [] log-f}}))
 
 
-;; The job-dict contains entries {job-pid job-state}
+;; submit a job by the jobmaster
+(defn execute-job-internal (mod args)
+  "Execute a job inside a new process."
+  (let* (uuid (plist/get :job-id args))
+    (erl/spawn (fn ()
+      (try*
+        (erl/apply mod :run [args (logsrv/make-log-f uuid)])
+      (catch (type body)
+        (case type
+          (:killed
+            (logsrv/msg "system" :warn "job [~p] killed on request.~n" [uuid]))
+          (_
+            (jobmaster/updatestate uuid [{:stage "FAILED"} {:reason (iol/format "crashed with exception ~p" [type])}])
+            (logsrv/msg "system" :error "job [~p] crashed (exc: ~p body ~p)~nstacktrace ~p~n"
+                        [uuid type body (erl/get-stacktrace)])))))
+      (logsrv/close-log uuid)
+      (job-done uuid)))))
+
+
+;; the jobmaster keeps tabs on all running and ended jobs by keeping
+;; track of the tuple {uuid job-pid job-state}
+;;
 (defn+ handle_call (request from state)
   (let ({job-table live-jobs log-f} state)
     (case request
@@ -138,18 +154,17 @@
             {:reply {:error type bdy} state})))
       ; submit a new/existing job (matched by uuid)
       ({:submit-job uuid mod args}
-        (if (empty? live-jobs)
-          (case (lists/member uuid live-jobs)
-            (:true
-              (log-f :info "jobmaster: job ~p already running" [uuid])
-              {:reply {:ok uuid} state})
-            (:false
-              (let* (args2   (plist/update-with [{:job-id uuid} {:short-job-id (str/substr uuid 1 8)}] args)
-                     job-pid (erl/apply mod :submit [args2]))
-                (log-f :info "jobmaster: job ~p activated NOW" [uuid])
-                (ets/insert job-table {uuid job-pid []})
-                {:reply {:ok uuid} {job-table (uuid . live-jobs) log-f}})))
-          {:reply :busy state}))
+        (case (lists/member uuid live-jobs)
+          (:true
+            (log-f :info "jobmaster: job ~p already running" [uuid])
+            {:reply {:ok uuid} state})
+          (:false
+            (logsrv/create-log uuid)
+            (let* (args2   (plist/update-with [{:job-id uuid} {:short-job-id (str/substr uuid 1 8)}] args)
+                   job-pid (execute-job-internal mod args2))
+              (log-f :info "jobmaster: job ~p activated NOW" [uuid])
+              (ets/insert job-table {uuid job-pid []})
+              {:reply {:ok uuid} {job-table (uuid . live-jobs) log-f}}))))
       ; notification that a job has been deactivated (from the job)
       ({:job-done uuid}
         (log-f :info "jobmaster: notified that job ~p is done" [uuid])
@@ -162,21 +177,10 @@
         {:reply live-jobs state})
       ; kill the job uuid
       ({:kill-job uuid}
-        (try*
-          (let ([{uuid jpid jstate}] (ets/lookup job-table uuid))
-            (ets/update-element job-table uuid {3 (plist/set :stage "KILLED" jstate)})
-            (log-f :info "jobmaster: killing job ~p by request, looking for queue id." [uuid])
-            (erl/exit jpid :killed)
-            (case (plist/get :ext-mon-pid :no-such-key jstate)
-              (:no-such-key (log-f :info "jobmaster: no external job found for job ~p found" [uuid])
-                            {:reply :ok {job-table (lists/delete uuid live-jobs) log-f}})
-              (pid          (erl/send pid :kill)
-                            (log-f :info "jobmaster: job ~p was running external process monitored by ~p, kill sent" [uuid pid])
-                            {:reply :ok {job-table (lists/delete uuid live-jobs) log-f}})))
-          (catch (type bdy)
-            (do
-              (log-f :error "jobmaster: failed to kill job ~p with exc type ~p bdy ~p stack ~p" [uuid type bdy (erl/get-stacktrace)])
-              {:reply {:error type bdy} state}))))
+        (let ([{uuid jpid jstate}] (ets/lookup job-table uuid))
+          (ets/update-element job-table uuid {3 (plist/set :stage "KILLED" jstate)})
+          (log-f :info "jobmaster: killing job ~p by request, looking for queue id." [uuid])
+          (erl/send jpid :kill)))
       ; message not understood
       (other
         (logsrv/error :flash "jobmaster: message ~p not understood, fix it!" [other])
