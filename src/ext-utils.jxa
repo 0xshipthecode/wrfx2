@@ -71,14 +71,14 @@
 
 ; construct the name of a process output file from
 ;; run directory, task name and suffix
-(defn+ make-proc-file-name (in-dir tid suffix)
+(defn+ make-proc-filename (in-dir tid suffix)
   (filename/join in-dir (lists/append tid suffix)))
 
 
 (defn+ make-std-output-spec (in-dir tid)
   "Construct a standard output mapping, where fd 1 is sent to <tid>.stdout and fd 2 is sent to <tid>.stderr"
-  [{1 (make-proc-file-name in-dir tid ".stdout")}
-   {2 (make-proc-file-name in-dir tid ".stderr")}])
+  [{1 (make-proc-filename in-dir tid ".stdout")}
+   {2 (make-proc-filename in-dir tid ".stderr")}])
 
 
 ;; construct the quartet of output filenames of the
@@ -87,7 +87,12 @@
 ;; otherwise the output-spec must be a tuple {stdout-f stderr-f} containing absolute
 ;; path names
 (defn+ make-proc-names (in-dir tid suffixes)
-  (lists/map (fn (suffix) (make-proc-file-name in-dir tid suffix)) suffixes))
+  (lists/map (fn (suffix) (make-proc-filename in-dir tid suffix)) suffixes))
+
+
+(defn+ cleanup-execution-files (in-dir tid)
+  "Removes traces of process execution in the form of the pid file and the exitcode file."
+  (lists/map file/delete/1 (make-proc-names in-dir tid [".pid" ".exitcode"])))
 
 
 ;; construct and write the BASH run script which executes the file
@@ -105,6 +110,7 @@
   "Monitor the execution of an external process with id <tid> in directory <in-dir>."
   (try*
     (receive
+      ;; a kill command comes from an external source and indicates we need to stop the process now
       (:kill
         (case qid
           (:undefined
@@ -113,26 +119,40 @@
           (_
             (os/cmd (iol/format "qdel ~p" [qid]))
             (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid])))
+          (file/delete (make-proc-filename in-dir tid ".exitcode"))
+          (file/delete (make-proc-filename in-dir tid ".pid"))
         :killed)
+
+      ;; exit-msg is received when a process exists (message source is in this function)
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
         (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
           (log-f :info "~s: exited with code ~p at ~w" [tid exit-code exit-time])
           {:success exit-code}))
-      ({:exit-msg {:failure reason}} ; kill the rogue process
+
+      ;; exit-msg with failure is retrieved e.g. when a timeout occurrs (then reason is :timeout)
+      ({:exit-msg {:failure reason}}
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
         (log-f :error "~s: failed with reason ~p, process ~p killed" [tid reason os-pid])
         :failure)
+
+      ;; pid-msg with failure timeout is received if the .pid file does not appear within timeout
+      ;; timeout is short for external processes (and should cover things like filesystem reaction time, etc.)
+      ;; but may be long if the external process is a job
       ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
         (log-f :error "~s: pid not acquired within timeout" [tid])
         :failure)
+
+      ;; when the pid file appears, it is read in and a new wait period starts
       ({:pid-msg {:success pid-file}} ;; the pid file was created
         (let ({real-os-pid start-time} (read-pid-file pid-file))
           (log-f :info "~s: received pid ~p, process was started on ~w" [tid real-os-pid start-time])
           (erl/send master-pid {:proc-started (erl/self) start-time})
           (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
-            (async-send-me {:exit-msg (wait-for-file (make-proc-file-name in-dir tid ".exitcode") remaining-exec-timeout 500)})
+            (async-send-me {:exit-msg (wait-for-file (make-proc-filename in-dir tid ".exitcode") remaining-exec-timeout 500)})
             (monitor-process master-pid in-dir tid real-os-pid qid exec-timeout log-f))))
-      (unknown-msg ;; we don:t understand this message, notify
+
+      ;; we don:t understand this message, notify
+      (unknown-msg
         (log-f :flash "ext-utils task [~s] message not understood [~p]!" [tid unknown-msg])
         (monitor-process master-pid in-dir tid os-pid qid exec-timeout log-f)))
   (catch (ex bdy)
@@ -141,26 +161,25 @@
       (monitor-process master-pid in-dir tid os-pid qid exec-timeout log-f)))))
 
 
+(defn+ start-monitor-process (in-dir tid qid exec-timeout log-f)
+  "Correctly invoke the monitor-process function and wrap it in a erl/send to communicate process result."
+  (let* (myself (erl/self))
+    (async-send-me {:proc-complete (erl/self) (monitor-process myself in-dir tid :undefined qid exec-timeout log-f)})))
+
+
+
 ; simplest wait-for-completion stub, which just returns result
-;; of the :ext-proc-complete message
+;; of the :proc-complete message
 ;; more sophisticated clients should handle this message themselves
+;; must handle these messages:
+;;  :proc-started
+;;  :proc-complete
+;;  :kill (from jobmaster)
+;;  :killed (notification that process is done)
 (defn+ wait-for-completion (pid)
-  "Blocks until a :ext-proc-complete message is obtained from the correct monitoring procedure <pid>."
+  "Blocks until a :proc-complete message is obtained from the correct monitoring procedure <pid>."
   (receive
     ({:proc-started pid _} (wait-for-completion pid))
-    ({:ext-proc-complete pid result} result)))
-
-
-(defmacro+ wrap-run (exec-func)
-  "Wrap a standard execution (ext-proc or ext-job) in a function
-   that either returns the exit code of the process or fails (throws an error)."
-  (let* (pid (gensym)
-         error (gensym)
-         exit-code (gensym))
-    `(case ~exec-func
-      ({:running ~pid}
-        (case (ext-utils/wait-for-completion ~pid)
-          ({:success ~exit-code} ~exit-code)
-          (~error (erl/throw ~error))))
-      ({:success ~exit-code} ~exit-code))))
+    ({:proc-complete pid result} result)
+    (:kill (erl/send pid :kill) (wait-for-completion pid))))  ;kill arrives from jobmaster, not from executing process
 

@@ -1,0 +1,99 @@
+; Copyright (C) 2013 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+(ns ext-wrappers
+  (require filename lists os io logsrv ext-proc ext-utils
+           (io_lib :as iol)
+           (erlang :as erl :joxify)
+           (file :joxify)
+           (joxa-lists :as jxl)
+           (string :as str)
+           (timelib :as ta))
+  (use joxa-core utils))
+
+
+(defmacro+ wrap-run (exec-func)
+  "Wrap a standard execution (ext-proc or ext-job) in a function
+   that either returns the exit code of the process or fails (throws an error)."
+  (let* (pid (gensym)
+         error (gensym)
+         exit-code (gensym))
+    `(case ~exec-func
+      ({:running ~pid}
+        (case (ext-utils/wait-for-completion ~pid)
+          ({:success ~exit-code} ~exit-code)
+          (~error (erl/throw ~error))))
+      ({:success ~exit-code}
+        ~exit-code))))
+
+
+(defn+ run-process (tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f)
+  "Wraps the running of a process (not a queued job).
+  Strategy: try to run the process, if it's already done, check exit code, if we like it, we're done.
+  If we don't like the code, cleanup the associated file records (.pid and .exitcode) and retry.
+  If not previously run, run the code and check for success."
+  (case (ext-proc/run tid cmd out-spec in-dir timeout log-f)
+    ({:running pid}
+      (case (ext-utils/wait-for-completion pid)
+        ({:success required-exit-code}
+          (case (exit-check-f)
+            (:passed
+              required-exit-code)
+            (not-passed
+              (erl/throw {tid :exit-check-failed not-passed}))))
+        ({:success other-exit-code}
+          (ext-utils/cleanup-execution-files in-dir tid)
+          (erl/throw {tid :wrong-exit-code other-exit-code}))
+        (:killed
+          (ext-utils/cleanup-execution-files in-dir tid)
+          (erl/throw {:killed}))))
+
+    ;; whenever the run method tells us this task has been run previously, we retry if the exit-check failes
+    ;; of if the exit code is not what we want
+    ({:success exit-code}
+      (case exit-code
+        (required-exit-code
+          ; exit code matches, check exit code
+          (case (exit-check-f)
+            (:passed
+              required-exit-code)
+            (not-passed
+              (ext-utils/cleanup-execution-files in-dir tid)
+              (run-process tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f))))
+        ; the exit code is wrong
+        (other-exit-code
+          (ext-utils/cleanup-execution-files in-dir tid)
+          (run-process tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f))))))
+
+
+(defn+ make-exit-check-seq-f (exit-check-fs)
+  "Constructs a function that will perform a sequence of exit checks and return the first failure
+   or the token :passed.  Each exit-check-f must either return :passed to indicate success or something
+   else to indicate falure."
+  (fn ()
+    (lists/foldl (fn (x a) (case a (:passed (x)) (not-passed not-passed))) :passed exit-check-fs)))
+
+
+(defn+ exit-check-string-exists (fname msg)
+  "Exit check function: does the file <fname> contain the string <msg>? If yes, returns :passed."
+  (case (grep-file fname msg)
+    (:found :passed)
+    (_ {:missing-string "Successful completion of geogrid."})))
+

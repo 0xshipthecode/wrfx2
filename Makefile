@@ -26,6 +26,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/ext-utils.beam \
 		ebin/ext-proc.beam \
 		ebin/ext-job.beam \
+		ebin/ext-wrappers.beam \
 		ebin/filesys.beam \
 		ebin/wrfxlib.beam \
 		ebin/wrf-monitor.beam \

@@ -30,12 +30,9 @@
 (defn+ begin-monitoring (in-dir tid pid-timeout exec-timeout log-f)
   "Begin monitoring the execution of the process <tid> in dir <in-dir>."
   (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (let* (myself  (erl/self)
-           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process myself in-dir tid :undefined :undefined exec-timeout log-f)}))
-      ;; construct the first watcher that scans for pids
+    (let* (pid (start-monitor-process in-dir tid :undefined exec-timeout log-f))
       (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
       {:running pid})))
-
 
 ;
 ;; construct an immediate run script
@@ -60,7 +57,7 @@
 ;; the execute function either returns {:success exit-code} if process need not
 ;; be executed or {:running pid} if the process was executed and running
 ;; in this case, the process termination is transmitted to the caller as
-;; {:ext-proc-complete task-pid {result message}} where result is either :success or :failure
+;; {:proc-complete task-pid {result message}} where result is either :success or :failure
 (defn+ run (tid command output-spec in-dir exec-timeout log-f)
   ;; check if the command has already been run (exitcode file exists)
   (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
@@ -78,7 +75,7 @@
               (begin-monitoring in-dir tid 5000 remaining-exec-timeout log-f)))
           (:invalid
             (log-f :info "~s: no pid file found, process ~p must be started" [tid command])
-            (let* (fqn (make-proc-file-name in-dir tid ".sh"))
+            (let* (fqn (make-proc-filename in-dir tid ".sh"))
               (write-run-script fqn (make-immed-exec-script tid command output-spec))
               (erl/open-port {:spawn fqn} [{:cd in-dir}])
               (begin-monitoring in-dir tid 5000 exec-timeout log-f))))))))

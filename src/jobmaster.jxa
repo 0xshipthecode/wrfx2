@@ -102,7 +102,7 @@
             (logsrv/msg "system" :warn "job [~p] killed on request.~n" [uuid]))
           (_
             (jobmaster/updatestate uuid [{:stage "FAILED"} {:reason (iol/format "crashed with exception ~p" [type])}])
-            (logsrv/msg "system" :error "job [~p] crashed (exc: ~p body ~p)~nstacktrace ~p~n"
+            (logsrv/msg "system" :error "job [~p] crashed (exception: type ~p body ~p)~nstacktrace ~p~n"
                         [uuid type body (erl/get-stacktrace)])))))
       (logsrv/close-log uuid)
       (job-done uuid)))))
@@ -180,7 +180,8 @@
         (let ([{uuid jpid jstate}] (ets/lookup job-table uuid))
           (ets/update-element job-table uuid {3 (plist/set :stage "KILLED" jstate)})
           (log-f :info "jobmaster: killing job ~p by request, looking for queue id." [uuid])
-          (erl/send jpid :kill)))
+          (erl/send jpid :kill)
+          {:reply :ok state}))
       ; message not understood
       (other
         (logsrv/error :flash "jobmaster: message ~p not understood, fix it!" [other])

@@ -39,8 +39,7 @@
 (defn+ begin-monitoring (in-dir tid qid pid-timeout exec-timeout log-f)
   "Begin monitoring the execution of the process <tid> in dir <in-dir>."
   (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (let* (myself  (erl/self)
-           pid     (async-send-me {:ext-proc-complete (erl/self) (monitor-process myself in-dir tid :undefined qid exec-timeout log-f)}))
+    (let* (pid (start-monitor-process in-dir tid qid exec-timeout log-f))
       ;; construct the first watcher that scans for pids
       (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
       {:running pid qid})))
@@ -148,7 +147,7 @@
                   (begin-monitoring in-dir tid qid remaining-pid-timeout exec-timeout log-f)))
               (:invalid
                 (log-f :info "~s: job has not been submitted yet, submitting job now" [tid])
-                (let* (fqn     (make-proc-file-name in-dir tid ".sh")
+                (let* (fqn     (make-proc-filename in-dir tid ".sh")
                        backend (configsrv/get-conf :hpc-backend))
                   (write-run-script fqn (make-script backend tid in-dir command num-nodes ppn wall-time-hrs))
                   (let* (raw-qid (lists/flatten (os/cmd (lists/flatten ["cd " in-dir " && qsub " tid ".sh"])))

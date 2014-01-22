@@ -114,35 +114,13 @@
     :ok))
 
 
-(defn+ wrap-run (args)
-  (let* (job-id (plist/get :job-id args)
-         short-jid (plist/get :short-job-id args)
-         log-name  (erl/++ "nfs" short-jid))
-    (!!= :ok (logsrv/create-log log-name))
-    (try*
-      (do
-        (run args (logsrv/make-log-f log-name))
-        (logsrv/close-log log-name))
-      (catch (type body)
-        (do
-          (jobmaster/updatestate job-id [{:state "FAILED"} {:reason (iol/format "crashed with exception ~p" [type])}])
-          (logsrv/msg "system" :error "nasa-fire-job [~p] job crashed (exc: ~p body ~p)~nstacktrace ~p~n"
-                      [short-jid type body (erl/get-stacktrace)])
-          (logsrv/close-log log-name)
-          :error)))))
-
-
-(defn+ submit (args)
-  (let* (uuid    (plist/get :job-id args)
-         args2   (plist/update-with [{:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
-                                     {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}] args))
-    (erl/spawn (fn () (wrap-run args2)))))
-
 
 (defn+ test (fc-len wall-time-hrs)
   (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/submitjob uuid :nasa-fire-job
-        [{:ign-specs [ {{47.913  -119.116} {10800 100}}
+    (jobmaster/submit uuid :nasa-fire-job
+        [{:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
+         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
+         {:ign-specs [ {{47.913  -119.116} {10800 100}}
                        {{48.0271149 -119.39029} {8599 100}}
                        {{48.0313339 -119.3838} {8523 100}}
                        {{48.0315704 -119.3807} {8523 100}}
@@ -153,7 +131,7 @@
 
 (defn+ test-colibri (fc-len wall-time-hrs)
   (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/submitjob uuid :nasa-fire-job
+    (jobmaster/submit uuid :nasa-fire-job
         [{:ign-specs [ {{47.913  -119.116} {10800 100}}
                        {{48.0271149 -119.39029} {8599 100}}
                        {{48.0313339 -119.3838} {8523 100}}
