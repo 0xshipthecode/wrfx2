@@ -119,8 +119,7 @@
           (_
             (os/cmd (iol/format "qdel ~p" [qid]))
             (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid])))
-          (file/delete (make-proc-filename in-dir tid ".exitcode"))
-          (file/delete (make-proc-filename in-dir tid ".pid"))
+        (cleanup-execution-files in-dir tid)
         :killed)
 
       ;; exit-msg is received when a process exists (message source is in this function)
@@ -153,11 +152,13 @@
 
       ;; we don:t understand this message, notify
       (unknown-msg
-        (log-f :flash "ext-utils task [~s] message not understood [~p]!" [tid unknown-msg])
+        (logsrv/system-flash "ext-utils task [~s] message not understood [~p]!" [tid unknown-msg])
         (monitor-process master-pid in-dir tid os-pid qid exec-timeout log-f)))
+
   (catch (ex bdy)
     (do
-      (log-f :flash "monitor-process: ~p ~p ~p caught exception ~p ~p~n~p" [tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
+      ;(log-f :flash "monitor-process: ~s ~p ~p caught exception ~p ~p~n~p" [tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
+      (io/format "monitor-process: ~s ~p ~p caught exception ~p ~p~n~p" [tid os-pid exec-timeout ex bdy (erl/get-stacktrace)])
       (monitor-process master-pid in-dir tid os-pid qid exec-timeout log-f)))))
 
 
