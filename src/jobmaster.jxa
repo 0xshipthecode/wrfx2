@@ -179,7 +179,7 @@
       ({:kill-job uuid}
         (let ([{uuid jpid jstate}] (ets/lookup job-table uuid))
           (ets/update-element job-table uuid {3 (plist/set :stage "KILLED" jstate)})
-          (log-f :info "jobmaster: killing job ~p by request, looking for queue id." [uuid])
+          (log-f :info "jobmaster: killing job ~p by request." [uuid])
           (erl/send jpid :kill)
           {:reply :ok state}))
       ; message not understood
