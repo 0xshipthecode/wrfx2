@@ -69,6 +69,14 @@
       (logger/error-report log-text))))
 
 
+(defn+ system-flash (msg args)
+  "Send a :flash priority message to the system log.  This needs to always work."
+  (let* (dev       (get-log-device "system")
+         log-text  (construct-message :flash msg args))
+    (logger/error-report log-text)
+    (io/format dev log-text [])))
+
+
 (defn+ error (level msg args)
   "Log an error with level <level>, message <msg> (with args <args>) to the error logger."
     (logger/error-report (construct-message level msg args)))
