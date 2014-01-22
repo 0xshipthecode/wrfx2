@@ -155,8 +155,8 @@
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
          {:grib-src-name "nam_218"}
          {:sim-from {{2014 1 10} {0 0 0}}}
-         {:wps-nl "etc/nlists/colorado2k.wps"}
-         {:wrf-nl "etc/nlists/colorado2k.input"}
+         {:wps-nl "etc/nlists/colo_3dom.wps"}
+         {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 24} ])))
 
 
@@ -164,7 +164,7 @@
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
     (jobmaster/submit uuid :wfc-job 
         [{:sim-from from}
-         {:wps-nl "etc/nlists/colorado2k.wps"}
-         {:wrf-nl "etc/nlists/colorado2k.input"}
+         {:wps-nl "etc/nlists/colo_3dom.wps"}
+         {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
 
