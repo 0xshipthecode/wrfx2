@@ -1,0 +1,57 @@
+; Copyright (C) 2013,2014 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+; This module is a library of namelist manipulation functions.
+
+(ns nllib
+  (require nlist plist grib-src-def))
+
+
+
+(defn+ make-geogrid-namelist (wps-dir args nls0)
+  "Fill out entries relevant to geogrid in the namelist <nls> and write the namelist into
+   the wps working directory <wps-dir>.  Retrieve job parameters from <args>"
+  (let* (wps-geog-dir (plist/get :wps-geog-dir args)
+         nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls0))
+    nls1))
+
+
+(defn+ make-ungrib-namelist (cov-from cov-to doms nls0)
+  "Set the start/end times for WPS to <cov-from>/<cov-to> for domains <doms>
+   in the wps namelist <nls>."
+  (let* (nls1 (nlist/set-wps-start-time nls0 cov-from doms)
+         nls2 (nlist/set-wps-end-time nls1 cov-to doms)
+         nls3 (nlist/set-entry "share" "interval_seconds" [3600] nls2))
+    nls3))
+
+
+(defn+ make-wrf-namelist (sim-from sim-to grib-src history-intervals doms nls0)
+  "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
+   the grib source needs."
+  (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from doms)
+         nls2     (nlist/set-wrf-end-time nls1 sim-to doms)
+         nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to doms)
+         grib-upd (grib-src-def/nl-keys grib-src)
+         nls4     (nlist/set-entries grib-upd nls3)
+         nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
+         nls6     (nlist/set-entry "time_control" "history_interval" history-intervals nls5))
+    nls6))
+
+
