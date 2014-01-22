@@ -18,44 +18,14 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns wfc-job
-  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv io
+  (require wrfxlib nlist nllib plist filesys ext-utils ext-job logsrv io
            configsrv wrf-monitor jobmaster ingest-srv grib-src-def
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
   (use joxa-core utils))
 
 
-(defn make-geogrid-namelist (wps-dir args nls0)
-  "Fill out entries relevant to geogrid in the namelist <nls> and write the namelist into
-   the wps working directory <wps-dir>.  Retrieve job parameters from <args>"
-  (let* (wps-geog-dir (plist/get :wps-geog-dir args)
-         nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls0))
-    nls1))
-
-
-(defn make-ungrib-namelist (cov-from cov-to doms nls0)
-  "Set the start/end times for WPS to <cov-from>/<cov-to> for domains <doms>
-   in the wps namelist <nls>."
-  (let* (nls1 (nlist/set-wps-start-time nls0 cov-from doms)
-         nls2 (nlist/set-wps-end-time nls1 cov-to doms)
-         nls3 (nlist/set-entry "share" "interval_seconds" [3600] nls2))
-    nls3))
-
-
-(defn make-wrf-namelist (sim-from sim-to grib-src history-intervals doms nls0)
-  "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
-   the grib source needs."
-  (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from doms)
-         nls2     (nlist/set-wrf-end-time nls1 sim-to doms)
-         nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to doms)
-         grib-upd (grib-src-def/nl-keys grib-src)
-         nls4     (nlist/set-entries grib-upd nls3)
-         nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
-         nls6     (nlist/set-entry "time_control" "history_interval" history-intervals nls5))
-    nls6))
-
-
-(defn monitor-wrf-execution (job-id wdir pid sim-from sim-to mon-pid log-f)
+(defn monitor-wrf-execution (job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f)
   "Parse the error output of the process with rank 0 in the working
    directory <wdir> while the wrf job with pid <pid> completes."
   (receive
@@ -73,20 +43,20 @@
           (log-f :info "wfc-job simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
                  (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
                                  :not-available (jobmaster/getstate job-id))))
-        (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid log-f))
-    ({:proc-started pid comp-start}
+        (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))
+    ({:proc-started ext-mon-pid comp-start}
       (log-f :info "wfc-job WRF computation started on ~w, monitoring" [comp-start])
-      (let* (fname (filename/join wdir "rsl.error.0000")
-             real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start job-id log-f))
-        (monitor-wrf-execution job-id wdir pid sim-from sim-to real-mon-pid log-f)))
-    ({:proc-complete pid result}
-      (case mon-pid
-        (:undefined :ok)
-        (valid-pid (erl/send mon-pid :terminate)))
+      (let* (fname            (filename/join wdir "rsl.error.0000")
+             real-wrf-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start job-id log-f))
+        (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to real-wrf-mon-pid log-f)))
+    ({:proc-complete ext-mon-pid result}
+      (unless (erl/== :undefined wrf-mon-pid) (erl/send wrf-mon-pid :terminate))
       result)
+      ; if a :kill is sent, it will be sent to this process
     (:kill
       (log-f :warn "wfc-job [~p] received kill request." [job-id])
-      (erl/throw :kill))))
+      (erl/send ext-mon-pid :kill)
+      (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))))
 
 
 (defn+ run (args log-f)
@@ -125,7 +95,7 @@
     (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM" []))
 
     ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-    (let* (wps-nl1 (make-geogrid-namelist wps-wdir args wps-nl0)
+    (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
            wps-nl-name (filename/join wps-wdir "namelist.wps"))
       (log-f :info "wfc-job [~p] writing namelist.wps for geogrid" [short-jid])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
@@ -136,7 +106,7 @@
       (jobmaster/updatestate job-id [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfc-job [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
       (let ({cov-from cov-to mfest}  (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
-             wps-nl2                 (make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
         (log-f :info "wfc-job [~p] writing amended namelist.wps for ungrib.exe" [short-jid])))
@@ -157,7 +127,7 @@
       (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
     ; step 6: construct the WRF namelist
-    (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to grib-src hist-ints all-doms wrf-nl0))
+    (let* (wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to grib-src hist-ints all-doms wrf-nl0))
       (log-f :info "wfc-job [~p] writing namelist.input for WRF" [short-jid])
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
@@ -177,7 +147,6 @@
 
     (log-f :info "wfc-job [~p] end of job reached" [short-jid])
     (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])
-    (jobmaster/job-done job-id)
 
     :ok))
 
@@ -194,7 +163,7 @@
          {:sim-from {{2013 9 1} {0 0 0}}}
          {:wps-nl "etc/nlists/colorado2k.wps"}
          {:wrf-nl "etc/nlists/colorado2k.input"}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
+         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
 
 
 (defn+ test (from)

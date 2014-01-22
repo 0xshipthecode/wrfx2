@@ -13,6 +13,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/network.beam \
 		ebin/cycles.beam \
 		ebin/nlist.beam \
+		ebin/nllib.beam \
 		ebin/configsrv.beam \
 		ebin/logsrv.beam \
 		ebin/sysmon.beam \
@@ -32,6 +33,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/wrf-monitor.beam \
 		ebin/nasa-fire-job.beam \
 		ebin/wfc-job.beam \
+		ebin/fdjob.beam \
 		ebin/wrfx2.beam
 
 
