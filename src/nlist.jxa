@@ -179,12 +179,12 @@
                                              {"end_day" day} {"end_hour" h}
                                              {"end_minute" min} {"end_second" s}] doms)))
 
-(defn+ set-wrf-run-time (nls from to doms)
+(defn+ set-wrf-run-time (nls from to)
   "Set the four keys run_days, run_hours, run_minutes, run_seconds in namelist <nls> according
-   to the simulation extent <from> to <to>."
+   to the simulation extent <from> to <to>.  This is always set only for domain 1."
   (let ([days hrs mins secs]   (ta/days-hrs-mins-secs-between from to))
     (set-values-for-doms nls "time_control" [{"run_days" days} {"run_hours" hrs}
-                                             {"run_minutes" mins} {"run_seconds" secs}] doms)))
+                                             {"run_minutes" mins} {"run_seconds" secs}] [1])))
 
 
 (defn+ max-domains (nls)

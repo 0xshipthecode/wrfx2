@@ -47,7 +47,7 @@
    the grib source needs."
   (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from doms)
          nls2     (nlist/set-wrf-end-time nls1 sim-to doms)
-         nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to doms)
+         nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to)
          grib-upd (grib-src-def/nl-keys grib-src)
          nls4     (nlist/set-entries grib-upd nls3)
          nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
