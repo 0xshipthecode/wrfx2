@@ -29,6 +29,10 @@
   "Parse the error output of the process with rank 0 in the working
    directory <wdir> while the wrf job with pid <pid> completes."
   (receive
+    (:cfl-violation-detected
+      (log-f :error "fdjob detected CFL violation, terminating WRF job." [])
+      (erl/send ext-mon-pid :kill)
+      (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))
     ({:wrf-history-written domain-id sim-time}
       (log-f :info "fdjob detected WRF history write at ~w in domain ~p" [sim-time domain-id])
       (log-f :info "fdjob simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
