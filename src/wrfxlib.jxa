@@ -63,8 +63,9 @@
          new-out-file (filename/join in-dir "real.stdout"))
     (log-f :info "running REAL" [])
     (run-process "real" cmd [] in-dir 1800000 log-f 0
-      (fn () (exit-check-string-exists out-file "SUCCESS COMPLETE REAL_EM")))
-    (!!= :ok (filesys/copy out-file new-out-file))
+      (ext-wrappers/make-exit-check-seq-f [
+        (fn () (filesys/copy out-file new-out-file) :passed)  ; fake "exit check", actually just copies a file
+        (fn () (exit-check-string-exists new-out-file "SUCCESS COMPLETE REAL_EM"))]))
     (!!= :ok (filesys/copy err-file (filename/join in-dir "real.stderr"))))
     (log-f :info "real completed succesfully" []))
 

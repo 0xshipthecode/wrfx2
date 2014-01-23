@@ -60,12 +60,15 @@
         (after 250 (monitor-loop dev sim-start sim-end comp-start updates-seen job-id master-pid log-f))
         (:terminate :ok)))
     ({:ok line}
-      (if (lists/prefix "Timing for main" line)
-        (process-timing line dev sim-start sim-end comp-start updates-seen job-id master-pid log-f)
-        (if (lists/prefix "Timing for Writing" line)
-          (process-writing line dev sim-start sim-end comp-start updates-seen job-id master-pid log-f)
-          (monitor-loop dev sim-start sim-end comp-start updates-seen job-id master-pid log-f))))
-     ({:error reason} (log-f :error ["wrf-monitor encountered an error [~p] reading from rsl.error.0000" reason]))))
+      (when (lists/prefix "Timing for main" line)
+        (process-timing line dev sim-start sim-end comp-start updates-seen job-id master-pid log-f))
+      (when (lists/prefix "Timing for Writing" line)
+        (process-writing line dev sim-start sim-end comp-start updates-seen job-id master-pid log-f))
+      (when (erl/> (str/str line "cfl") 0)
+          (erl/send master-pid :cfl-violation-detected))
+      (monitor-loop dev sim-start sim-end comp-start updates-seen job-id master-pid log-f))
+    ({:error reason}
+      (log-f :error ["wrf-monitor encountered an error [~p] reading from rsl.error.0000" reason]))))
 
 
 (defn+ run (fname sim-start sim-end comp-start job-id master-pid log-f)
