@@ -105,7 +105,7 @@
   "Monitor the execution of an external process with id <tid> in directory <in-dir>."
   (try*
     (receive
-      (:kill
+      ({:kill with-reason}
         (case qid
           (:undefined
             (os/cmd (iol/format "kill -9 ~p" [os-pid]))
@@ -113,7 +113,7 @@
           (_
             (os/cmd (iol/format "qdel ~p" [qid]))
             (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid])))
-        :killed)
+        {:killed with-reason})
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
         (let ({exit-code exit-time} (read-exitcode-file exit-code-f))
           (log-f :info "~s: exited with code ~p at ~w" [tid exit-code exit-time])
@@ -142,13 +142,21 @@
 
 
 ; simplest wait-for-completion stub, which just returns result
-;; of the :ext-proc-complete message
+;; of the :proc-complete message
 ;; more sophisticated clients should handle this message themselves
-(defn+ wait-for-completion (pid)
+(defn+ wait-for-completion (monitor-pid)
   "Blocks until a :ext-proc-complete message is obtained from the correct monitoring procedure <pid>."
   (receive
-    ({:proc-started pid _} (wait-for-completion pid))
-    ({:ext-proc-complete pid result} result)))
+    ({:proc-started monitor-pid _}
+      (wait-for-completion pid))
+    ({:proc-simplete monitor-pid {:killed with-reason}}
+      ; throw an exception that will propagate to the jobmaster try/catch block
+      (erl/throw {:killed with-reason}))
+    ({:proc-complete monitor-pid result}
+      result)
+    ({:kill with-reason}
+      ; forward kill to monitoring process
+      (erl/send monitoring-pid {:kill with-reason}))
 
 
 (defmacro+ wrap-run (exec-func)
