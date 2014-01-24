@@ -29,7 +29,7 @@ debug_level                         =	0
 /
 
 &domains
-time_step                           =	10 
+time_step                           =	24 
 time_step_fract_num                 =	0 
 time_step_fract_den                 =	1 
 max_dom                             =	3 
@@ -42,7 +42,7 @@ i_parent_start                      =	1,	47,	90
 j_parent_start                      =	1,	38,	56 
 grid_id                             =	1,	2,	3 
 parent_grid_ratio                   =	1,	3,	3 
-parent_time_step_ratio              =	1,	3,	3 
+parent_time_step_ratio              =	1,	4,	3 
 feedback                            =	0 
 smooth_option                       =	0 
 sr_x                                =	1 

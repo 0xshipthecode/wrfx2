@@ -36,12 +36,12 @@
     ({:error _} :invalid)))
 
 
-(defn+ begin-monitoring (in-dir tid qid pid-timeout exec-timeout log-f)
+(defn+ begin-monitoring (in-dir tid qid pid-timeout-ms exec-timeout-ms log-f)
   "Begin monitoring the execution of the process <tid> in dir <in-dir>."
   (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (let* (pid (start-monitor-process in-dir tid qid exec-timeout log-f))
+    (let* (pid (start-monitor-process in-dir tid qid exec-timeout-ms log-f))
       ;; construct the first watcher that scans for pids
-      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
+      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout-ms 500)})
       {:running pid qid})))
 
 ;
@@ -117,10 +117,10 @@
     (error              -1)))
 
 
-(defn+ run (tid command in-dir num-nodes ppn wall-time-hrs pid-timeout exec-timeout log-f)
+(defn+ run (tid command in-dir num-nodes ppn wall-time-hrs pid-timeout-ms exec-timeout-ms log-f)
   "Execute an external process <command> with id <tid> in directory <in-dir> using a job queuing system.
    The process will use <num-nodes> nodes and up to <wall-time-hrs> hours.  The monitor will wait
-   <pid-timeout> ms for the execution to commence and then <exec-timeout> for the execution to complete.
+   <pid-timeout-ms> ms for the execution to commence and then <exec-timeout-ms> for the execution to complete.
    Progress will be logged with <log-f>."
   (let ([pid-f exit-code-f submit-f] (make-proc-names in-dir tid [".pid" ".exitcode" ".submit"]))
     (case (read-exitcode-file exit-code-f)
@@ -132,19 +132,19 @@
         (log-f :info "~s: no exit code found, will check pid file ~s" [tid pid-f])
         (case (read-pid-file pid-f)
           ({os-pid start-time}
-            (let* (remaining-exec-timeout (- exec-timeout (erl/* (ta/seconds-elapsed-from start-time) 1000)))
-              (let ({qid submit-time}     (read-submit-file submit-f))
+            (let* (remaining-exec-timeout-ms (- exec-timeout-ms (erl/* (ta/seconds-elapsed-from start-time) 1000)))
+              (let ({qid submit-time}        (read-submit-file submit-f))
                 (log-f :info "~s: found pid file with pid ~p, process started on ~w, job id is ~p, waiting for completion another ~p ms"
-                             [tid os-pid start-time qid remaining-exec-timeout])
-              (begin-monitoring in-dir tid qid pid-timeout remaining-exec-timeout log-f))))
+                             [tid os-pid start-time qid remaining-exec-timeout-ms])
+              (begin-monitoring in-dir tid qid pid-timeout-ms remaining-exec-timeout-ms log-f))))
           (:invalid
             (log-f :info "~s: no pid file found, checking for submission file ~p" [tid submit-f])
             (case (read-submit-file submit-f)
               ({qid submit-time}
-                (let* (remaining-pid-timeout (- pid-timeout (erl/* (ta/seconds-elapsed-from submit-time) 1000)))
+                (let* (remaining-pid-timeout-ms (- pid-timeout-ms (erl/* (ta/seconds-elapsed-from submit-time) 1000)))
                   (log-f :info "~s: already submitted on ~w, job id is ~p waiting for job start for another ~p ms"
-                               [tid qid submit-time remaining-pid-timeout])
-                  (begin-monitoring in-dir tid qid remaining-pid-timeout exec-timeout log-f)))
+                               [tid qid submit-time remaining-pid-timeout-ms])
+                  (begin-monitoring in-dir tid qid remaining-pid-timeout-ms exec-timeout-ms log-f)))
               (:invalid
                 (log-f :info "~s: job has not been submitted yet, submitting job now" [tid])
                 (let* (fqn     (make-proc-filename in-dir tid ".sh")
@@ -153,6 +153,6 @@
                   (let* (raw-qid (lists/flatten (os/cmd (lists/flatten ["cd " in-dir " && qsub " tid ".sh"])))
                          qid     (strip-qid raw-qid))
                     (file/write-file submit-f (iol/format "~p~n~p~n" [qid (ta/unix-timestamp)]))
-                    (begin-monitoring in-dir tid qid pid-timeout exec-timeout log-f)))))))))))
+                    (begin-monitoring in-dir tid qid pid-timeout-ms exec-timeout-ms log-f)))))))))))
 
 

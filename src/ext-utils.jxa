@@ -92,7 +92,7 @@
 
 (defn+ cleanup-execution-files (in-dir tid)
   "Removes traces of process execution in the form of the pid file and the exitcode file."
-  (lists/map file/delete/1 (make-proc-names in-dir tid [".pid" ".exitcode"])))
+  (lists/map file/delete/1 (make-proc-names in-dir tid [".pid" ".exitcode" ".submit"])))
 
 
 ;; construct and write the BASH run script which executes the file
@@ -132,14 +132,14 @@
       ({:exit-msg {:failure reason}}
         (os/cmd (iol/format "kill -9 ~p" [os-pid]))
         (log-f :error "~s: failed with reason ~p, process ~p killed" [tid reason os-pid])
-        :failure)
+        {:failure reason})
 
       ;; pid-msg with failure timeout is received if the .pid file does not appear within timeout
       ;; timeout is short for external processes (and should cover things like filesystem reaction time, etc.)
       ;; but may be long if the external process is a job
       ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
         (log-f :error "~s: pid not acquired within timeout" [tid])
-        :failure)
+        {:failure :pid-not-acquired-within-timeout})
 
       ;; when the pid file appears, it is read in and a new wait period starts
       ({:pid-msg {:success pid-file}} ;; the pid file was created

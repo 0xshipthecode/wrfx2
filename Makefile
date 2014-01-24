@@ -29,8 +29,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/ext-job.beam \
 		ebin/ext-wrappers.beam \
 		ebin/filesys.beam \
-		ebin/wrfxlib.beam \
 		ebin/wrf-monitor.beam \
+		ebin/wrfxlib.beam \
 		ebin/nasa-fire-job.beam \
 		ebin/wfc-job.beam \
 		ebin/fdjob.beam \

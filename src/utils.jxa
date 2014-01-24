@@ -140,15 +140,15 @@
   `(erlang/spawn (fn () (erlang/send ~pid ~f))))
 
 
-(defn+ wait-for-file (file-name timeout file-wait-chunk-ms)
-  "Wait for the file <file-name> to appear on the filesystem for <timeout> ms.
+(defn+ wait-for-file (file-name timeout-ms file-wait-chunk-ms)
+  "Wait for the file <file-name> to appear on the filesystem for <timeout-ms> ms.
    The file is checked every <file-wait-chunk-ms> ms."
   (if (filelib/is_regular file-name)
     {:success file-name}
-    (if (erl/> timeout file-wait-chunk-ms)
+    (if (erl/> timeout-ms file-wait-chunk-ms)
       (do
         (timer/sleep file-wait-chunk-ms)
-        (wait-for-file file-name (- timeout file-wait-chunk-ms) file-wait-chunk-ms))
+        (wait-for-file file-name (- timeout-ms file-wait-chunk-ms) file-wait-chunk-ms))
       {:failure :timeout})))
 
 

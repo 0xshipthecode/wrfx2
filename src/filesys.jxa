@@ -5,9 +5,8 @@
              (lists :joxify)
              (string :joxify :as str)
              (erlang :as erl)
-             (joxa-core :as jxc)
              re)
-    (use (utils :only (!!=/2))))
+    (use (utils :only (!!=/2)) joxa-core))
 
 
 (defn+ create-dir (dir)
@@ -23,15 +22,14 @@
 
 (defn+ delete-dir (dname)
   "Delete the directory <dname> along with its contents."
-  (jxc/let ({:ok fnames} (file/list-dir dname))
+  (let ({:ok fnames} (file/list-dir dname))
     (lists/foreach (fn (x) (!!= :ok (delete x))) fnames)
     (!!= :ok (file/del-dir dname))))
 
 
 (defn+ file-type (fname)
-  "Returns the file type of <fname> from the read-link-info function.
-   NOTE: returns third element (record is not imported into joxa automatically."
-  (jxc/let ({:ok fi} (file/read-link-info fname))
+  "Returns the file type of <fname> from the read-link-info function."
+  (let ({:ok fi} (file/read-link-info fname))
     (file_info/type fi)))
 
 
@@ -55,8 +53,8 @@
 
 (defn+ list-dir-regexp (dir regexp)
   "List contents of directory <dir> that match regexp <regexp>."
-  (jxc/let ({:ok mp} (re/compile regexp)
-            {:ok fnames} (file/list-dir dir))
+  (let ({:ok mp} (re/compile regexp)
+        {:ok fnames} (file/list-dir dir))
     (lists/filter (fn (x) (case (re/run x mp) ({:match _} :true) (:nomatch :false))) fnames))) 
 
 
@@ -95,4 +93,12 @@
   "Copy the name <src> to <dst>."
   (!!= {:ok _} (file/copy src dst))
   :ok)
+
+
+(defn+ copy-unless-dst (src dst)
+  "Performs a copy from <src> to <dst> if <src> exists and <dst> does not exist."
+  (when (erl/and (erl/not (filelib/is-file dst)) (filelib/is-file src))
+    (!!= {:ok _} (file/copy src dst)))
+  :ok)
+
 

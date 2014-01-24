@@ -106,8 +106,8 @@
     (wrfxlib/run-real wrf-wdir log-f)
 
     ; step 8: asynchronously run the acquisition of the fuel moisture measurements
-    (let* (raws-max-time (timelib/round-hours (timelib/shift-by-hours (timelib/universal-time) -1) :down))
-      (async-send-me {:raws-ingest-done (ingest-srv/retrieve-raws-obs raws-src-name station-list sim-from raws-max-time 800)}))
+;    (let* (raws-max-time (timelib/round-hours (timelib/shift-by-hours (timelib/universal-time) -1) :down))
+;      (async-send-me {:raws-ingest-done (ingest-srv/retrieve-raws-obs raws-src-name station-list sim-from raws-max-time 800)}))
 
     ; step 9: run WRF
     (log-f :info "fdjob [~p] running WRF" [short-jid])
@@ -124,19 +124,19 @@
               (log-f :error "fdjob detected CFL violation, terminating WRF job." [])
               (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
 
-      (wrfxlib/execute-wrf job-id wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to
-                    600 wrf-history-hook cfl-violation-hook log-f))
+      (wrfxlib/run-wrf job-id wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to
+                    300 wrf-history-hook cfl-violation-hook log-f))
 
     ; step 10: wait for RAWS retrieval completion
-    (receive
-      ({:raws-ingest-done data}
-        (log-f :info "RAWS retrieval result is ~p" [data]))
-      ({:kill with-reason}
-        (erl/throw {:killed with-reason})))
+;    (receive
+;      ({:raws-ingest-done data}
+;        :ok)
+;      ({:kill with-reason}
+;        (erl/throw {:killed with-reason})))
 
     ; step 11: write all info and obs files into the directory
     (!!= :ok (filesys/create-dir fmda-wdir))
-    (!!= :ok (filesys/create-dir (file/join fmda-wdir "data")))
+    (!!= :ok (filesys/create-dir (filename/join fmda-wdir "data")))
 
     ; step 12: run external fuel moisture code
 

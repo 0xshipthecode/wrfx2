@@ -44,44 +44,43 @@
         ~exit-code))))
 
 
-(defn+ run-process (tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f)
+(defn+ run-process (tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f tries-left)
   "Wraps the running of a process (not a queued job).
   Strategy: try to run the process, if it's already done, check exit code, if we like it, we're done.
   If we don't like the code, cleanup the associated file records (.pid and .exitcode) and retry.
-  If not previously run, run the code and check for success."
-  (case (ext-proc/run tid cmd out-spec in-dir timeout log-f)
-    ({:running pid}
-      (case (ext-utils/wait-for-completion pid)
-        ({:success required-exit-code}
-          (case (exit-check-f)
-            (:passed
-              required-exit-code)
-            (not-passed
-              (erl/throw {tid :exit-check-failed not-passed}))))
-        ({:success other-exit-code}
-          (ext-utils/cleanup-execution-files in-dir tid)
-          (erl/throw {tid :wrong-exit-code other-exit-code}))
-        ({:killed with-reason}
-          ; cleanup the execution files (since we cannot trust the results anymore)
-          (ext-utils/cleanup-execution-files in-dir tid)
-          (erl/throw {:killed with-reason}))))
+  If not previously run, run the code and check for success.  <tries-left> must be a number greater than
+  or equal to 1."
+  (let ({adj-tries-left proc-result}
+          (case (ext-proc/run tid cmd out-spec in-dir timeout log-f)
+            ({:running pid}
+              {(decr tries-left) (ext-utils/wait-for-completion pid)})
+            (already-finished
+              {tries-left already-finished}))
 
-    ;; whenever the run method tells us this task has been run previously, we retry if the exit-check failes
-    ;; of if the exit code is not what we want
-    ({:success exit-code}
-      (case exit-code
-        (required-exit-code
-          ; exit code matches, check exit code
-          (case (exit-check-f)
-            (:passed
-              required-exit-code)
-            (not-passed
-              (ext-utils/cleanup-execution-files in-dir tid)
-              (run-process tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f))))
-        ; the exit code is wrong
-        (other-exit-code
-          (ext-utils/cleanup-execution-files in-dir tid)
-          (run-process tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f))))))
+         apply-retry-policy
+          ; yes, tries-left should shadow tries-left passed to run-process
+          (fn (tries-left failure-mode-f)
+            (case tries-left
+              (0
+                (failure-mode-f))
+              (more-than-zero
+                (ext-utils/cleanup-execution-files in-dir tid)
+                (run-process tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f (decr tries-left))))))
+
+    (case proc-result
+      ({:success required-exit-code}
+        (case (exit-check-f)
+          (:passed
+            required-exit-code)
+          (not-passed
+            (log-f :warn "run-process exit check failed for tid ~p with info ~p" [tid not-passed])
+            (apply-retry-policy adj-tries-left (fn () (erl/throw {tid :exit-check-failed not-passed}))))))
+        ({:success other-exit-code}
+            (apply-retry-policy adj-tries-left (fn () (erl/throw {tid :wrong-exit-code other-exit-code}))))
+        ({:killed with-reason}
+            ; cleanup the execution files (since we cannot trust the results anymore)
+            (ext-utils/cleanup-execution-files in-dir tid)
+            (erl/throw {:killed with-reason})))))
 
 
 (defn+ make-exit-check-seq-f (exit-check-fs)
@@ -89,7 +88,7 @@
    or the token :passed.  Each exit-check-f must either return :passed to indicate success or something
    else to indicate falure."
   (fn ()
-    (lists/foldl (fn (x a) (case a (:passed (x)) (not-passed not-passed))) :passed exit-check-fs)))
+    (lists/foldl (fn (next-exit-check-f a) (case a (:passed (next-exit-check-f)) (not-passed not-passed))) :passed exit-check-fs)))
 
 
 (defn+ exit-check-string-exists (fname msg)
