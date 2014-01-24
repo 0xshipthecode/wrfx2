@@ -51,7 +51,7 @@
                {:name (str/join (lists/reverse name-lst) " ")}
                {:elevation height}])))
 
-    
+
 (defn parse-params (p-line)
   "Parses the line PARM = A,B,C,D and returns [A B C D]."
   (let* (tokens (lists/map (fn (x) (str/strip x)) (str/tokens p-line "=")))
@@ -152,18 +152,18 @@
 
 
 (defn+ retrieve-station-obs (station-code from to raws-src log-f)
-  (let* (hr-list     (ta/list-hours from to)
-         missing-hrs (lists/filter (fn (x) (erl/not (entry-exists? {x station-code}))) hr-list))
-    (try*
+  (log-f :info "mwest-retr: retrieving observations for station ~s" [station-code])
+  (try*
+    (let* (hr-list     (ta/list-hours from to)
+           missing-hrs (lists/filter (fn (x) (erl/not (entry-exists? {x station-code}))) hr-list))
+      (retrieve-missing-obs station-code (lists/reverse missing-hrs) raws-src log-f)
+      {(get-station-info station-code) (lists/map (fn (x) (get-entry {x station-code})) hr-list)})
+    (catch (type body)
       (do
-        (retrieve-missing-obs station-code (lists/reverse missing-hrs) raws-src log-f)
-        {(get-station-info station-code) (lists/map (fn (x) (get-entry {x station-code})) hr-list)})
-      (catch (type body) 
-        (do
-          (log-f :flash "mwest-retr: error of type ~p (body ~p) encountered during retrieval of observations for station ~p" [type body station-code]) 
-          (log-f :error "mwest-retr: stack trace is ~p" [(erl/get-stacktrace)])
-          :error))))) 
-    
+        (log-f :flash "mwest-retr: error of type ~p (body ~p) encountered during retrieval of observations for station ~p" [type body station-code]) 
+        (log-f :error "mwest-retr: stack trace is ~p" [(erl/get-stacktrace)])
+        :error))))
+
 
 (defn+ retrieve-stations-obs (station-list from to raws-src log-f)
   "Retrieve observations for variables <var-list> from <from> to <to> for stations with codes <station-list>."

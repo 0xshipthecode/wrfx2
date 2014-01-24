@@ -29,10 +29,10 @@
   (jxc/let ([src log-f] state)
     (case request
 	    ({:retrieve-obs station-list from-time to-time}
-	    ; RAWS observations retrieved here
+	      ; RAWS observations retrieved here
 	      {:reply (mwest-retr/retrieve-stations-obs station-list from-time to-time src log-f) state})
 	  (:stop-raws-srv 
-	    ; here a termination must be started
+	    ; here a termination must be initiated
 	    {:stop :normal :ok state})
 	  (other 
 	    (log-f :flash ["mwest-srv: message ~p not understood, fix it!" other])
