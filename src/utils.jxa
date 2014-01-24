@@ -69,13 +69,15 @@
 (defn+ ensure-table-exists (tuple-fields index-fields)
   "Ensure that a table either exists or is created with fields <tuple-fields>
    and indices for <index-fields>.  The table name is (jxl/hd tuple-fields)."
-  (if (lists/member (jxl/hd tuple-fields) (mnesia/system-info :tables))
-    :ok
-    (utils/critical-check {:atomic :ok}
-                          (mnesia/create-table (jxl/hd tuple-fields)
-                                               [{:attributes (jxl/tl tuple-fields)}
-                                               {:index index-fields}
-                                               {:disc_copies [(erl/node)]}]))))
+  (let* (table-name (jxl/hd tuple-fields)
+         attrs      (jxl/tl tuple-fields))
+    (if (lists/member table-name (mnesia/system-info :tables))
+      :ok
+      (utils/critical-check {:atomic :ok}
+                            (mnesia/create-table table-name
+                                                 [{:attributes attrs}
+                                                  {:index index-fields}
+                                                  {:disc_copies [(erl/node)]}])))))
 
 
 ;; define a macro that matches an arbitrary structure to

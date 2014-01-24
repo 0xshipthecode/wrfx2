@@ -102,6 +102,10 @@
   "Retrieve the local time from calendar - convenience function."
   (cal/local-time))
 
+(defn+ universal-time ()
+  "Retrieve the current UTC (approx. GMT) - convenience function."
+  (cal/universal-time))
+
 
 (defn+ list-hours (from to)
   "List timestamps starting with <from> and incrementing by 1 hour,
