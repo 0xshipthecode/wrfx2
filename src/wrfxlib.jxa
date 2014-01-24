@@ -1,5 +1,5 @@
 (ns wrfxlib
-  (require filesys filename ext-proc ext-job ext-utils ext-wrappers plist
+  (require filesys filename ext-proc ext-job ext-utils ext-wrappers plist wrf-monitor
            (erlang :as erl :joxify))
   (use joxa-core utils ext-wrappers))
 
@@ -88,4 +88,61 @@
    temporally."
   (lists/foldl (fn (x acc) (filesys/symlink-unless-exists x (filename/join dir (erl/++ "GRIBFILE." acc)))
                            (next-grib-suffix acc)) "AAA" mfest))
+
+
+(defn monitor-wrf-execution (uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f)
+  "Parse the error output of the process with rank 0 in the working
+   directory <wdir> while the wrf job with pid <pid> completes."
+  (receive
+    (:cfl-violation-detected
+      (cfl-violation-hook ext-mon-pid)
+      (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f))
+    ({:wrf-history-written domain-id sim-time}
+      (wrf-history-hook domain-id sim-time)
+      (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f))
+    ({:proc-started ext-mon-pid comp-start}
+      (log-f :info "[~p] WRF computation started on ~w, monitoring" [uuid comp-start])
+      (let* (fname            (filename/join wdir "rsl.error.0000")
+             real-wrf-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start uuid log-f))
+        (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to real-wrf-mon-pid wrf-history-hook cfl-violation-hook log-f)))
+    ({:proc-complete ext-mon-pid result}
+      (unless (erl/== :undefined wrf-mon-pid)
+        (erl/send wrf-mon-pid :terminate))
+      result)
+      ; if a :kill is sent, it will be sent to this process
+    ({:kill with-reason}
+      (log-f :warn "[~p] received kill request with reason ~p." [uuid with-reason])
+      (erl/send ext-mon-pid {:kill with-reason})
+      (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f))))
+
+
+(defn+ execute-wrf (uuid wdir num-nodes ppn wall-time-hrs sim-from sim-to pid-timeout-s wrf-history-hook cfl-violation-hook log-f)
+  "Run WRF for job <uuid> in working directory <wdir> on <num-nodes> nodes with <ppn> processors each.
+   Wait at most <pid-timeout-s> secods for the job to start (for a PID to be obtained).
+   <sim-from> and <sim-to> are the simulation start/end time, passed to the wrf-monitor so that progress
+   and completion time can be estimated.
+   Use the hooks <wrf-history-hook> and <cfl-violation-hook> to handle new data in wrfout and the
+   detection of a CFL violation."
+  (let* (wrf-cmd (filename/join wdir "wrf.exe")
+         pid-timeout-ms (erl/* pid-timeout-s 1000)
+         job-timeout-ms (erl/* (erl/+ wall-time-hrs 0.1) 3600)
+         wrf-result (case (ext-job/run "wrf" wrf-cmd wdir num-nodes ppn wall-time-hrs pid-timeout-ms job-timeout-ms log-f)
+                      ({:running ext-mon-pid qid}
+                        (log-f :info "[~p] WRF is queued with id ~p" [uuid qid])
+                        (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to :undefined wrf-history-hook cfl-violation-hook log-f))
+                      (already-done
+                        already-done)))
+    (case wrf-result
+      ({:success 0}
+        (log-f :info "[~p] WRF succesfully completed." [uuid])
+        :ok)
+      ({:success other-exit-code}
+        (log-f :info "[~p] WRF task failed with exit code ~p" [uuid other-exit-code])
+        (erl/throw {:failed :wrf-exit-code other-exit-code}))
+      ({:killed with-reason}
+        (log-f :info "[~p] WRF task has been killed with reason ~p" [uuid with-reason])
+        (erl/throw {:killed with-reason})))))
+
+
+
 

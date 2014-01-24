@@ -25,35 +25,6 @@
   (use joxa-core utils))
 
 
-(defn monitor-wrf-execution (job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f)
-  "Parse the error output of the process with rank 0 in the working
-   directory <wdir> while the wrf job with pid <pid> completes."
-  (receive
-    (:cfl-violation-detected
-      (log-f :error "fdjob detected CFL violation, terminating WRF job." [])
-      (erl/send ext-mon-pid {:kill :cfl-violation-detected})
-      (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))
-    ({:wrf-history-written domain-id sim-time}
-      (log-f :info "fdjob detected WRF history write at ~w in domain ~p" [sim-time domain-id])
-      (log-f :info "fdjob simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
-             (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
-                              :not-available (jobmaster/getstate job-id)))
-        (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))
-    ({:proc-started ext-mon-pid comp-start}
-      (log-f :info "fdjob WRF computation started on ~w, monitoring" [comp-start])
-      (let* (fname            (filename/join wdir "rsl.error.0000")
-             real-wrf-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start job-id log-f))
-        (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to real-wrf-mon-pid log-f)))
-    ({:proc-complete ext-mon-pid result}
-      (unless (erl/== :undefined wrf-mon-pid) (erl/send wrf-mon-pid :terminate))
-      result)
-      ; if a :kill is sent, it will be sent to this process
-    ({:kill with-reason}
-      (log-f :warn "fdjob [~p] received kill request with reason ~p." [job-id with-reason])
-      (erl/send ext-mon-pid {:kill with-reason})
-      (monitor-wrf-execution job-id wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))))
-
-
 (defn+ run (args log-f)
   "Execute the fire danger job with the given arguments:
    sim-from: simulate from
@@ -87,7 +58,7 @@
          wrf-nl0        (nlist/parse (plist/get :wrf-nl args) :weather-sim-wrf)
          all-doms       (nlist/all-domains wps-nl0))
 
-    (log-f :info "wfc-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
+    (log-f :info "fdjob [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
 
     ; create the working directory for WPS
     (!!= :ok (filesys/create-dir work-dir))
@@ -141,30 +112,35 @@
     ; step 9: run WRF
     (log-f :info "fdjob [~p] running WRF" [short-jid])
     (jobmaster/updatestate job-id [{:stage "WRF (6/6)"}])
-    (let* (wrf-result
-      (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 (erl/* (+ fc-hrs 0.1) 3600000) log-f)
-        ({:running ext-mon-pid qid}
-          (log-f :info "fdjob [~p] WRF is queued with id ~p" [short-jid qid])
-          (monitor-wrf-execution job-id wrf-wdir ext-mon-pid sim-from sim-to :undefined log-f))
-        (final-result
-          final-result)))
-      (case wrf-result
-        ({:success 0}
-          (log-f :info "fdjob [~p] WRF task is already completed." [short-jid]))
-        ({:success other-exit-code}
-          (log-f :info "fdjob [~p] WRF task failed with exit code ~p" [short-jid other-exit-code])
-          (erl/throw {:failed :wrf-exit-code other-exit-code}))
-        ({:killed with-reason}
-          (log-f :info "fdjob [~p] WRF task has been killed with reason ~p" [short-jid with-reason])
-          (erl/throw {:killed with-reason}))))
+    (let* (wrf-history-hook
+            (fn (domain-id sim-time)
+              (log-f :info "fdjob detected WRF history write at ~w in domain ~p" [sim-time domain-id])
+              (when (erl/== domain-id 1)
+                (log-f :info "fdjob simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
+                             (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
+                                              :not-available (jobmaster/getstate job-id)))))
+           cfl-violation-hook
+            (fn (ext-mon-pid)
+              (log-f :error "fdjob detected CFL violation, terminating WRF job." [])
+              (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
+
+      (wrfxlib/execute-wrf job-id wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to
+                    600 wrf-history-hook cfl-violation-hook log-f))
 
     ; step 10: wait for RAWS retrieval completion
     (receive
       ({:raws-ingest-done data}
-        (log-f :info "RAWS retrieval result is ~p" [data])))
+        (log-f :info "RAWS retrieval result is ~p" [data]))
+      ({:kill with-reason}
+        (erl/throw {:killed with-reason})))
 
-    ; step 11: run external fuel moisture code
+    ; step 11: write all info and obs files into the directory
     (!!= :ok (filesys/create-dir fmda-wdir))
+    (!!= :ok (filesys/create-dir (file/join fmda-wdir "data")))
+
+    ; step 12: run external fuel moisture code
+
+    ; step 13: store all results somewhere
 
     (log-f :info "fdjob [~p] end of job reached successfully" [short-jid])
     (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])

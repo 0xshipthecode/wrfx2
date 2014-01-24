@@ -162,21 +162,22 @@
       ({:error err-info err-loc} {:scan-error err-info err-loc})))
 
 
-(defn pmap (func workers max-workers lst res-list)
+(defn pmap (func workers max-workers tasks res-list)
+  "An implementation of a parallel map that does not preserve the order
+   of queries.  Applies <func> to each task in <tasks> and accumulates results
+   in <res-list>.  At most <max-workers> are used to apply the functions."
   (let* (me (erl/self)
-         wait-for-result (fn (func workers max-workers lst res-list)
+         wait-for-result (fn (func workers max-workers tasks res-list)
                             (receive
                               ({:done pid res} (pmap func (lists/delete pid workers) max-workers
-                                               lst (res . res-list))))))
-  (case lst
-    ([] (case workers
-          ([] res-list)
-          (_notempty (wait-for-result func workers max-workers [] res-list))))
-    ((task . rest)
-        (if (erl/< (erl/length workers) max-workers)
-          (let* (pid (erl/spawn (fn () (erl/send me {:done (erl/self) (func task)}))))
-            (pmap func (pid . workers) max-workers rest res-list))
-          (wait-for-result func workers max-workers lst res-list))))))
+                                               tasks (res . res-list))))))
+    (case tasks
+      ([]
+        (if (empty? workers) res-list (wait-for-result func workers max-workers [] res-list)))
+      ((task . rest)
+          (if (erl/< (erl/length workers) max-workers)
+            (pmap func ((async-send-me {:done (erl/self) (func task)}) . workers) max-workers rest res-list)
+            (wait-for-result func workers max-workers tasks res-list))))))
 
 
 (defn+ pmap (func max-workers tasks)
