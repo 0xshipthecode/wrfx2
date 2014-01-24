@@ -78,8 +78,10 @@
 
 
 (defn+ kill (uuid)
-  "Kill the job <uuid> if it still running.  Job is not removed from the jobmaster lists."
-  (gen_server/call {:global :jobmaster} {:kill-job uuid}))
+  "Kill the job <uuid> if it still running.
+  The reason is specified as :by-request.
+  Job is not removed from the jobmaster lists."
+  (gen_server/call {:global :jobmaster} {:kill-job uuid :by-request}))
 
 
 ;; gen_server callbacks
@@ -97,14 +99,20 @@
       (try*
         (erl/apply mod :run [args (logsrv/make-log-f uuid)])
       (catch (type body)
-        (case type
-          (:killed
-            (logsrv/msg "system" :warn "job [~p] killed on request.~n" [uuid]))
+        (case body
+          ({:killed :by-request}
+            (logsrv/msg "system" :info "job [~p] was killed by request." [uuid])
+            (jobmaster/updatestate uuid [{:stage "KILLED"} {:reason "killed by request"}]))
+          ({:killed with-reason}
+            (logsrv/msg "system" :error "job [~p] was killed with reason ~p.~n" [uuid with-reason])
+            (jobmaster/updatestate uuid [{:stage "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))}]))
           (_
-            (jobmaster/updatestate uuid [{:stage "FAILED"} {:reason (iol/format "crashed with exception ~p" [type])}])
+            (jobmaster/updatestate uuid [{:stage "FAILED"} {:reason (lists/flatten (iol/format "crashed with exception type ~p body ~p" [type body]))}])
             (logsrv/msg "system" :error "job [~p] crashed (exception: type ~p body ~p)~nstacktrace ~p~n"
                         [uuid type body (erl/get-stacktrace)])))))
+      ; whatever happens, the log gets closed
       (logsrv/close-log uuid)
+      ; notify the server process that the job is done (and is to be removed from the set of live jobs
       (job-done uuid)))))
 
 
@@ -176,11 +184,11 @@
       (:live-jobs
         {:reply live-jobs state})
       ; kill the job uuid
-      ({:kill-job uuid}
+      ({:kill-job uuid with-reason}
         (let ([{uuid jpid jstate}] (ets/lookup job-table uuid))
           (ets/update-element job-table uuid {3 (plist/set :stage "KILLED" jstate)})
-          (log-f :info "jobmaster: killing job ~p by request." [uuid])
-          (erl/send jpid :kill)
+          (log-f :info "jobmaster: killing job ~p with reason ~p." [uuid with-reason])
+          (erl/send jpid {:kill with-reason})
           {:reply :ok state}))
       ; message not understood
       (other
