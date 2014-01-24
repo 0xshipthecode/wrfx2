@@ -111,7 +111,7 @@
   (try*
     (receive
       ;; a kill command comes from an external source and indicates we need to stop the process now
-      (:kill
+      ({:kill with-reason}
         (case qid
           (:undefined
             (os/cmd (iol/format "kill -9 ~p" [os-pid]))
@@ -120,7 +120,7 @@
             (os/cmd (iol/format "qdel ~p" [qid]))
             (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid])))
         (cleanup-execution-files in-dir tid)
-        :killed)
+        {:killed with-reason})
 
       ;; exit-msg is received when a process exists (message source is in this function)
       ({:exit-msg {:success exit-code-f}} ;; the process exited, capture status
@@ -175,12 +175,15 @@
 ;; must handle these messages:
 ;;  :proc-started
 ;;  :proc-complete
-;;  :kill (from jobmaster)
-;;  :killed (notification that process is done)
-(defn+ wait-for-completion (pid)
+;;  {:kill with-reason} (from jobmaster)
+(defn+ wait-for-completion (monitor-pid)
   "Blocks until a :proc-complete message is obtained from the correct monitoring procedure <pid>."
   (receive
-    ({:proc-started pid _} (wait-for-completion pid))
-    ({:proc-complete pid result} result)
-    (:kill (erl/send pid :kill) (wait-for-completion pid))))  ;kill arrives from jobmaster, not from executing process
+    ({:proc-started monitor-pid _}
+      (wait-for-completion monitor-pid))
+    ({:proc-complete monitor-pid result}
+      result)
+    ({:kill with-reason}   ;kill arrives from jobmaster (or from another monitoring process)
+      (erl/send monitor-pid {:kill with-reason})
+      (wait-for-completion monitor-pid))))
 

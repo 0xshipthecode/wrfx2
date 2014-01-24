@@ -61,9 +61,10 @@
         ({:success other-exit-code}
           (ext-utils/cleanup-execution-files in-dir tid)
           (erl/throw {tid :wrong-exit-code other-exit-code}))
-        (:killed
+        ({:killed with-reason}
+          ; cleanup the execution files (since we cannot trust the results anymore)
           (ext-utils/cleanup-execution-files in-dir tid)
-          (erl/throw {:killed}))))
+          (erl/throw {:killed with-reason}))))
 
     ;; whenever the run method tells us this task has been run previously, we retry if the exit-check failes
     ;; of if the exit code is not what we want
