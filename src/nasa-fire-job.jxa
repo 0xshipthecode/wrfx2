@@ -11,7 +11,7 @@
   (lists/foldl (fn (x nls) (x nls)) nls0
     [ (fn (nls) (nlist/set-wrf-start-time nls sim-from [1 2]))
       (fn (nls) (nlist/set-wrf-end-time nls sim-to [1 2]))
-      (fn (nls) (nlist/set-wrf-run-time nls sim-from sim-to [1]))
+      (fn (nls) (nlist/set-wrf-run-time nls sim-from sim-to))
       (fn (nls) (nlist/set-entry "time_control" "history_interval" [30 15] nls))
       (fn (nls) (nlist/set-ignitions nls ign-specs 2)) ]))
 

@@ -101,6 +101,20 @@
   (file/change_mode target-file 448)) ;; 448_10 = 700 in octal
 
 
+
+(defn process-kill (tid os-pid qid log-f)
+  "Properly kills off the process whether it is a job with a queue id <qid>,
+   or a regular OS process with pid <os-pid> - note that <os-pid> is not an erlang
+   but an operating system pid."
+  (case qid
+    (:undefined
+      (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+      (log-f :warn "~s: monitor-process received kill command, OS process with pid ~p terminated" [tid os-pid]))
+    (_
+      (os/cmd (iol/format "qdel ~p" [qid]))
+      (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid]))))
+
+
 ;; monitors process execution
 ;; the monitoring routine effectively represents a state machine which waits for
 ;; messages from external helper processes.
@@ -112,13 +126,7 @@
     (receive
       ;; a kill command comes from an external source and indicates we need to stop the process now
       ({:kill with-reason}
-        (case qid
-          (:undefined
-            (os/cmd (iol/format "kill -9 ~p" [os-pid]))
-            (log-f :warn "~s: monitor-process received kill command, OS process with pid ~p terminated" [tid os-pid]))
-          (_
-            (os/cmd (iol/format "qdel ~p" [qid]))
-            (log-f :warn "~s: monitor-process received kill command for scheduled job ~p, called qdel" [tid qid])))
+        (process-kill tid os-pid qid log-f)
         (cleanup-execution-files in-dir tid)
         {:killed with-reason})
 
@@ -139,6 +147,8 @@
       ;; but may be long if the external process is a job
       ({:pid-msg {:failure :timeout}} ; pid was not acquired in time limit
         (log-f :error "~s: pid not acquired within timeout" [tid])
+        (process-kill tid os-pid qid log-f)
+        (cleanup-execution-files in-dir tid)
         {:failure :pid-not-acquired-within-timeout})
 
       ;; when the pid file appears, it is read in and a new wait period starts

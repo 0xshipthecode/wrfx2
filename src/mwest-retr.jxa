@@ -128,8 +128,11 @@
 
 
 (defn+ get-entry (key)
-  (let ({:mwestraws key obs-time obss} (jxl/hd (mnesia/dirty-read :mwestraws key)))
-    {obs-time obss}))
+  (case (mnesia/dirty-read :mwestraws key)
+    ([{:mwestraws key obs-time obss}]
+      {obs-time obss})
+    ([]
+      {})))
 
 
 (defn+ get-station-info (station-code)
@@ -140,15 +143,20 @@
 (defn retrieve-missing-obs (station-code missing-hrs raws-src log-f)
   "Retrieves missing observations in 24-hr chunks from the mesowest server
    for station <station-code> to cover missing hours <missing-hrs>."
-  (let* (write-entry (fn (scode ts obs) (mnesia/write {:mwestraws {(ta/round-hours ts :down) station-code} ts obs}))) 
+  (let* (write-entry (fn (scode ts obs) (mnesia/write {:mwestraws {(ta/round-hours ts :down) station-code} ts obs})))
     (case missing-hrs
       ([] :ok)
       ((missing . _rest)
         (let ({st-info st-obs} (download-station-obs station-code (ta/shift-by-hours missing 1) 24 raws-src log-f))
-          (mnesia/transaction (fn () (mnesia/write {:mwestraws station-code :info st-info})) [] 3)
-          (mnesia/transaction (fn () (lists/map (utils/fnm1 {ts obs} (write-entry station-code ts obs)) st-obs)) [] 3)
-          (let* (new-missing (erl/-- missing-hrs (lists/map (utils/fnm1 {dt _} (ta/round-hours dt :down)) st-obs)))
-            (retrieve-missing-obs station-code new-missing raws-src log-f)))))))
+          (case st-obs
+            ([]  ; if no data is available, we make no progress and must terminate the search
+              :ok)
+            (non-empty
+              (mnesia/transaction (fn () (mnesia/write {:mwestraws station-code :info st-info})) [] 3)
+              (mnesia/transaction (fn () (lists/map (utils/fnm1 {ts obs} (write-entry station-code ts obs)) st-obs)) [] 3)
+              (let* (retr-hrs (lists/map (utils/fnm1 {dt _} (ta/round-hours dt :down)) st-obs)
+                     new-missing (erl/-- missing-hrs retr-hrs))
+                     (retrieve-missing-obs station-code new-missing raws-src log-f)))))))))
 
 
 (defn+ retrieve-station-obs (station-code from to raws-src log-f)
@@ -157,7 +165,8 @@
     (let* (hr-list     (ta/list-hours from to)
            missing-hrs (lists/filter (fn (x) (erl/not (entry-exists? {x station-code}))) hr-list))
       (retrieve-missing-obs station-code (lists/reverse missing-hrs) raws-src log-f)
-      {(get-station-info station-code) (lists/map (fn (x) (get-entry {x station-code})) hr-list)})
+      {(get-station-info station-code) (lists/filter (fn (x) (case x ({} :false) (not-empty :true)))
+                                            (lists/map (fn (x) (get-entry {x station-code})) hr-list))})
     (catch (type body)
       (do
         (log-f :flash "mwest-retr: error of type ~p (body ~p) encountered during retrieval of observations for station ~p" [type body station-code]) 

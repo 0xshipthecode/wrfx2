@@ -33,7 +33,8 @@
     (log-f :info "running GEOGRID" [])
     (run-process "geogrid" cmd out-spec in-dir 1200000 log-f 0
       (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of geogrid.")) 1)
-    (log-f :info "geogrid completed successfully" [])))
+    (log-f :info "geogrid completed successfully" [])
+    {:success 0}))
 
 
 (defn+ run-ungrib (in-dir log-f)
