@@ -19,8 +19,8 @@
 
 
 (ns jobmaster
-  (require utils plist logsrv
-           lists (string :as str) gen_server filename (file :joxify)
+  (require utils plist logsrv filesys filename configsrv
+           lists (string :as str) gen_server (file :joxify)
            (dict :joxify) (ets :joxify) (erlang :as erl :joxify) (io_lib :as iol) os)
   (use joxa-core utils))
 
@@ -97,17 +97,20 @@
   (let* (uuid (plist/get :job-id args))
     (erl/spawn (fn ()
       (try*
-        (erl/apply mod :run [args (logsrv/make-log-f uuid)])
+        (let* (work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid))
+          (!!= :ok (filesys/create-dir work-dir))
+          (erl/apply mod :run [(plist/set :work-dir work-dir args) (logsrv/make-log-f uuid)])
+          (jobmaster/updatestate uuid [{:result "SUCCESS"}]))
       (catch (type body)
         (case body
           ({:killed :by-request}
             (logsrv/msg "system" :info "job [~p] was killed by request." [uuid])
-            (jobmaster/updatestate uuid [{:stage "KILLED"} {:reason "killed by request"}]))
+            (jobmaster/updatestate uuid [{:result "KILLED"} {:reason "killed by request"}]))
           ({:killed with-reason}
             (logsrv/msg "system" :error "job [~p] was killed with reason ~p.~n" [uuid with-reason])
-            (jobmaster/updatestate uuid [{:stage "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))}]))
+            (jobmaster/updatestate uuid [{:result "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))}]))
           (_
-            (jobmaster/updatestate uuid [{:stage "FAILED"} {:reason (lists/flatten (iol/format "crashed with exception type ~p body ~p" [type body]))}])
+            (jobmaster/updatestate uuid [{:result "FAILED"} {:reason (lists/flatten (iol/format "crashed with exception type ~p body ~p" [type body]))}])
             (logsrv/msg "system" :error "job [~p] crashed (exception: type ~p body ~p)~nstacktrace ~p~n"
                         [uuid type body (erl/get-stacktrace)])))))
       ; whatever happens, the log gets closed

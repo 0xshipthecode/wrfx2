@@ -1,5 +1,5 @@
 (ns wrfxlib
-  (require filesys filename ext-proc ext-job ext-utils ext-wrappers plist wrf-monitor
+  (require filesys filename ext-job ext-utils ext-wrappers plist wrf-monitor
            (erlang :as erl :joxify)
            (filelib :joxify))
   (use joxa-core utils ext-wrappers))

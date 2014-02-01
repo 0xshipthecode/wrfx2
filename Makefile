@@ -17,12 +17,10 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/configsrv.beam \
 		ebin/logsrv.beam \
 		ebin/sysmon.beam \
-		ebin/grib-retr.beam \
 		ebin/grib-srv.beam \
 		ebin/static-grib-srv.beam \
-		ebin/mwest-retr.beam \
-		ebin/mwest-srv.beam \
-		ebin/ingest-srv.beam \
+		ebin/grib-ingest.beam \
+		ebin/raws-ingest.beam \
 		ebin/jobmaster.beam \
 		ebin/ext-utils.beam \
 		ebin/ext-proc.beam \

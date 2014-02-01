@@ -1,6 +1,6 @@
 (ns nasa-fire-job
   (require wrfxlib nlist plist filesys ext-utils ext-job logsrv configsrv wrf-monitor jobmaster
-           ingest-srv grib-src-def (timelib :as ta) os (io_lib :as iol) (filelib :joxify)
+           (timelib :as ta) os (io_lib :as iol) (filelib :joxify)
            (string :as str) filename (file :joxify) (erlang :as erl :joxify) lists)
   (use joxa-core utils))
 

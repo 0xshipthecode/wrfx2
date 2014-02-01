@@ -19,7 +19,7 @@
 
 (ns wfc-job
   (require wrfxlib nlist nllib plist filesys ext-utils ext-job logsrv io
-           configsrv wrf-monitor jobmaster ingest-srv grib-src-def
+           configsrv wrf-monitor jobmaster grib-ingest grib-src-def
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
   (use joxa-core utils))
@@ -81,7 +81,7 @@
          ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
          hist-ints      (plist/get :history-interval args)
-         grib-src       (ingest-srv/get-grib-def grib-src-name)
+         grib-src       (grib-ingest/get-grib-def grib-src-name)
          sim-to         (ta/shift-by-hours sim-from fc-hrs)
          wps-wdir       (filename/join work-dir "wps")
          wrf-wdir       (filename/join work-dir "wrf")
@@ -105,7 +105,7 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate job-id [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfc-job [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
-      (let ({cov-from cov-to mfest}  (ingest-srv/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
+      (let ({cov-from cov-to mfest}  (grib-ingest/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
              wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)

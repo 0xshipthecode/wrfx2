@@ -138,7 +138,7 @@
 
       ;; exit-msg with failure is retrieved e.g. when a timeout occurrs (then reason is :timeout)
       ({:exit-msg {:failure reason}}
-        (os/cmd (iol/format "kill -9 ~p" [os-pid]))
+        (process-kill tid os-pid qid log-f)
         (log-f :error "~s: failed with reason ~p, process ~p killed" [tid reason os-pid])
         {:failure reason})
 

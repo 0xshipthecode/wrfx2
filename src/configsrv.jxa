@@ -52,11 +52,11 @@
 (defn+ handle_call (request from state)
   (let ([cfg] state)
     (case request
-      ({:get-conf key} {:reply (plist/get key :no-such-key cfg) state})
-      (:get-keys {:reply (plist/keys cfg) state})
-      ({:reload new-cfg} {:reply :ok [new-cfg]})
-	    (:stop-cfg-srv {:stop :normal :ok state})
-	    (other {:reply :invalid-request state}))))
+      ({:get-conf key}    {:reply (plist/get key :no-such-key cfg) state})
+      (:get-keys          {:reply (plist/keys cfg) state})
+      ({:reload new-cfg}  {:reply :ok [new-cfg]})
+      (:stop-cfg-srv      {:stop :normal :ok state})
+      (other              {:reply :invalid-request state}))))
 
 (defn+ handle_cast (msg state)
   {:noreply state})

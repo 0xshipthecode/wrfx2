@@ -1,4 +1,4 @@
-; Copyright (C) 2013 Martin Vejmelka, UC Denver
+; Copyright (C) 2013-2014 Martin Vejmelka, UC Denver
 ;
 ; Permission is hereby granted, free of charge, to any person obtaining a copy
 ; of this software and associated documentation files (the "Software"), to deal
@@ -50,11 +50,11 @@
 (defn+ round-hours (datetime how)
   "Round datetime <datetime> to next hour (if how is :up) or to last hour (if how is :down)."
   (case datetime
-	({date {h 0 0}} datetime)
-	({date {h m s}} 
-	 (case how
-	       (:down {date {h 0 0}})
-	       (:up (shift-by-hours {date {h 0 0}} 1))))))
+    ({date {h 0 0}} datetime)
+    ({date {h m s}} 
+    (case how
+      (:down {date {h 0 0}})
+      (:up (shift-by-hours {date {h 0 0}} 1))))))
 
 
 (defn+ seconds-between (from to)
@@ -102,17 +102,23 @@
   "Retrieve the local time from calendar - convenience function."
   (cal/local-time))
 
+
 (defn+ universal-time ()
   "Retrieve the current UTC (approx. GMT) - convenience function."
   (cal/universal-time))
 
 
-(defn+ list-hours (from to)
-  "List timestamps starting with <from> and incrementing by 1 hour,
-   continue until past <to>."
+(defn+ time-range (from to incr-s)
+  "Make a range of timestamps starting with <from> until <to>
+   with increment <incr-s> seconds."
   (if (erl/> from to)
     []
-    (from . (list-hours (shift-by-hours from 1) to))))
+    (from . (time-range (shift-by-seconds from incr-s) to incr-s))))
+
+
+(defn+ list-hours (from to)
+  "Make a list of hours from <from> to <to>."
+  (time-range from to 3600))
 
 
 (defn+ to-esmf-str (dt)
@@ -122,7 +128,8 @@
 
 
 (defn+ parse-esmf (str)
-  "Parse an ESMF date/time string (format: YYYY-MM-DD_HH:mm:SS) <str> into an erlang datetime."
+  "Parse an ESMF date/time string (format: YYYY-MM-DD_HH:mm:SS) <str> into an erlang datetime.
+   The string must have exactly 19 characters."
   (let ([y1 y2 y3 y4 :\- m1 m2 :\- d1 d2 :\_ h1 h2 :\: min1 min2 :\: s1 s2] str)
     {{(erl/list-to-integer [y1 y2 y3 y4]) (erl/list-to-integer [m1 m2]) (erl/list-to-integer [d1 d2])}
      {(erl/list-to-integer [h1 h2]) (erl/list-to-integer [min1 min2]) (erl/list-to-integer [s1 s2])}}))
@@ -136,6 +143,7 @@
 (defn+ from-unix-timestamp (ts)
   "Convert a unix timestamp <ts> to an erlang datetime."
   (cal/universal-time-to-local-time (cal/gregorian-seconds-to-datetime (+ ts (erl/* 719528 86400)))))
+
 
 (defn+ unix-timestamp ()
   "Return a unix timestamp for the current time instant."
