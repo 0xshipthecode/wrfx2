@@ -1,5 +1,5 @@
 ;    Second generation WRF execution platform services.
-;    Copyright (C) 2013 Martin Vejmelka
+;    Copyright (C) 2013-2014 Martin Vejmelka, UC Denver
 ;
 ;    This program is free software; you can redistribute it and/or modify
 ;    it under the terms of the GNU General Public License as published by
@@ -15,8 +15,8 @@
 ;    with this program; if not, write to the Free Software Foundation, Inc.,
 ;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-(ns ingest-srv
-    (require 
+(ns grib-ingest
+    (require
        (erlang :as erl :joxify)
        plist
        (file :joxify)
@@ -25,12 +25,10 @@
        (dict :joxify)
        gen_server
        grib-src-def
-       raws-src-def
        utils
        logsrv
-       (erl_eval :joxify)
-       mwest-srv)
-    (use joxa-core))
+       (erl_eval :joxify))
+    (use joxa-core utils))
 
 
 (defn+ load-src-def-file (fname)
@@ -54,36 +52,24 @@
   "Reloads the source definition file <fname> and passes the content
    along with the <reload-command> as {reload-command list-of-source} to the ingest server."
   (let* (source-list (load-src-def-file fname))
-    (gen_server/call :ingest-srv {reload-command source-list})))
+    (gen_server/call :gribingest {reload-command source-list})))
 
 
 (defn+ start-link (stor-dir log-f)
   "Start the GRIB server manager that routes requests to appropriate GRIB servers."
-  (gen_server/start_link {:local :ingest-srv} :ingest-srv [(dict/new) (dict/new) (dict/new) stor-dir log-f] [])
-  (reload-sources "etc/ingest/grib.sources" :restart-grib-servers)
-  (reload-sources "etc/ingest/raws.sources" :restart-raws-servers))
+  (!!= {:ok _} (gen_server/start_link {:local :gribingest} :grib-ingest [(dict/new) (dict/new) stor-dir log-f] []))
+  (reload-sources "etc/ingest/grib.sources" :restart-grib-servers))
 
 ;; API
 
-
-(defn+ get-srv-maps ()
-  "Get both server dictionaries (grib2 and raws) mapping source names -> server processes."
-  (gen_server/call :ingest-srv :get-srv-maps))
-
-
 (defn+ find-grib-server (src-name)
   "Return the pid of the a GRIB2 ingest server under the name <src-name>."
-  (gen_server/call :ingest-srv {:find-grib-server src-name}))
-
-
-(defn+ find-raws-server (src-name)
-  "Return the pid of the a RAWS ingest server under the name <src-name>."
-  (gen_server/call :ingest-srv {:find-raws-server src-name}))
+  (gen_server/call :gribingest {:find-grib-server src-name}))
 
 
 (defn+ get-grib-def (src-name)
   "Return the record of the GRIB source <src-name>."
-  (case (gen_server/call :ingest-srv {:find-grib-source src-name})
+  (case (gen_server/call :gribingest {:find-grib-source src-name})
     ({:ok grib-src} grib-src)
     (:error :no-such-source)))
 
@@ -95,15 +81,6 @@
   (case (find-grib-server src-name)
     (:no-such-server :no-such-server)
     (grib-srv-pid (gen_server/call grib-srv-pid {:retrieve-gribs from to at-time} (erl/* timeout-s 1000)))))
-
-
-(defn+ retrieve-raws-obs (src-name station-list from to timeout)
-  "Submits a request to a source <src-name> that provides RAWS measurements for stations <station-list>
-   and for the time period <from> to <to>. Either returns station information and observations or :error,
-   in which case the error is logged with :flash priority."
-  (case (find-raws-server src-name)
-    (:no-such-server :no-such-server)
-    (obs-srv-pid (gen_server/call obs-srv-pid {:retrieve-obs station-list from to} (erl/* timeout 1000)))))
 
 
 ;; Internal functions
@@ -130,35 +107,24 @@
 
 (defn+ handle_call (request from state)
   "Handle a call request (synch request/reply)."
-  (let ([grib-srv-map grib-srcs raws-srv-map stor-dir log-f] state)
+  (let ([grib-srv-map grib-srcs stor-dir log-f] state)
   (case request
-    (:get-srv-maps {:reply {grib-srv-map raws-srv-map} state})
-    ; find the PID of the gen_server managing GRIB source src-name
-    ({:find-raws-server src-name}
-      {:reply (find-server src-name raws-srv-map) state})
     ({:find-grib-server src-name}
       {:reply (find-server src-name grib-srv-map) state})
     ; find and return a GRIB source record
     ({:find-grib-source src-name}
       {:reply (dict/find src-name grib-srcs) state})
-    ; reload RAWS sources file - send kill messages to current RAWS servers and create new ones
-    ({:restart-raws-servers new-raws-src-list}
-      (log-f :info "ingest-srv/handle_call: restarting RAWS servers" [])
-      (let* (new-raws-srcs (lists/foldl (fn (x d) (dict/store (raws-src-def/name x) x d)) (dict/new) new-raws-src-list)
-             new-srv-map   (start-servers new-raws-srcs (fn (x) (raws-src-def/mod-name x)) stor-dir log-f))
-        (dict/fold (fn (k v a) (gen_server/call v :stop-raws-srv) :ok) :ok raws-srv-map)
-        {:reply :ok [grib-srv-map grib-srcs new-srv-map stor-dir log-f]}))
     ; reload GRIB sources file - send kill messages to all current GRIB src and create new ones
     ({:restart-grib-servers new-grib-src-list}
-      (log-f :info "ingest-srv/handle_call: restarting GRIB servers" [])
+      (log-f :info "ingest_grib/handle_call: restarting GRIB servers" [])
       (let* (new-grib-srcs (lists/foldl (fn (x d) (dict/store (grib-src-def/name x) x d)) (dict/new) new-grib-src-list)
              new-srv-map (start-servers new-grib-srcs (fn (x) (grib-src-def/mod-name x)) stor-dir log-f))
         ; send termination requests to all current gen_servers
         (dict/fold (fn (k v a) (gen_server/call v :stop-grib-srv) :ok) :ok grib-srv-map)
-          {:reply :ok [new-srv-map new-grib-srcs raws-srv-map stor-dir log-f]}))
+          {:reply :ok [new-srv-map new-grib-srcs stor-dir log-f]}))
     ; catch-all reply indicating failure, should be sent to logger
     (other
-      (logsrv/error :flash "ingest-srv/handle_call: message ~p not understood" other)
+      (logsrv/error :flash "grib-ingest/handle_call: message ~p not understood" other)
       {:reply :invalid-request state}))))
 
 
@@ -176,3 +142,4 @@
 
 (defn+ code_change (old-vsn state extra)
   {:ok state})
+
