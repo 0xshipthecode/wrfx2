@@ -29,10 +29,10 @@
 
 (defn+ begin-monitoring (in-dir tid pid-timeout exec-timeout log-f)
   "Begin monitoring the execution of the process <tid> in dir <in-dir>."
-  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (let* (pid (start-monitor-process in-dir tid :undefined exec-timeout log-f))
-      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
-      {:running pid})))
+  (let* (pid-f (make-proc-filename in-dir tid ".pid")
+         pid (start-monitor-process in-dir tid :undefined exec-timeout log-f))
+    (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout 500)})
+    {:running pid}))
 
 ;
 ;; construct an immediate run script

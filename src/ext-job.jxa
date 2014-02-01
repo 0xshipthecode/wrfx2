@@ -38,11 +38,11 @@
 
 (defn+ begin-monitoring (in-dir tid qid pid-timeout-ms exec-timeout-ms log-f)
   "Begin monitoring the execution of the process <tid> in dir <in-dir>."
-  (let ([pid-f exit-code-f] (make-proc-names in-dir tid [".pid" ".exitcode"]))
-    (let* (pid (start-monitor-process in-dir tid qid exec-timeout-ms log-f))
-      ;; construct the first watcher that scans for pids
-      (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout-ms 500)})
-      {:running pid qid})))
+  (let* (pid-f (make-proc-filename in-dir tid ".pid")
+         pid (start-monitor-process in-dir tid qid exec-timeout-ms log-f))
+    ;; construct the first watcher that scans for pids
+    (async-send-to pid {:pid-msg (wait-for-file pid-f pid-timeout-ms 500)})
+    {:running pid qid}))
 
 ;
 ;; construct a job script for the PBS (Portable Batch System)

@@ -22,6 +22,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/static-grib-srv.beam \
 		ebin/grib-ingest.beam \
 		ebin/raws-ingest.beam \
+		ebin/fmda.beam \
 		ebin/jobmaster.beam \
 		ebin/ext-utils.beam \
 		ebin/ext-proc.beam \
