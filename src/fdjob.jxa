@@ -65,16 +65,15 @@
     (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM" []))
 
     ; step 1: edit WPS namelist and run geogrid
+    (jobmaster/updatestate job-id [{:stage "GEOGRID (1/8)"}])
     (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
            wps-nl-name (filename/join wps-wdir "namelist.wps"))
       (log-f :info "fdjob [~p] writing namelist.wps for geogrid" [short-jid])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-
-      ; if we are running asynchronously, we need to catch any exceptions and convert them into results
-      (async-send-me {:geogrid-done (try* (wrfxlib/run-geogrid wps-wdir log-f) (catch (type bdy) bdy))})
+      (wrfxlib/run-geogrid wps-wdir log-f)
 
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-      (jobmaster/updatestate job-id [{:stage "GRIB retrieval (1/8)"}])
+      (jobmaster/updatestate job-id [{:stage "GRIB retrieval (2/8)"}])
       (log-f :info "fdjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
       (let ({cov-from cov-to mfest}  (grib-ingest/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
              wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
@@ -83,15 +82,8 @@
         (log-f :info "fdjob [~p] writing amended namelist.wps for ungrib.exe" [short-jid])))
 
     ; step 3: run ungrib & metgrid
-    (jobmaster/updatestate job-id [{:stage "UNGRIB (2/8)"}])
+    (jobmaster/updatestate job-id [{:stage "UNGRIB (3/8)"}])
     (wrfxlib/run-ungrib wps-wdir log-f)
-
-    (jobmaster/updatestate job-id [{:stage "Wait for GEOGRID (3/8)"}])
-    (receive
-      ({:geogrid-done {:success 0}}
-        :ok)
-      ({:geogrid-done fail-exit}
-        (erl/throw fail-exit)))
 
     (jobmaster/updatestate job-id [{:stage "METGRID (4/8)"}])
     (wrfxlib/run-metgrid wps-wdir log-f)
@@ -149,8 +141,8 @@
 
     (let* (wrfout-path (erl/++ "../wrf/wrfout_d03_" (ta/to-esmf-str sim-from))
            cfg-path    (filename/join fmda-wdir "fmda.cfg"))
-      (fmda/write-fmda-cfg (erl/++ "../../../"  station-list-f) wrfout-path ["constant" "elevation" "temperature"] cfg-path))
-    (ext-wrappers/run-process "fmda" "./fmda_auto.sh" (ext-utils/make-std-output-spec fmda-wdir "fmda") fmda-wdir 1200000 log-f
+      (fmda/write-fmda-cfg (erl/++ "../../../"  station-list-f) wrfout-path ["constant" "elevation" "pressure" "temperature" "lon" "lat" "rain"] cfg-path))
+    (ext-wrappers/run-process "fmda" "PYTHONPATH=src python src/fmda.py fmda.cfg" (ext-utils/make-std-output-spec fmda-wdir "fmda") fmda-wdir 1200000 log-f
                               0 (fn () :passed) 1)
 
     ; step 13: postprocess and store all results somewhere
@@ -175,12 +167,18 @@
          {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:num-nodes 12} {:ppn 12} {:wall-time-hrs 6} {:forecast-length-hrs 24} ])))
 
-
-(defn+ test (from)
-  (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
-    (jobmaster/submit uuid :wfc-job 
-        [{:sim-from from}
+(defn+ test (sim-from)
+  (let* (uuid (make-uuid))
+    (jobmaster/submit uuid :fdjob
+        [{:history-interval [60 60 30]}
+         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
+         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
+         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
+         {:grib-src-name "nam_218"}
+         {:raws-src-name "mesowest"}
+         {:station-list-file "etc/colo_station_list"}
+         {:sim-from sim-from}
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 10} ])))
+         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 6} {:forecast-length-hrs 24} ])))
 

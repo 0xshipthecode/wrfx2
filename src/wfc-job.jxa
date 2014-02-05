@@ -91,7 +91,6 @@
 
     (log-f :info "wfc-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
     ; create the working directory for WPS
-    (!!= :ok (filesys/create-dir work-dir))
     (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM" []))
 
     ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
@@ -154,8 +153,7 @@
 (defn+ test ()
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
     (jobmaster/submit uuid :wfc-job 
-        [{:history-interval [60 30 15]}
-         {:work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid)}
+        [{:history-interval [60 60 30]}
          {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}

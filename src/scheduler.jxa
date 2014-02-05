@@ -1,0 +1,171 @@
+; Copyrighi (C) 2013-2014 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+(ns schedule
+  (use joxa-records))
+; WARNING: any changes to this record need corresponding changes to the underlying table in mnesia, see start-link/4
+(defrecord+ job-name job-start-time job-f)
+
+
+(ns scheduler
+  (require (mnesia :joxify) lists (gen_server :joxify) (timelib :as ta) (erlang :as erl :joxify) schedule io)
+  (use joxa-core utils))
+
+
+(defn+ reload-schedule ()
+  "Send a request to the scheduler to reload the schedule."
+  (gen_server/call :scheduler :reload-schedule 5000))
+
+
+(defn+ start-link (log-f)
+  ;WARNING: this table definition must correspond to the record definition of schedule above!
+  (ensure-table-exists [:schedule :job-name :job-start-time :start-func] [])
+  (!!= {:ok _} (gen_server/start-link {:local :scheduler} :scheduler [(ta/local-time) [] [] log-f] []))
+  (!!= :ok (reload-schedule)))
+
+
+(defn+ add (job-name job-start start-func)
+  "Add a new schedule to the scheduler with <job-name> (key), that starts every day at <job-start> = {hr,mn,ss}.
+   At that time the function <start-func> is executed.  Overwriting of jobs is not allowed, the function
+   will fail with reason {:error :already-exists}."
+  (case (mnesia/transaction (fn ()
+              (case (mnesia/read :schedule job-name)
+                ([]             (mnesia/write (schedule/make job-name job-start start-func)))
+                (already-there  :already-exists))) [] 3)
+    ({:atomic :already-exists}
+      {:error :already-exists})
+    ({:atomic _}
+      (reload-schedule)
+      :ok)
+    ({:aborted reason}
+      (io/format "aborted with reason ~w" [reason])
+      {:error reason})))
+
+
+(defn+ remove (job-name)
+  "Remove a schedule from the scheduler using its <job-name>."
+  (case (mnesia/transaction (fn () 
+              (case (mnesia/read :schedule job-name)
+                ([job]  (mnesia/delete {:schedule job-name}))
+                ([]     :no-such-job))) [] 3)
+    ({:atomic :no-such-job}
+      {:error :no-such-job})
+    ({:atomic _}
+      (reload-schedule)
+      :ok)
+    ({:aborted reason}
+      {:error reason})))
+
+
+(defn+ list ()
+  "List all jobs in the mnesia dbase."
+  (let ({:atomic jobs} (mnesia/transaction (fn () (mnesia/all-keys :schedule)) [] 3))
+    jobs))
+
+(defn+ retrieve (job-name)
+  "Retrieve the stored information about the job <job-name>."
+  (case (mnesia/transaction (fn () (mnesia/read :schedule job-name)) [] 3)
+    ({:atomic []}
+      :no-such-job)
+    ({:atomic [job-info]}
+      job-info)
+    ({:aborted reason}
+      {:error reason})))
+
+;; internal API
+
+(defn sort-jobs (job-list)
+  (lists/sort (fn (x y) (erl/< (schedule/job-start-time x) (schedule/job-start-time y))) job-list))
+
+
+(defn start-jobs (last-ts now-ts jobs-past jobs-todo log-f)
+  (let ({last-day last-time} last-ts
+        {day-now  time-now}  now-ts)
+    (log-f :info "scheduler:start-jobs activated, interval [~w,~w] num past ~p num todo ~p " [last-ts now-ts (erl/length jobs-past) (erl/length jobs-todo)])
+    (case day-now
+      (last-day
+      ; we are still on the same day, go through jobs-todo list and check if we need to run something
+        (case jobs-todo
+          ([] {jobs-past []})
+          ((job . jobs-todo-rest)
+            (log-f :info "scheduler: checking job ~w with times [~w,~w]" [job last-time time-now])
+            (schedule/let job (job-name job-name job-start-time ts job-f job-f)
+              (if (erl/and (lte ts time-now) (gte ts last-time))
+                (do
+                  (log-f :info "scheduler: starting job ~p at ~w, start time was ~w." [job-name {day-now time-now} ts])
+                  (erl/spawn (fn ()
+                    (try*
+                      (job-f log-f)
+                    (catch (type bdy)
+                      (log-f :error "scheduler: job function of job ~p threw exception type ~w body ~w~nstacktrace ~p"
+                             [job-name type bdy (erl/get-stacktrace)])))))
+                  (start-jobs last-ts now-ts (job . jobs-past) jobs-todo-rest log-f))
+                ; since jobs are sorted by time, if this job didn't bite neither will any other
+                ; this assumes no jobs slips through the cracks (if a job didn't run and job-start < last-time
+                ; but under no circumstances is that supposed to happen)
+                {jobs-past jobs-todo})))))
+      (new-day
+        ; we have rolled over midnight, move all jobs started to jobs that need to be run
+        ; make sure (by another invocation of start-jobs that jobs that should have been started between midnight and now
+        ; are started
+        (start-jobs {day-now {0 0 0}} now-ts [] (sort-jobs (erl/++ jobs-past jobs-todo)) log-f)))))
+
+
+;; gen_server callbacks
+(defn+ init (args)
+    {:ok args 5000})
+
+
+(defn+ handle_call (request from state)
+  (let ([{last-day last-time} _ _ log-f] state)
+    (case request
+      (:reload-schedule
+        (let ({:atomic jobs} (mnesia/transaction (fn () (mnesia/foldl (fn (rec acc) (rec . acc)) [] :schedule)) [] 3)
+              {jobs-past jobs-todo} (lists/partition (fn (x) (erl/< (schedule/job-start-time x) last-time)) jobs))
+          ; jobs-past cannot be triggered today anymore and jobs-todo can
+          {:reply :ok [{last-day last-time} jobs-past (sort-jobs jobs-todo) log-f] 5000}))
+      (other
+        (log-f :flash "scheduler: message ~p not understood, fix it!" [other])
+          {:reply :invalid-request state}))))
+
+
+(defn+ handle_cast (msg state)
+  {:noreply state})
+
+
+(defn+ handle_info (info state)
+  (let ([last-ts jobs-past jobs-todo log-f] state)
+    (case info
+      (:timeout
+        (let (now-ts                    (ta/local-time)
+             {jobs-past-2 jobs-todo-2}  (start-jobs last-ts now-ts jobs-past jobs-todo log-f))
+          {:noreply [now-ts jobs-past-2 jobs-todo-2 log-f] 5000}))
+      (other
+        (log-f :flash "scheduler: handle_info got message ~w, what's this?" [info])
+        {:noreply state 5000}))))
+
+
+(defn+ terminate (reason state)
+  :ok)
+
+(defn+ code_change (old-vsn state extra)
+  {:ok state})
+
+
+

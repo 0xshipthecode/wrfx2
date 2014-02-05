@@ -85,12 +85,14 @@
 
 
 (defn+ write-raws-info-and-obs (station-data data-dir)
-  (let ({st-info obss} station-data
-        st-code        (erl/element 2 st-info))
-    (file/write-file (filename/join data-dir (lists/append st-code ".info"))
-                     (station-info-to-string st-info))
-    (file/write-file (filename/join data-dir (lists/append st-code ".obs"))
-                     (station-obs-to-string (lists/filter (fn (x) (case x (:na :false) (valid :true))) obss)))))
+  (case station-data
+    (:error :ok)
+    ({st-info obss}
+      (let* (st-code  (erl/element 2 st-info))
+        (file/write-file (filename/join data-dir (lists/append st-code ".info"))
+                         (station-info-to-string st-info))
+        (file/write-file (filename/join data-dir (lists/append st-code ".obs"))
+                         (station-obs-to-string (lists/filter (fn (x) (case x (:na :false) (valid :true))) obss)))))))
 
 
 (defn+ load-station-list (fname)

@@ -271,3 +271,31 @@
    Returns true if not <a> == <b> in the erlang == sense."
   `(erl/:'/=' ~a ~b))
 
+
+(defn wait-for-task-set (msg-keys results)
+  (case msg-keys
+    ([]
+      results)
+    (not-empty
+      (receive
+        ({:kill with-reason}
+          (erl/throw {:killed with-reason}))
+        ({key result}
+          (case (lists/member key msg-keys)
+            (:true 
+              (wait-for-task-set (lists/delete key msg-keys) ({key result} . results)))
+            (:false
+              (erl/throw {:invalid-key-in-wait key}))))))))
+
+
+(defn+ wait-for-task-set (msg-keys)
+  "Wait for a set of messages in the form {key result} until all keys in <msg-keys> have been
+   exhausted.  Each key is associated with a result and the resulting plist is returned."
+  (wait-for-task-set msg-keys []))
+
+(defn+ print-and-pass (result)
+  "A debugging helper that prints the result and then returns it and thus acts
+   as a transparent printer."
+  (io/format "print-and-pass ~p~n" [result])
+  result)
+

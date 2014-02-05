@@ -19,7 +19,7 @@
 
 (ns wrfx2
     (require
-       jobmaster configsrv logsrv sysmon raws-ingest grib-ingest
+       jobmaster configsrv logsrv sysmon raws-ingest grib-ingest scheduler
        inets io (file :joxify) filename crypto
        (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify)
@@ -67,6 +67,9 @@
   (jobmaster/start-link)
   ; start the system monitor
   (sysmon/start-link)
+  ; start scheduler
+  (logsrv/create-log "scheduler")
+  (scheduler/start-link (logsrv/make-log-f "scheduler"))
   ; we are ready to go
   (logsrv/msg "system" :info "wrfx2 startup complete" [])
   ; check if the webserver is up, if yes, connect
