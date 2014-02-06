@@ -35,6 +35,7 @@
    the rawsobs and rawsinfo table are available."
   (ensure-table-exists [:rawsobs :ts-and-stcode-tuple :obs-time :observations] [])
   (ensure-table-exists [:rawsinfo :station-code :name :lat :lon :elev :sensors] [])
+  (mnesia/wait-for-tables [:rawsobs :rawsinfo] 10000)
   (!!= {:ok _} (gen_server/start_link {:local :rawsingest} :raws-ingest [log-f] [])))
 
 
