@@ -36,6 +36,7 @@
 (defn+ start-link (log-f)
   ;WARNING: this table definition must correspond to the record definition of schedule above!
   (ensure-table-exists [:schedule :job-name :job-start-time :start-func] [])
+  (mnesia/wait-for-tables [:schedule] 5000)
   (!!= {:ok _} (gen_server/start-link {:local :scheduler} :scheduler [(ta/local-time) [] [] log-f] []))
   (!!= :ok (reload-schedule)))
 
@@ -97,14 +98,12 @@
 (defn start-jobs (last-ts now-ts jobs-past jobs-todo log-f)
   (let ({last-day last-time} last-ts
         {day-now  time-now}  now-ts)
-    (log-f :info "scheduler:start-jobs activated, interval [~w,~w] num past ~p num todo ~p " [last-ts now-ts (erl/length jobs-past) (erl/length jobs-todo)])
     (case day-now
       (last-day
       ; we are still on the same day, go through jobs-todo list and check if we need to run something
         (case jobs-todo
           ([] {jobs-past []})
           ((job . jobs-todo-rest)
-            (log-f :info "scheduler: checking job ~w with times [~w,~w]" [job last-time time-now])
             (schedule/let job (job-name job-name job-start-time ts job-f job-f)
               (if (erl/and (lte ts time-now) (gte ts last-time))
                 (do
