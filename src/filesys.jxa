@@ -102,3 +102,7 @@
   :ok)
 
 
+(defn+ move-directory (src dst)
+  "Moves the directory from <src> to <dst>."
+  (!!= :ok (file/rename src dst)))
+
