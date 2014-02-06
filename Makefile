@@ -23,8 +23,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/static-grib-srv.beam \
 		ebin/grib-ingest.beam \
 		ebin/raws-ingest.beam \
-		ebin/fmda.beam \
 		ebin/jobmaster.beam \
+		ebin/fmda.beam \
 		ebin/ext-utils.beam \
 		ebin/ext-proc.beam \
 		ebin/ext-job.beam \
@@ -33,7 +33,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/wrfxlib.beam \
 		ebin/testjob.beam \
 		ebin/nasa-fire-job.beam \
-		ebin/wfc-job.beam \
+		ebin/wfcjob.beam \
 		ebin/fdjob.beam \
 		ebin/wrfx2.beam
 
