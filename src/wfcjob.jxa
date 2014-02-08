@@ -125,6 +125,7 @@
     (jobmaster/updatestate job-id [{:stage "UNGRIB (3/6)"}])
     (wrfxlib/run-ungrib wps-wdir log-f)
     (jobmaster/updatestate job-id [{:stage "METGRID (4/6)"}])
+    ;(wrfxlib/run-metgrid-par wps-wdir 6 log-f)
     (wrfxlib/run-metgrid wps-wdir log-f)
 
     ; step 4: setup the WRF working directory
@@ -186,5 +187,5 @@
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:history-interval [180 120 60]}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 8} {:forecast-length-hrs 48} ])))
+         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
 
