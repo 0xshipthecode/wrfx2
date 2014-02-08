@@ -20,7 +20,7 @@
 
 (ns jobmaster
   (require utils plist logsrv filesys filename configsrv
-           lists (string :as str) gen_server (file :joxify)
+           lists (string :as str) gen_server (file :joxify) (timelib :as ta)
            (dict :joxify) (ets :joxify) (erlang :as erl :joxify) (io_lib :as iol) os)
   (use joxa-core utils))
 
@@ -100,15 +100,15 @@
         (let* (work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid))
           (!!= :ok (filesys/create-dir work-dir))
           (erl/apply mod :run [(plist/set :work-dir work-dir args) (logsrv/make-log-f uuid)])
-          (jobmaster/updatestate uuid [{:result "SUCCESS"}]))
+          (jobmaster/updatestate uuid [{:result "SUCCESS"} {:jmts (ta/local-time)}]))
       (catch (type body)
         (case body
           ({:killed :by-request}
             (logsrv/msg "system" :info "job [~p] was killed by request." [uuid])
-            (jobmaster/updatestate uuid [{:result "KILLED"} {:reason "killed by request"}]))
+            (jobmaster/updatestate uuid [{:result "KILLED"} {:reason "killed by request"} {:jmts (ta/local-time)}]))
           ({:killed with-reason}
             (logsrv/msg "system" :error "job [~p] was killed with reason ~p.~n" [uuid with-reason])
-            (jobmaster/updatestate uuid [{:result "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))}]))
+            (jobmaster/updatestate uuid [{:result "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))} {:jmts (ta/local-time)}]))
           (_
             (jobmaster/updatestate uuid [{:result "FAILED"} {:reason (lists/flatten (iol/format "crashed with exception type ~p body ~p" [type body]))}])
             (logsrv/msg "system" :error "job [~p] crashed (exception: type ~p body ~p)~nstacktrace ~p~n"
