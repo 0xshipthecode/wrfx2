@@ -69,17 +69,20 @@
           (erl/throw ~msg))))))
 
 
-(defn+ ensure-table-exists (tuple-fields index-fields)
+(defn+ ensure-table-exists (tuple-fields index-fields extra-opts)
   "Ensure that a table either exists or is created with fields <tuple-fields>
-   and indices for <index-fields>.  The table name is (jxl/hd tuple-fields)."
+   and indices for <index-fields>.  The table name is the first element of <tuple-fields>.
+   The list <extra-opts> is appended to the table options in mnesia/create-table/2."
   (let ((table-name . attrs) tuple-fields)
     (if (lists/member table-name (mnesia/system-info :tables))
       :ok
-      (utils/critical-check {:atomic :ok}
-                            (mnesia/create-table table-name
-                                                 [{:attributes attrs}
-                                                  {:index index-fields}
-                                                  {:disc_copies [(erl/node)]}])))))
+      (let* (opts ({:attributes attrs} . ({:index index-fields} . ({:disc_copies [(erl/node)]} . extra-opts))))
+        (utils/critical-check {:atomic :ok} (mnesia/create-table table-name opts))))))
+
+
+(defn+ ensure-table-exists (tuple-fields index-fields)
+  "Calls ensure-table-exists/3 with no extra options."
+  (ensure-table-exists tuple-fields index-fields []))
 
 
 ;; define a macro that matches an arbitrary structure to
@@ -293,9 +296,15 @@
    exhausted.  Each key is associated with a result and the resulting plist is returned."
   (wait-for-task-set msg-keys []))
 
+
 (defn+ print-and-pass (result)
   "A debugging helper that prints the result and then returns it and thus acts
    as a transparent printer."
   (io/format "print-and-pass ~p~n" [result])
   result)
+
+
+(defn+ record-fields (finfo)
+  "Map the result of joxa-records/field-info <finfo> into a list of field names."
+  (lists/map (fn (field) (erl/element 1 field)) finfo))
 

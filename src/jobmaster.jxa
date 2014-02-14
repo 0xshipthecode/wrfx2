@@ -18,22 +18,52 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+(ns jm-live-job
+  (use joxa-records))
+
+(defrecord+ uuid module args pid state)
+
+(ns jm-job-result
+  (use joxa-records))
+
+(defrecord+ uuid module args result)
+
+
 (ns jobmaster
-  (require utils plist logsrv filesys filename configsrv
-           lists (string :as str) gen_server (file :joxify) (timelib :as ta)
-           (dict :joxify) (ets :joxify) (erlang :as erl :joxify) (io_lib :as iol) os)
+  (require utils plist logsrv filesys filename configsrv jm-live-job jm-job-result
+           lists (string :as str) gen_server (file :joxify) (timelib :as ta) (mnesia :joxify)
+           (dict :joxify) (erlang :as erl :joxify) (io_lib :as iol) os)
   (use joxa-core utils))
 
 
 (defn+ start-link ()
-  (gen_server/start_link {:global :jobmaster} :jobmaster {:no-table [] (logsrv/make-log-f "system")} []))
+  (critical-check :ok (ensure-table-exists (record-fields (jm-live-job/field-info)) []))
+  (critical-check :ok (ensure-table-exists (record-fields (jm-job-result/field-info)) []))
+  (critical-check :ok (mnesia/wait-for-tables [:jm-live-job :jm-job-result] 10000))
+  (gen_server/start_link {:global :jobmaster} :jobmaster {:no-table [] (logsrv/make-log-f "system")} [])
+  (gen_server/call :jobmaster :restart-live-jobs))
 
-;; API
 
 
-(defn+ job-done (job-id)
-  "Notify the jobmaster that the job <job-id> is complete."
-  (gen_server/call {:global :jobmaster} {:job-done job-id}))
+(defmacro check-transaction (do-f trans-id on-success)
+  "Anaphoric macro (binds result to the result of the transaction if successfull, that attempts a mnesia
+   transaction and if it fails, it flashes a message to the system stream and returns :error.  More information
+   is not retrieved as it is unlikely the client will be able to fix this problem."
+  (let* (reason (gensym))
+    `(case (mnesia/transaction (fn () ~do-f))
+      ({:atomic  result} ~on-success)
+      ({:aborted ~reason}
+        (logsrv/msg "system" :flash "jobmaster: mnesia transaction ~p aborted with reason ~p, system may be in inconsistent state!" [~trans-id ~reason])
+        :error))))
+
+
+;; --------------------------------------------
+;; public API
+;; --------------------------------------------
+
+(defn+ job-done (uuid)
+  "Notify the jobmaster that the job <uuid> is complete."
+  (gen_server/call {:global :jobmaster} {:job-done uuid}))
 
 
 (defn+ submit (uuid mod args)
@@ -42,39 +72,46 @@
   (gen_server/call {:global :jobmaster} {:submit-job uuid mod args}))
 
 
-(defn+ deljob (job-id)
-  "Remove the job named <job-id> from the master index."
-  (gen_server/call {:global :jobmaster} {:remove-job job-id}))
+(defn+ livejobs ()
+  "Retrieve a list of live jobs from the live jobs table."
+  (check-transaction (mnesia/all-keys :jm-live-job) "livejobs" result))
 
 
-(defn+ getstate (job-id)
-  "Retrieve the plist containing the information about job <job-id>."
-  (gen_server/call {:global :jobmaster} {:get-job-state job-id}))
+(defn+ islive? (uuid)
+  "Check if the <uuid> exists in the live jobs table.  Returns :error if transaction fails."
+  (check-transaction (mnesia/read {:jm-live-job uuid}) "islive?" (case result ([] :false) ([_] :true))))
 
 
-(defn+ updatestate (job-id new-state)
-  "Update the plist containing the information about job <job-id> with the plist <new-state>."
-  (gen_server/call {:global :jobmaster} {:update-job-state job-id new-state}))
+(defn+ getstate (uuid)
+  "Retrieve the state of the job <uuid>, assuming its live."
+  (check-transaction
+    (case (mnesia/read :jm-live-job uuid)
+      ([jlj] (jm-live-job/state jlj))
+      ([]   :no-such-job))
+    "getstate"
+    result))
 
 
-(defn+ removestate (job-id keys)
-  "Remove the keys <keys> from the state of job with id <job-id>."
-  (gen_server/call {:global :jobmaster} {:remove-job-state job-id keys}))
+(defn modify-state (uuid trans-name modify-f)
+  (check-transaction
+    (case (mnesia/read :jm-live-job uuid)
+      ([jlj]
+        (let* (state1 (modify-f (jm-live-job/state jlj)))
+          (mnesia/write {:jm-live-job (jm-live-job/state! jlj state1)})))
+      ([] :no-such-job)
+      (:error :error))
+    trans-name
+    result))
 
 
-(defn+ getjobpid (job-id)
-  "Retrieve the pid of the job named <job-id>."
-  (gen_server/call {:global :jobmaster} {:get-job-pid job-id}))
+(defn+ removestate (uuid keys)
+  "Remove the keys <keys> from the state of job with id <uuid>."
+  (modify-state uuid "removestate" (fn (js) (plist/remove-list keys js))))
 
 
-(defn+ listjobs ()
-  "List all jobs currently indexed by the jobmaster."
-  (gen_server/call {:global :jobmaster} :list-jobs))
-
-
-(defn+ livejobs()
-  "List all currently running jobs."
-  (gen_server/call {:global :jobmaster} :live-jobs))
+(defn+ updatestate (uuid new-state)
+  "Internal function to update the state of live job <uuid> with the state <new-state>."
+  (modify-state uuid "updatestate" (fn (js) (plist/update-with new-state js))))
 
 
 (defn+ kill (uuid)
@@ -84,17 +121,36 @@
   (gen_server/call {:global :jobmaster} {:kill-job uuid :by-request}))
 
 
+;; --------------------------------------------
 ;; gen_server callbacks
+;; --------------------------------------------
 
 (defn+ init (args)
-  (let ({_tbl _live-jobs log-f} args)
-    {:ok {(ets/new :jmtbl []) [] log-f}}))
+  {:ok args})
+
+
+(defn getjobpid (uuid)
+  "Retrieve the pid of the job <uuid>, assuming its live."
+  (check-transaction
+    (case (mnesia/read {:jm-live-job uuid})
+      ([js]   (jm-live-job/pid js))
+      ([]     :no-such-job))
+    "getjobpid"
+    result))
+
+
+(defn retrieve-live-job (uuid)
+  "Retrieve a live job <uuid> from the jm-live-job table."
+  (check-transaction
+    (mnesia/read {:jm-live-job uuid})
+    "retrieve-live-job"
+    (case result ([js] js) ([] :no-such-job))))
 
 
 ;; submit a job by the jobmaster
 (defn execute-job-internal (mod args)
   "Execute a job inside a new process."
-  (let* (uuid (plist/get :job-id args))
+  (let* (uuid (plist/get :uuid args))
     (erl/spawn (fn ()
       (try*
         (let* (work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid))
@@ -123,76 +179,43 @@
 ;; track of the tuple {uuid job-pid job-state}
 ;;
 (defn+ handle_call (request from state)
-  (let ({job-table live-jobs log-f} state)
+  (let ({log-f} state)
     (case request
-      ; add a new job to the pool
-      ({:add-job job-id job-pid}
-        (ets/insert job-table {job-id job-pid []})
-        {:reply :ok state})
-      ; remove the job job-id from the pool
-      ({:remove-job job-id}
-        (ets/delete job-table job-id)
-        {:reply :ok {job-table (lists/delete job-id live-jobs) log-f}})
-      ; retrieve the entire job state for job job-id
-      ({:get-job-state uuid}
-        (try* 
-          {:reply (ets/lookup-element job-table uuid 3) state}
-          (catch (type bdy)
-            {:reply :no-such-job state})))
-      ; retrieve the job pid for job job-id
-      ({:get-job-pid job-id}
-        (try*
-          {:reply (ets/lookup-element job-table job-id 2) state}
-          (catch (type bdy)
-            {:reply :no-such-job state})))
-      ; update the job state
-      ({:update-job-state uuid new-state}
-        (try*
-          (let* (updated-state (plist/update-with new-state (ets/lookup-element job-table uuid 3)))
-            (ets/update-element job-table uuid {3 updated-state})
-            {:reply :ok state})
-          (catch (type bdy)
-            (do
-              (log-f :error "jobmaster: error updating state for job ~p type ~p bdy ~p trace ~p~n" [uuid type bdy (erl/get-stacktrace)])
-              {:reply {:error type bdy} state}))))
-      ; remove some keys from the job state
-      ({:remove-job-state job-id ks}
-        (try*
-          (let* (state (ets/lookup-element job-table job-id 3))
-            (ets/update-element job-table job-id {3 (plist/remove-list ks state)})
-            {:reply :ok state})
-          (catch (type bdy)
-            {:reply {:error type bdy} state})))
       ; submit a new/existing job (matched by uuid)
       ({:submit-job uuid mod args}
-        (case (lists/member uuid live-jobs)
-          (:true
-            (log-f :info "jobmaster: job ~p already running" [uuid])
+        (if (islive? uuid)
+          (do
+            (log-f :info "jobmaster: did not start job ~p, it is already live" [uuid])
             {:reply {:ok uuid} state})
-          (:false
+          (do
             (logsrv/create-log uuid)
-            (let* (args2   (plist/update-with [{:job-id uuid} {:short-job-id (str/substr uuid 1 8)}] args)
+            (let* (args2   (plist/update-with [{:uuid uuid} {:short-uuid (str/substr uuid 1 8)}] args)
                    job-pid (execute-job-internal mod args2))
-              (log-f :info "jobmaster: job ~p activated NOW" [uuid])
-              (ets/insert job-table {uuid job-pid []})
-              {:reply {:ok uuid} {job-table (uuid . live-jobs) log-f}}))))
+              (log-f :info "jobmaster: job ~p is going LIVE now." [uuid])
+              {:reply (check-transaction (mnesia/write (jm-live-job/make uuid mod args2 job-pid [])) "submit-job" {:ok uuid}) state}))))
       ; notification that a job has been deactivated (from the job)
       ({:job-done uuid}
         (log-f :info "jobmaster: notified that job ~p is done" [uuid])
-        {:reply :ok {job-table (lists/delete uuid live-jobs) log-f}})
-      ; return a list of all jobs stored by the jobmaster
-      (:list-jobs
-        {:reply (ets/select job-table [{{:$1 :$2 :$3} [] [:$1]}]) state})
-      ; return a list of all jobs currently running
-      (:live-jobs
-        {:reply live-jobs state})
+        {:reply
+          (check-transaction
+            (let ([jlj] (mnesia/read {:jm-live-job uuid}))
+              (mnesia/write (jm-job-result/make uuid (jm-live-job/module jlj) (jm-live-job/args jlj) (jm-live-job/state jlj))))
+            "job-done"
+            result)
+           state})
       ; kill the job uuid
       ({:kill-job uuid with-reason}
-        (let ([{uuid jpid jstate}] (ets/lookup job-table uuid))
-          (ets/update-element job-table uuid {3 (plist/set :stage "KILLED" jstate)})
-          (log-f :info "jobmaster: killing job ~p with reason ~p." [uuid with-reason])
-          (erl/send jpid {:kill with-reason})
-          {:reply :ok state}))
+        (case (getjobpid uuid)
+          (jpid (when (erl/is-pid jpid))
+            (erl/send jpid {:kill with-reason})
+            (log-f :info "jobmaster: killing job ~p with reason ~p." [uuid with-reason])
+            {:reply :ok state})
+          (some-error
+            {:reply some-error state})))
+      ; resubmit libe jobs
+      (:resubmit-live-jobs
+        ;TODO: implement resubmission of jobs registered as live in the jm-live-job table
+        {:reply :ok state})
       ; message not understood
       (other
         (logsrv/error :flash "jobmaster: message ~p not understood, fix it!" [other])

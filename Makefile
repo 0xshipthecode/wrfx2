@@ -10,6 +10,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
 		ebin/timelib.beam \
+		ebin/perf-record.beam \
+		ebin/perfmon.beam \
 		ebin/network.beam \
 		ebin/cycles.beam \
 		ebin/nlist.beam \
