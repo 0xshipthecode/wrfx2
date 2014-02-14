@@ -19,45 +19,47 @@
 
 
 (ns perfmon
-  (require (erlang :as erl :joxify) lists (timelib :as ta) perf-record (mnesia :joxify)
+  (require (erlang :as erl :joxify) lists (timelib :as ta) taskinfo (mnesia :joxify)
            (io_lib :as iol) (file :joxify))
   (use joxa-core utils))
 
 
 (defn+ initialize (log-f)
   "Ensures all mnesia tables are created."
-  (ensure-table-exists (lists/map (fn (x) (erl/element 1 x)) (perf-record/field-info)) [{:type :bag}])
-  (critical-check :ok (mnesia/wait-for-tables [:perf-record] 10000))
+  (ensure-table-exists (:taskinfo . (lists/map (fn (x) (erl/element 1 x)) (taskinfo/field-info))) [] [{:type :bag}])
+  (critical-check :ok (mnesia/wait-for-tables [:taskinfo] 10000))
   (log-f :info "perfmon: initialized, tables available." []))
 
 
-(defn+ append-perf-record (pr)
-  "Appends the perf-record <pr> to the table :perf-record.  This function can be used to append performance
+(defn+ append-task-info (pr)
+  "Appends the taskinfo <pr> to the table :taskinfo.  This function can be used to append performance
    records gathered by mechanisms outside of the scope of the perfmon."
   (mnesia/transaction (fn () (mnesia/write pr))))
 
-(defn+ append-perf-record (job-type uuid task-name start-time end-time result info)
-  "A shortcut that makes it unnecessary to require perf-records for clients using this module."
-  (append-perf-record (perf-record/make job-type uuid task-name start-time end-time result info)))
 
-(defn+ get-perf-records (job-type task-name)
+(defn+ append-task-info (job-type uuid task-name start-time end-time result info)
+  "A shortcut that makes it unnecessary to require taskinfos for clients using this module."
+  (append-task-info (taskinfo/make job-type uuid task-name start-time end-time result info)))
+
+
+(defn+ get-task-infos (job-type task-name)
   "Retrieves the performance records for task <task-name> executed within <job-type>."
-  (mnesia/dirty-select :perf-record [{{:perf-record job-type task-name :_ :_ :_ :_} [] [:$3 :$4 :$5 :$6]}]))
+  (mnesia/dirty-select :taskinfo [{{:taskinfo job-type task-name :_ :_ :_ :_} [] [:$3 :$4 :$5 :$6]}]))
 
 
 (defn+ instrument-as (job-type uuid task-name info task-f)
-  "Instrument the function <task-f> and log the start/end/result into the :perf-record table with the job name <job-type>,
+  "Instrument the function <task-f> and log the start/end/result into the :taskinfo table with the job name <job-type>,
    unique identifier <uuid>, task id <task-name> and additional information <info>. If the task throws an exception,
    it is caught, stored as {:exception exc-type exc-body} and rethrows the exception, otherwise the result is stored as
    {:returned result}."
   (let* (start-time (ta/local-time))
     (try*
       (let* (result (task-f))
-        (append-perf-record job-type uuid task-name start-time (ta/local-time) {:returned result} info)
+        (append-task-info job-type uuid task-name start-time (ta/local-time) {:returned result} info)
         result)
     (catch (class body)
       (do
-        (append-perf-record job-type uuid task-name start-time (ta/local-time) {:exception class body} info)
+        (append-task-info job-type uuid task-name start-time (ta/local-time) {:exception class body} info)
         ; it's not clear how to handle catching only some types of exceptions in joxa, so we catch/log everything here
         ; and rethrow the exception (even if it wasn't a throw in the first case
         (erl/throw body))))))

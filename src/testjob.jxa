@@ -18,128 +18,40 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns testjob
-  (require wrfxlib nlist nllib plist filesys ext-utils ext-job logsrv io
-           configsrv wrf-monitor jobmaster grib-ingest grib-src-def
-           (timelib :as ta) os (io_lib :as iol) (string :as str) filename
-           (file :joxify) (erlang :as erl :joxify))
+  (require wrfxlib nlist nllib plist filesys ext-wrappers logsrv perfmon
+           configsrv jobmaster (timelib :as ta) os
+           (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
 
 (defn+ run (args log-f)
-  "Execute the wfc-jobulation job with the given arguments:
-   sim-from: simulate from
-   forecast-length-hrs: hours to run from sim-from
-   job-id: unique identifier of the job
-   work-dir: working directory
-   wrf-inst-dir: WRF installation directory
-   wps-inst-dir: WPS installation directory
-   wps-geog-dir: WPS geography data directory
-   grib-src-name: name of the GRIB source"
-  (let* (job-id         (plist/get :job-id args)
-         short-jid      (plist/get :short-job-id args)
-         work-dir       (plist/get :work-dir args)
-         wps-idir       (plist/get :wps-install-dir args)
-         wrf-idir       (plist/get :wrf-install-dir args)
-         grib-src-name  (plist/get :grib-src-name args)
-         sim-from       (plist/get :sim-from args)
-         fc-hrs         (plist/get :forecast-length-hrs args)
-         num-nodes      (plist/get :num-nodes args)
-         ppn            (plist/get :ppn args)
-         wall-time-hrs  (plist/get :wall-time-hrs args)
-         hist-ints      (plist/get :history-interval args)
-         grib-src       (grib-ingest/get-grib-def grib-src-name)
-         sim-to         (ta/shift-by-hours sim-from fc-hrs)
-         wps-wdir       (filename/join work-dir "wps")
-         wrf-wdir       (filename/join work-dir "wrf")
-         wps-nl0        (nlist/parse (plist/get :wps-nl args) :weather-sim-wps)
-         wrf-nl0        (nlist/parse (plist/get :wrf-nl args) :weather-sim-wrf)
-         all-doms       (nlist/all-domains wps-nl0))
+  "Execute the wfc-jobulation job with the given arguments."
+  (let* (uuid           (plist/get :uuid args)
+         short-uuid     (plist/get :short-uuid args)
+         work-dir       (plist/get :work-dir args))
 
-    (log-f :info "wfc-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
+    (log-f :info "testjob [~s] with work-dir ~s" [uuid work-dir])
+
     ; create the working directory for WPS
-    (!!= :ok (filesys/create-dir work-dir))
-    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM" []))
+    (jobmaster/updatestate uuid [{:stage "BEGIN"}])
 
-    (jobmaster/updatestate job-id [{:stage "GEOGRID/UNGRIB"}])
+    (perfmon/instrument-as "testjob" uuid "task1" []
+      (fn () (ext-wrappers/run-process "task1" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
-    ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-    (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
-           wps-nl-name (filename/join wps-wdir "namelist.wps"))
-      (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-      (log-f :info "wfc-job [~p] written namelist.wps for geogrid" [short-jid])
+    (jobmaster/updatestate uuid [{:stage "stage 2"}])
 
-      ; async invocation of geogrid
-      (async-send-me {:geogrid-done (wrfxlib/run-geogrid wps-wdir log-f)})
+    (perfmon/instrument-as "testjob" uuid "task2" []
+      (fn () (ext-wrappers/run-process "task2" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
-      ; async invocation of grib retrieval and ungrib
-      (async-send-me {:grib-retrieval (fn ()
-          (let ({cov-from cov-to mfest}  (grib-ingest/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
-                 wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
-            (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
-            (wrfxlib/symlink-grib-files mfest wps-wdir)
-            (log-f :info "wfc-job [~p] written amended namelist.wps for ungrib.exe" [short-jid])
-            (wrfxlib/run-ungrib wps-wdir log-f)))}))
-
-    ; wait for both tasks to complete (discard results)
-    (wait-for-task-set [:geogrid-done :grib-retrieval])
-
-    ; step 3: run ungrib & metgrid
-    (jobmaster/updatestate job-id [{:stage "METGRID"}])
-    (wrfxlib/run-metgrid wps-wdir log-f)
-
-    ; step 4: setup the WRF working directory
-    (log-f :info "wfc-job [~p]: creating WRF working directory" [short-jid])
-    (wrfxlib/clone-wrf wrf-idir wrf-wdir)
-
-    ; step 5: symlink all met_em* files to the wrfdir
-    (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
-      (log-f :info "wfc-job [~p] symlinking ~p met_em* files to the wrf dir." [short-jid (erl/length met-em-files)])
-      (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
-
-    ; step 6: construct the WRF namelist
-    (let* (wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to grib-src hist-ints all-doms wrf-nl0))
-      (log-f :info "wfc-job [~p] writing namelist.input for WRF" [short-jid])
-      (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
-
-    ;step 7: run real.exe
-    (jobmaster/updatestate job-id [{:stage "REAL"}])
-    (wrfxlib/run-real wrf-wdir log-f)
-
-    ; step 8: run WRF
-    (log-f :info "wfc-job [~p] running WRF" [short-jid])
-    (jobmaster/updatestate job-id [{:stage "WRF"}])
-    (let* (wrf-history-hook
-            (fn (domain-id sim-time)
-              (log-f :info "testjob  detected WRF history write at ~w in domain ~p" [sim-time domain-id])
-              (when (erl/== domain-id 1)
-                (log-f :info "fdjob simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
-                             (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
-                                              :not-available (jobmaster/getstate job-id)))))
-           cfl-violation-hook
-            (fn (ext-mon-pid)
-              (log-f :error "fdjob detected CFL violation, terminating WRF job." [])
-              (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
-
-      (wrfxlib/run-wrf job-id wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to
-                    300 wrf-history-hook cfl-violation-hook log-f))
-
-    (log-f :info "testjob [~p] end of job reached" [short-jid])
-    (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])
+    (log-f :info "testjob [~s] end of job reached" [short-uuid])
+    (jobmaster/updatestate uuid [{:stage "COMPLETE"}])
 
     :ok))
 
 
 (defn+ test ()
   (let* (uuid "76aabb9e-4d4a-4cfc-b5f0-696ba52d7909")
-    (jobmaster/submit uuid :wfc-job 
-        [{:history-interval [60 30 15]}
-         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
-         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
-         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-         {:grib-src-name "nam_218"}
-         {:sim-from {{2014 1 28} {0 0 0}}}
-         {:wps-nl "etc/nlists/colo_3dom.wps"}
-         {:wrf-nl "etc/nlists/colo_3dom.input"}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 24} ])))
+    (jobmaster/submit uuid :testjob 
+        [])))
 
 

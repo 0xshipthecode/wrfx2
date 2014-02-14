@@ -10,7 +10,7 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
 		ebin/timelib.beam \
-		ebin/perf-record.beam \
+		ebin/taskinfo.beam \
 		ebin/perfmon.beam \
 		ebin/network.beam \
 		ebin/cycles.beam \
@@ -52,7 +52,7 @@ ebin/nlparser.beam: src/nlparser.yrl
 	erlc -o ebin src/nlparser.erl
 
 ebin/%.beam: src/%.jxa
-	joxa -p ebin -p deps/mochiweb/ebin -p deps/mochiweb_xpath/ebin -o ebin -c $<
+	joxa -p ebin -o ebin -c $<
 
 compile: $(BEAMFILES)
 
