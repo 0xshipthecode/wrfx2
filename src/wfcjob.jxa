@@ -19,7 +19,7 @@
 
 (ns wfcjob
   (require wrfxlib nlist nllib plist filesys ext-utils ext-job logsrv io
-           configsrv wrf-monitor jobmaster grib-ingest grib-src-def perfmon
+           configsrv wrf-monitor jobmaster grib-ingest grib-src-def perftrack
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify) lists)
   (use joxa-core utils))
@@ -110,7 +110,7 @@
       (log-f :info "wfcjob [~p] writing namelist.wps for geogrid" [short-uuid])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
       (jobmaster/updatestate uuid [{:stage "GEOGRID (1/6)"}])
-      (perfmon/instrument-as :wfcjob uuid :geogrid []
+      (perftrack/instrument-as :wfcjob uuid :geogrid []
         (fn () (wrfxlib/run-geogrid wps-wdir log-f)))
 
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
@@ -124,11 +124,11 @@
 
     ; step 3: run ungrib & metgrid
     (jobmaster/updatestate uuid [{:stage "UNGRIB (3/6)"}])
-    (perfmon/instrument-as :wfcjob uuid :ungrib []
+    (perftrack/instrument-as :wfcjob uuid :ungrib []
       (fn () (wrfxlib/run-ungrib wps-wdir log-f)))
     (jobmaster/updatestate uuid [{:stage "METGRID (4/6)"}])
     ;(wrfxlib/run-metgrid-par wps-wdir 6 log-f)
-    (perfmon/instrument-as :wfcjob uuid :metgrid []
+    (perftrack/instrument-as :wfcjob uuid :metgrid []
       (fn () (wrfxlib/run-metgrid wps-wdir log-f)))
 
     ; step 4: setup the WRF working directory
@@ -147,7 +147,7 @@
 
     ;step 7: run real.exe
     (jobmaster/updatestate uuid [{:stage "REAL (5/6)"}])
-    (perfmon/instrument-as :wfcjob uuid :metgrid
+    (perftrack/instrument-as :wfcjob uuid :metgrid
       (fn () (wrfxlib/run-real wrf-wdir log-f)))
 
     ; step 8: run WRF
@@ -157,7 +157,7 @@
       (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 (erl/* (+ fc-hrs 0.1) 3600000) log-f)
         ({:running ext-mon-pid qid}
           (log-f :info "wfcjob [~p] WRF is queued with id ~p" [short-uuid qid])
-          (perfmon/instrument-as :wfcjob uuid :wrf [{:num-nodes num-nodes} {:ppn ppn}]
+          (perftrack/instrument-as :wfcjob uuid :wrf [{:num-nodes num-nodes} {:ppn ppn}]
             (fn () (monitor-wrf-execution uuid wrf-wdir ext-mon-pid sim-from sim-to :undefined log-f))))
         ({:success exit-code}
           (log-f :info "wfcjob [~p] job is already completed, nothing to compute" [short-uuid]))))

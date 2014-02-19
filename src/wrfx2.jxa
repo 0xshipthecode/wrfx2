@@ -19,7 +19,7 @@
 
 (ns wrfx2
     (require
-       jobmaster configsrv logsrv sysmon raws-ingest grib-ingest scheduler perfmon
+       jobmaster configsrv logsrv sysmon raws-ingest grib-ingest scheduler perftrack
        inets io (file :joxify) filename crypto
        (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify)
@@ -62,7 +62,7 @@
   ; start logging subsystem
   (start-logging)
   ; initialize the performance tracking and instrumentation library
-  (perfmon/initialize (logsrv/make-log-f "system"))
+  (perftrack/initialize (logsrv/make-log-f "system"))
   ; start the ingest system
   (start-ingest-system)
   ; start the job manager
