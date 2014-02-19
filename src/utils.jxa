@@ -64,7 +64,7 @@
       (~succ-result
         :ok)
       (~other
-        (let* (~msg (iol/format "FAILURE in ~p: expected ~p instead returned ~p" [(quote ~func) ~succ-result ~other])) 
+        (let* (~msg (iol/format "FAILURE in ~p: expected ~p~ninstead returned ~p~nstacktrace is ~p~n" [(quote ~func) ~succ-result ~other (erl/get-stacktrace)])) 
           (file/write-file "critical_failure.log" ~msg)
           (erl/throw ~msg))))))
 
@@ -77,7 +77,7 @@
     (if (lists/member table-name (mnesia/system-info :tables))
       :ok
       (let* (opts ({:attributes attrs} . ({:index index-fields} . ({:disc_copies [(erl/node)]} . extra-opts))))
-        (utils/critical-check {:atomic :ok} (mnesia/create-table table-name opts))))))
+        (critical-check {:atomic :ok} (mnesia/create-table table-name opts))))))
 
 
 (defn+ ensure-table-exists (tuple-fields index-fields)
@@ -153,6 +153,7 @@
     (if (erl/> timeout-ms file-wait-chunk-ms)
       (do
         (timer/sleep file-wait-chunk-ms)
+        (io/format "waiting for file timeout ~p wait-chunk ~p~n" [timeout-ms file-wait-chunk-ms])
         (wait-for-file file-name (- timeout-ms file-wait-chunk-ms) file-wait-chunk-ms))
       {:failure :timeout})))
 

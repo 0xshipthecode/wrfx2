@@ -18,30 +18,30 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-(ns jm-live-job
+(ns livejob
   (use joxa-records))
 
 (defrecord+ uuid module args pid state)
 
-(ns jm-job-result
+(ns jobresult
   (use joxa-records))
 
 (defrecord+ uuid module args result)
 
 
 (ns jobmaster
-  (require utils plist logsrv filesys filename configsrv jm-live-job jm-job-result
+  (require utils plist logsrv filesys filename configsrv livejob jobresult
            lists (string :as str) gen_server (file :joxify) (timelib :as ta) (mnesia :joxify)
            (dict :joxify) (erlang :as erl :joxify) (io_lib :as iol) os)
   (use joxa-core utils))
 
 
 (defn+ start-link ()
-  (critical-check :ok (ensure-table-exists (record-fields (jm-live-job/field-info)) []))
-  (critical-check :ok (ensure-table-exists (record-fields (jm-job-result/field-info)) []))
-  (critical-check :ok (mnesia/wait-for-tables [:jm-live-job :jm-job-result] 10000))
-  (gen_server/start_link {:global :jobmaster} :jobmaster {:no-table [] (logsrv/make-log-f "system")} [])
-  (gen_server/call :jobmaster :restart-live-jobs))
+  (critical-check :ok (ensure-table-exists (:livejob . (record-fields (livejob/field-info))) []))
+  (critical-check :ok (ensure-table-exists (:jobresult . (record-fields (jobresult/field-info))) []))
+  (critical-check :ok (mnesia/wait-for-tables [:livejob :jobresult] 10000))
+  (gen_server/start_link {:global :jobmaster} :jobmaster {(logsrv/make-log-f "system")} [])
+  (gen_server/call {:global :jobmaster} :resubmit-live-jobs))
 
 
 
@@ -74,19 +74,19 @@
 
 (defn+ livejobs ()
   "Retrieve a list of live jobs from the live jobs table."
-  (check-transaction (mnesia/all-keys :jm-live-job) "livejobs" result))
+  (check-transaction (mnesia/all-keys :livejob) "livejobs" result))
 
 
 (defn+ islive? (uuid)
   "Check if the <uuid> exists in the live jobs table.  Returns :error if transaction fails."
-  (check-transaction (mnesia/read {:jm-live-job uuid}) "islive?" (case result ([] :false) ([_] :true))))
+  (check-transaction (mnesia/read {:livejob uuid}) "islive?" (case result ([] :false) ([_] :true))))
 
 
 (defn+ getstate (uuid)
   "Retrieve the state of the job <uuid>, assuming its live."
   (check-transaction
-    (case (mnesia/read :jm-live-job uuid)
-      ([jlj] (jm-live-job/state jlj))
+    (case (mnesia/read :livejob uuid)
+      ([jlj] (livejob/state jlj))
       ([]   :no-such-job))
     "getstate"
     result))
@@ -94,10 +94,10 @@
 
 (defn modify-state (uuid trans-name modify-f)
   (check-transaction
-    (case (mnesia/read :jm-live-job uuid)
+    (case (mnesia/read :livejob uuid)
       ([jlj]
-        (let* (state1 (modify-f (jm-live-job/state jlj)))
-          (mnesia/write {:jm-live-job (jm-live-job/state! jlj state1)})))
+        (let* (state1 (modify-f (livejob/state jlj)))
+          (mnesia/write (livejob/state! jlj state1))))
       ([] :no-such-job)
       (:error :error))
     trans-name
@@ -132,17 +132,17 @@
 (defn getjobpid (uuid)
   "Retrieve the pid of the job <uuid>, assuming its live."
   (check-transaction
-    (case (mnesia/read {:jm-live-job uuid})
-      ([js]   (jm-live-job/pid js))
+    (case (mnesia/read {:livejob uuid})
+      ([js]   (livejob/pid js))
       ([]     :no-such-job))
     "getjobpid"
     result))
 
 
 (defn retrieve-live-job (uuid)
-  "Retrieve a live job <uuid> from the jm-live-job table."
+  "Retrieve a live job <uuid> from the livejob table."
   (check-transaction
-    (mnesia/read {:jm-live-job uuid})
+    (mnesia/read {:livejob uuid})
     "retrieve-live-job"
     (case result ([js] js) ([] :no-such-job))))
 
@@ -160,14 +160,14 @@
       (catch (type body)
         (case body
           ({:killed :by-request}
-            (logsrv/msg "system" :info "job [~p] was killed by request." [uuid])
+            (logsrv/msg "system" :info "job [~s] was killed by request." [uuid])
             (jobmaster/updatestate uuid [{:result "KILLED"} {:reason "killed by request"} {:jmts (ta/local-time)}]))
           ({:killed with-reason}
-            (logsrv/msg "system" :error "job [~p] was killed with reason ~p.~n" [uuid with-reason])
+            (logsrv/msg "system" :error "job [~s] was killed with reason ~p.~n" [uuid with-reason])
             (jobmaster/updatestate uuid [{:result "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))} {:jmts (ta/local-time)}]))
           (_
             (jobmaster/updatestate uuid [{:result "FAILED"} {:reason (lists/flatten (iol/format "crashed with exception type ~p body ~p" [type body]))}])
-            (logsrv/msg "system" :error "job [~p] crashed (exception: type ~p body ~p)~nstacktrace ~p~n"
+            (logsrv/msg "system" :error "job [~s] crashed (exception: type ~p body ~p) stacktrace ~p~n"
                         [uuid type body (erl/get-stacktrace)])))))
       ; whatever happens, the log gets closed
       (logsrv/close-log uuid)
@@ -192,14 +192,15 @@
             (let* (args2   (plist/update-with [{:uuid uuid} {:short-uuid (str/substr uuid 1 8)}] args)
                    job-pid (execute-job-internal mod args2))
               (log-f :info "jobmaster: job ~p is going LIVE now." [uuid])
-              {:reply (check-transaction (mnesia/write (jm-live-job/make uuid mod args2 job-pid [])) "submit-job" {:ok uuid}) state}))))
+              {:reply (check-transaction (mnesia/write (livejob/make uuid mod args2 job-pid [])) "submit-job" {:ok uuid}) state}))))
       ; notification that a job has been deactivated (from the job)
       ({:job-done uuid}
         (log-f :info "jobmaster: notified that job ~p is done" [uuid])
         {:reply
           (check-transaction
-            (let ([jlj] (mnesia/read {:jm-live-job uuid}))
-              (mnesia/write (jm-job-result/make uuid (jm-live-job/module jlj) (jm-live-job/args jlj) (jm-live-job/state jlj))))
+            (let ([jlj] (mnesia/read {:livejob uuid}))
+              (mnesia/write (jobresult/make uuid (livejob/module jlj) (livejob/args jlj) (livejob/state jlj)))
+              (mnesia/delete {:livejob uuid}))
             "job-done"
             result)
            state})
@@ -214,7 +215,7 @@
             {:reply some-error state})))
       ; resubmit libe jobs
       (:resubmit-live-jobs
-        ;TODO: implement resubmission of jobs registered as live in the jm-live-job table
+        ;TODO: implement resubmission of jobs registered as live in the livejob table
         {:reply :ok state})
       ; message not understood
       (other
