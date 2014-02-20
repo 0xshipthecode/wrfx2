@@ -10,13 +10,8 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
 		ebin/timelib.beam \
-<<<<<<< HEAD
-		ebin/perf-record.beam \
-		ebin/perftrack.beam \
-=======
 		ebin/taskinfo.beam \
-		ebin/perfmon.beam \
->>>>>>> 918e1fc43a5944dc95faf4dcab790d5bd5198773
+		ebin/perftrack.beam \
 		ebin/network.beam \
 		ebin/cycles.beam \
 		ebin/nlist.beam \

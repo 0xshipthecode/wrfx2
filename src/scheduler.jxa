@@ -19,12 +19,13 @@
 
 (ns schedule
   (use joxa-records))
-; WARNING: any changes to this record need corresponding changes to the underlying table in mnesia, see start-link/4
+
 (defrecord+ job-name job-start-time job-f)
 
 
 (ns scheduler
-  (require (mnesia :joxify) lists (gen_server :joxify) (timelib :as ta) (erlang :as erl :joxify) schedule io)
+  (require (mnesia :joxify) lists (gen_server :joxify) (timelib :as ta) (erlang :as erl :joxify) schedule io
+           (io_lib :as iol) (file :joxify))
   (use joxa-core utils))
 
 
@@ -34,11 +35,12 @@
 
 
 (defn+ start-link (log-f)
-  ;WARNING: this table definition must correspond to the record definition of schedule above!
-  (ensure-table-exists [:schedule :job-name :job-start-time :start-func] [])
-  (mnesia/wait-for-tables [:schedule] 5000)
+  (ensure-table-exists (:schedule . (record-fields (schedule/field-info))) [])
+  (critical-check :ok (mnesia/wait-for-tables [:schedule] 5000))
   (!!= {:ok _} (gen_server/start-link {:local :scheduler} :scheduler [(ta/local-time) [] [] log-f] []))
-  (!!= :ok (reload-schedule)))
+  (log-f :info "scheduler: pre-init ok, loading schedules now" [])
+  (!!= :ok (reload-schedule))
+  (log-f :info "scheduler: schedule loaded successfully" []))
 
 
 (defn+ add (job-name job-start start-func)

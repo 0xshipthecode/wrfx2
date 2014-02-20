@@ -18,58 +18,33 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-<<<<<<< HEAD:src/perftrack.jxa
 (ns perftrack
-  (require (erlang :as erl :joxify) lists (timelib :as ta) perf-record (mnesia :joxify)
-=======
-(ns perfmon
   (require (erlang :as erl :joxify) lists (timelib :as ta) taskinfo (mnesia :joxify)
->>>>>>> 918e1fc43a5944dc95faf4dcab790d5bd5198773:src/perfmon.jxa
            (io_lib :as iol) (file :joxify))
   (use joxa-core utils))
 
 
 (defn+ initialize (log-f)
   "Ensures all mnesia tables are created."
-<<<<<<< HEAD:src/perftrack.jxa
-  (ensure-table-exists (lists/map (fn (x) (erl/element 1 x)) (perf-record/field-info)) [{:type :bag}])
-  (critical-check :ok (mnesia/wait-for-tables [:perf-record] 10000))
+  (ensure-table-exists (:taskinfo . (record-fields (taskinfo/field-info))) [:job-type :task-name] [{:type :bag}])
+  (critical-check :ok (mnesia/wait-for-tables [:taskinfo] 5000))
   (log-f :info "perftrack: initialized, tables available." []))
 
 
-(defn+ append-perf-record (pr)
-  "Appends the perf-record <pr> to the table :perf-record.  This function can be used to append performance
-   records gathered by mechanisms outside of the scope of the perftrack."
-  (mnesia/transaction (fn () (mnesia/write pr))))
-
-
-(defn+ append-perf-record (job-type uuid task-name start-time end-time result info)
-  "A shortcut that makes it unnecessary to require perf-records for clients using this module."
-  (append-perf-record (perf-record/make job-type uuid task-name start-time end-time result info)))
-
-
-(defn+ get-perf-records (job-type task-name)
-=======
-  (ensure-table-exists (:taskinfo . (lists/map (fn (x) (erl/element 1 x)) (taskinfo/field-info))) [] [{:type :bag}])
-  (critical-check :ok (mnesia/wait-for-tables [:taskinfo] 10000))
-  (log-f :info "perfmon: initialized, tables available." []))
-
-
-(defn+ append-task-info (pr)
+(defn+ append-task-info (ti)
   "Appends the taskinfo <pr> to the table :taskinfo.  This function can be used to append performance
    records gathered by mechanisms outside of the scope of the perfmon."
-  (mnesia/transaction (fn () (mnesia/write pr))))
+  (mnesia/transaction (fn () (mnesia/write ti))))
 
 
 (defn+ append-task-info (job-type uuid task-name start-time end-time result info)
   "A shortcut that makes it unnecessary to require taskinfos for clients using this module."
-  (append-task-info (taskinfo/make job-type uuid task-name start-time end-time result info)))
+  (append-task-info (taskinfo/make uuid job-type task-name start-time end-time result info)))
 
 
 (defn+ get-task-infos (job-type task-name)
->>>>>>> 918e1fc43a5944dc95faf4dcab790d5bd5198773:src/perfmon.jxa
   "Retrieves the performance records for task <task-name> executed within <job-type>."
-  (mnesia/dirty-select :taskinfo [{{:taskinfo job-type task-name :_ :_ :_ :_} [] [:$3 :$4 :$5 :$6]}]))
+  (mnesia/dirty-select :taskinfo [{{:taskinfo :$1 job-type task-name :$2 :$3 :$4 :$5} [] [{{:$1 :$2 :$3 :$4 :$5}}]}]))
 
 
 (defn+ instrument-as (job-type uuid task-name info task-f)

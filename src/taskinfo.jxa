@@ -21,5 +21,5 @@
 (ns taskinfo
   (use joxa-records))
 
-(defrecord+ job-type uuid task-name start-time end-time result info)
+(defrecord+ uuid job-type task-name start-time end-time result info)
 

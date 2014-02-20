@@ -18,7 +18,7 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns testjob
-  (require wrfxlib nlist nllib plist filesys ext-wrappers logsrv perfmon
+  (require wrfxlib nlist nllib plist filesys ext-wrappers logsrv perftrack
            configsrv jobmaster (timelib :as ta) os
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
@@ -35,12 +35,12 @@
     ; create the working directory for WPS
     (jobmaster/updatestate uuid [{:stage "BEGIN"}])
 
-    (perfmon/instrument-as "testjob" uuid "task1" []
+    (perftrack/instrument-as "testjob" uuid "task1" []
       (fn () (ext-wrappers/run-process "task1" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
     (jobmaster/updatestate uuid [{:stage "stage 2"}])
 
-    (perfmon/instrument-as "testjob" uuid "task2" []
+    (perftrack/instrument-as "testjob" uuid "task2" []
       (fn () (ext-wrappers/run-process "task2" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
     (log-f :info "testjob [~s] end of job reached" [short-uuid])
