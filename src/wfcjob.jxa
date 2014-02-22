@@ -147,7 +147,7 @@
 
     ;step 7: run real.exe
     (jobmaster/updatestate uuid [{:stage "REAL (5/6)"}])
-    (perftrack/instrument-as :wfcjob uuid :metgrid
+    (perftrack/instrument-as :wfcjob uuid :real
       (fn () (wrfxlib/run-real wrf-wdir log-f)))
 
     ; step 8: run WRF
