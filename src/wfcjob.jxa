@@ -193,5 +193,5 @@
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:history-interval [180 120 60]}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
+         {:num-nodes 10} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
 
