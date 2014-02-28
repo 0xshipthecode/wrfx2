@@ -3,17 +3,16 @@ ERLPREFIX=$(HOME)/Apps/erl16b/lib/erlang
 
 all: pre-compile compile
 
+INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/ebin -p deps/steward/ebin
 
-BEAMFILES =	ebin/grib-src-def.beam \
-		ebin/raws-src-def.beam \
-		ebin/utils.beam \
+
+BEAMFILES =	ebin/utils.beam \
 		ebin/plist.beam \
 		ebin/nlscanner.beam \
 		ebin/timelib.beam \
 		ebin/taskinfo.beam \
 		ebin/perftrack.beam \
 		ebin/network.beam \
-		ebin/cycles.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
 		ebin/configsrv.beam \
@@ -21,10 +20,6 @@ BEAMFILES =	ebin/grib-src-def.beam \
 		ebin/scheduler.beam \
 		ebin/filesys.beam \
 		ebin/sysmon.beam \
-		ebin/grib-srv.beam \
-		ebin/static-grib-srv.beam \
-		ebin/grib-ingest.beam \
-		ebin/raws-ingest.beam \
 		ebin/jobmaster.beam \
 		ebin/fmda.beam \
 		ebin/ext-utils.beam \
@@ -52,7 +47,7 @@ ebin/nlparser.beam: src/nlparser.yrl
 	erlc -o ebin src/nlparser.erl
 
 ebin/%.beam: src/%.jxa
-	joxa -p ebin -o ebin -c $<
+	joxa -p ebin $(INCLUDES) -o ebin -c $<
 
 compile: $(BEAMFILES)
 

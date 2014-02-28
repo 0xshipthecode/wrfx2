@@ -19,7 +19,7 @@
 
 (ns wrfx2
     (require
-       jobmaster configsrv logsrv sysmon raws-ingest grib-ingest scheduler perftrack
+       jobmaster configsrv logsrv sysmon afm_ingest raws_ingest grib_ingest scheduler perftrack
        inets io (file :joxify) filename crypto
        (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify)
@@ -36,12 +36,8 @@
 
 (defn+ start-ingest-system ()
   "Start up the ingest system."
-  (let* (ingest-dir (configsrv/get-conf :ingest-storage-dir))
-    (critical-check :ok (filelib/ensure-dir (filename/join [ingest-dir "fake-file"])))
-    (critical-check :ok (logsrv/create-log "raws-ingest"))
-    (raws-ingest/start-link (logsrv/make-log-f "raws-ingest"))
-    (critical-check :ok (logsrv/create-log "grib-ingest"))
-    (grib-ingest/start-link ingest-dir (logsrv/make-log-f "grib-ingest"))))
+  (raws_ingest/start)
+  (grib_ingest/start))
 
 
 (defn+ start-otp-subsystem ()

@@ -21,8 +21,7 @@
 ; This module is a library of namelist manipulation functions.
 
 (ns nllib
-  (require nlist plist grib-src-def))
-
+  (require nlist plist))
 
 
 (defn+ make-geogrid-namelist (wps-dir args nls0)
@@ -42,16 +41,14 @@
     nls3))
 
 
-(defn+ make-wrf-namelist (sim-from sim-to grib-src history-intervals doms nls0)
+(defn+ make-wrf-namelist (sim-from sim-to grib-extra-keys history-intervals doms nls0)
   "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
    the grib source needs."
   (let* (nls1     (nlist/set-wrf-start-time nls0 sim-from doms)
          nls2     (nlist/set-wrf-end-time nls1 sim-to doms)
          nls3     (nlist/set-wrf-run-time nls2 sim-from sim-to)
-         grib-upd (grib-src-def/nl-keys grib-src)
-         nls4     (nlist/set-entries grib-upd nls3)
+         nls4     (nlist/set-entries grib-extra-keys nls3)
          nls5     (nlist/set-entry "time_control" "interval_seconds" [3600] nls4)
          nls6     (nlist/set-entry "time_control" "history_interval" history-intervals nls5))
     nls6))
-
 

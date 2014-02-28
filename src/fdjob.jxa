@@ -19,7 +19,7 @@
 
 (ns fdjob
   (require wrfxlib nlist nllib plist filesys ext-wrappers ext-utils ext-job logsrv io
-           configsrv wrf-monitor jobmaster grib-ingest raws-ingest grib-src-def lists
+           configsrv wrf-monitor jobmaster grib_ingest raws_ingest lists
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename fmda
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify))
   (use joxa-core utils))
@@ -48,7 +48,7 @@
          ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
          hist-ints      (plist/get :history-interval args)
-         grib-src       (grib-ingest/get-grib-def grib-src-name)
+         grib-info      (grib_ingest/get_grib_info grib-src-name)
          station-list-f (plist/get :station-list-file args)
          station-list   (fmda/load-station-list station-list-f)
          sim-to         (ta/shift-by-hours sim-from fc-hrs)
@@ -62,7 +62,7 @@
     (log-f :info "fdjob [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
 
     ; create the working directory for WPS
-    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir "ungrib/Variable_Tables/Vtable.NAM" []))
+    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) []))
 
     ; step 1: edit WPS namelist and run geogrid
     (jobmaster/updatestate job-id [{:stage "GEOGRID (1/8)"}])
@@ -75,8 +75,9 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate job-id [{:stage "GRIB retrieval (2/8)"}])
       (log-f :info "fdjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
-      (let ({cov-from cov-to mfest}  (grib-ingest/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
-             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+      (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve,{:wait_for_mins,5},:try_retrieve]
+            {cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
+            wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
         (log-f :info "fdjob [~p] writing amended namelist.wps for ungrib.exe" [short-jid])))
@@ -98,14 +99,14 @@
       (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
     ; step 6: construct the WRF namelist
-    (let* (wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to grib-src hist-ints all-doms wrf-nl0))
+    (let* (nl-keys (plist/get :wrf_namelist_keys grib-info)
+           wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to nl-keys hist-ints all-doms wrf-nl0))
       (log-f :info "fdjob [~p] writing namelist.input for WRF" [short-jid])
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
     ;step 7: run real.exe
     (jobmaster/updatestate job-id [{:stage "REAL (5/8)"}])
     (wrfxlib/run-real wrf-wdir log-f)
-
 
     ; step 9: run WRF
     (log-f :info "fdjob [~p] running WRF" [short-jid])
@@ -132,9 +133,10 @@
     (let* (data-dir (filename/join fmda-wdir "data"))
       (!!= :ok (filesys/create-dir data-dir))
       (let* (now-time       (ta/round-hours (ta/shift-by-hours (ta/universal-time) -1) :down)
-             raws-max-time  (ta/min-time now-time sim-to)
-             data           (raws-ingest/retrieve-observations station-list sim-from raws-max-time 1200))
-        (lists/map (fn (st-data) (fmda/write-raws-info-and-obs st-data data-dir)) data)))
+             raws-max-time  (ta/min-time now-time sim-to))
+        (lists/map (fn (st-code)
+          (let* (st-data (raws_ingest/retrieve_observations st-code {sim-from raws-max-time}))
+            (fmda/write-raws-info-and-obs st-data data-dir))) station-list)))
 
     ; step 12: run external fuel moisture code
     (jobmaster/updatestate job-id [{:stage "FMDA (8/8)"}])

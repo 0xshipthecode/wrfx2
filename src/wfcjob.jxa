@@ -19,7 +19,7 @@
 
 (ns wfcjob
   (require wrfxlib nlist nllib plist filesys ext-utils ext-job logsrv io
-           configsrv wrf-monitor jobmaster grib-ingest grib-src-def perftrack
+           configsrv wrf-monitor jobmaster grib_ingest perftrack
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify) lists)
   (use joxa-core utils))
@@ -92,7 +92,7 @@
          ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
          hist-ints      (plist/get :history-interval args)
-         grib-src       (grib-ingest/get-grib-def grib-src-name)
+         grib-info       (grib_ingest/get_grib_info grib-src-name)
          sim-to         (ta/shift-by-hours sim-from fc-hrs)
          wps-wdir       (filename/join work-dir "wps")
          wrf-wdir       (filename/join work-dir "wrf")
@@ -102,7 +102,7 @@
 
     (log-f :info "wfcjob [~p] work-dir ~p sim-from ~w sim-to ~w~n" [uuid work-dir sim-from sim-to])
     ; create the working directory for WPS
-    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (grib-src-def/vtable-file grib-src) []))
+    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) []))
 
     ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
     (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
@@ -116,8 +116,9 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfcjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-uuid sim-from sim-to])
-      (let ({cov-from cov-to mfest}  (grib-ingest/retrieve-gribs grib-src-name sim-from sim-to sim-from 3600)
-             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+      (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve,{:wait_for_mins,5},:try_retrieve]
+            {cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
+            wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
         (log-f :info "wfcjob [~p] writing amended namelist.wps for ungrib.exe" [short-uuid])))
@@ -141,7 +142,8 @@
       (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
     ; step 6: construct the WRF namelist
-    (let* (wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to grib-src hist-ints all-doms wrf-nl0))
+    (let* (nl-keys (plist/get :wrf_namelist_keys grib-info)
+           wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to nl-keys hist-ints all-doms wrf-nl0))
       (log-f :info "wfcjob [~p] writing namelist.input for WRF" [short-uuid])
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
