@@ -18,56 +18,12 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns wfcjob
-  (require wrfxlib nlist nllib plist filesys ext-utils ext-job logsrv io
-           configsrv wrf-monitor jobmaster grib_ingest perftrack
+  (require wrfxlib nlist nllib plist filesys logsrv io
+           configsrv jobmaster grib_ingest perftrack postproc
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify) lists)
   (use joxa-core utils))
 
-
-
-(defn write-kmz-file (uuid wdir sim-from sim-time log-f)
-  (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
-         sim-time-str (ta/to-esmf-str sim-time)
-         wrfout-name  (iol/format "~s/wrfout_d03_~s" [wdir (ta/to-esmf-str sim-from)]))
-    (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
-    (lists/map (fn (var-info)
-                  (let ({var-name var-unit} var-info)
-                    (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
-                           kml-absname (filename/join [kml-dir uuid kml-basename])
-                           cmd-str (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
-                                                [wrfout-name var-name var-unit sim-time-str kml-absname]))
-                      (erl/spawn (fn ()
-                                  (log-f :info "wfcjob obtained results from raster2kml for var ~p ~p"
-                                               [var-name (os/cmd cmd-str)])))))) 
-                [{"T2" "K"} {"PSFC" "Pa"}])))
-
-
-(defn monitor-wrf-execution (uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f)
-  "Parse the error output of the process with rank 0 in the working
-   directory <wdir> while the wrf job with pid <pid> completes."
-  (receive
-    ({:wrf-history-written domain-id sim-time}
-      (log-f :info "wfcjob detected WRF history write at ~w in domain ~p" [sim-time domain-id])
-      (log-f :info "wfcjob progress info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
-                 (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
-                                  :not-available (jobmaster/getstate uuid)))
-      (when (erl/== domain-id 3)
-        (write-kmz-file uuid wdir sim-from sim-time log-f))
-        (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))
-    ({:proc-started ext-mon-pid comp-start}
-      (log-f :info "wfcjob WRF computation started on ~w, monitoring" [comp-start])
-      (let* (fname            (filename/join wdir "rsl.error.0000")
-             real-wrf-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start uuid log-f))
-        (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to real-wrf-mon-pid log-f)))
-    ({:proc-complete ext-mon-pid result}
-      (unless (erl/== :undefined wrf-mon-pid) (erl/send wrf-mon-pid :terminate))
-      result)
-      ; if a :kill is sent, it will be sent to this process
-    (:kill
-      (log-f :warn "wfcjob [~p] received kill request." [uuid])
-      (erl/send ext-mon-pid :kill)
-      (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid log-f))))
 
 
 (defn+ run (args log-f)
@@ -155,14 +111,16 @@
     ; step 8: run WRF
     (log-f :info "wfcjob [~p] running WRF" [short-uuid])
     (jobmaster/updatestate uuid [{:stage "WRF (6/6)"}])
-    (let* (start-time (ta/local-time))
-      (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 (erl/* (+ fc-hrs 0.1) 3600000) log-f)
-        ({:running ext-mon-pid qid}
-          (log-f :info "wfcjob [~p] WRF is queued with id ~p" [short-uuid qid])
-          (perftrack/instrument-as :wfcjob uuid :wrf [{:num-nodes num-nodes} {:ppn ppn}]
-            (fn () (monitor-wrf-execution uuid wrf-wdir ext-mon-pid sim-from sim-to :undefined log-f))))
-        ({:success exit-code}
-          (log-f :info "wfcjob [~p] job is already completed, nothing to compute" [short-uuid]))))
+    (let* (wrf-history-hook
+            (fn (domain-id sim-time)
+              (when (erl/== domain-id 2)
+                (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time [{"T2" "K"} {"PSFC" "Pa"}] log-f)))
+           cfl-violation-hook
+            (fn (ext-mon-pid)
+              (log-f :error "wfcjob detected CFL violation, terminating WRF job." [])
+              (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
+      (perftrack/instrument-as :wfcjob uuid :wrf [{:num-nodes num-nodes} {:ppn ppn}]
+        (fn () (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 120 wrf-history-hook cfl-violation-hook log-f))))
 
     (log-f :info "wfcjob [~p] end of job reached" [short-uuid])
     (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])

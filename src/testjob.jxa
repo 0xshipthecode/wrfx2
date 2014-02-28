@@ -19,7 +19,7 @@
 
 (ns testjob
   (require wrfxlib nlist nllib plist filesys ext-wrappers logsrv perftrack
-           configsrv jobmaster (timelib :as ta) os
+           configsrv jobmaster (timelib :as ta) os grib_ingest
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
@@ -28,12 +28,18 @@
   "Execute the wfc-jobulation job with the given arguments."
   (let* (uuid           (plist/get :uuid args)
          short-uuid     (plist/get :short-uuid args)
-         work-dir       (plist/get :work-dir args))
+         work-dir       (plist/get :work-dir args)
+         now            (ta/round-hours (ta/universal-time) :down))
 
     (log-f :info "testjob [~s] with work-dir ~s" [uuid work-dir])
 
     ; create the working directory for WPS
     (jobmaster/updatestate uuid [{:stage "BEGIN"}])
+
+    ; retrieve some data from a nam_218 grib source
+    (perftrack/instrument-as "testjob" uuid "grib-retr" []
+      (grib_ingest/retrieve_gribs now (ta/shift-by-hours now 4) now
+                                      [{:use_grib_source :nam_218} :try_retrieve :shift_cycle :try_retrieve]))
 
     (perftrack/instrument-as "testjob" uuid "task1" []
       (fn () (ext-wrappers/run-process "task1" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))

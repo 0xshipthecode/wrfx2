@@ -37,7 +37,8 @@
 (defn+ start-ingest-system ()
   "Start up the ingest system."
   (raws_ingest/start)
-  (grib_ingest/start))
+  (grib_ingest/start)
+  (afm_ingest/start))
 
 
 (defn+ start-otp-subsystem ()

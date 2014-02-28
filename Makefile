@@ -8,23 +8,21 @@ INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/eb
 
 BEAMFILES =	ebin/utils.beam \
 		ebin/plist.beam \
+		ebin/configsrv.beam \
 		ebin/nlscanner.beam \
 		ebin/timelib.beam \
+		ebin/postproc.beam \
 		ebin/taskinfo.beam \
 		ebin/perftrack.beam \
 		ebin/network.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
-		ebin/configsrv.beam \
 		ebin/logsrv.beam \
 		ebin/scheduler.beam \
 		ebin/filesys.beam \
 		ebin/sysmon.beam \
 		ebin/jobmaster.beam \
 		ebin/fmda.beam \
-		ebin/ext-utils.beam \
-		ebin/ext-proc.beam \
-		ebin/ext-job.beam \
 		ebin/ext-wrappers.beam \
 		ebin/wrf-monitor.beam \
 		ebin/wrfxlib.beam \

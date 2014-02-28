@@ -1,6 +1,6 @@
 (ns nasa-fire-job
-  (require wrfxlib nlist plist filesys ext-utils ext-job logsrv configsrv wrf-monitor jobmaster
-           (timelib :as ta) os (io_lib :as iol) (filelib :joxify)
+  (require wrfxlib nlist plist filesys logsrv configsrv jobmaster
+           (timelib :as ta) os (io_lib :as iol) (filelib :joxify) postproc
            (string :as str) filename (file :joxify) (erlang :as erl :joxify) lists)
   (use joxa-core utils))
 
@@ -16,51 +16,17 @@
       (fn (nls) (nlist/set-ignitions nls ign-specs 2)) ]))
 
 
-(defn monitor-wrf-execution (job-id wdir pid sim-from sim-to mon-pid log-f)
-  "Parse the error output of the process with rank 0 in the working
-   directory <wdir> while the wrf job with pid <pid> completes."
-  (let* (fname (filename/join wdir "rsl.error.0000"))
-    (receive
-      ({:wrf-history-written 1 sim-time}
-        (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid log-f))
-      ({:wrf-history-written 2 sim-time}
-        (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
-               sim-time-str (ta/to-esmf-str sim-time)
-               wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)])
-               kml-basename (erl/++ sim-time-str ".kmz")
-               kml-abs-name (filename/join [kml-dir job-id kml-basename]))
-            (filelib/ensure-dir kml-abs-name)
-            (let* (cmd-str (iol/format "deps/viswrf/contour2kml.py ~s FIRE_AREA ~s ~s" [wrfout-name sim-time-str kml-abs-name]))
-              (log-f :info "nasa-fire-job detected WRF history write at ~w in domain 2" [sim-time])
-              (log-f :info "nasa-fire-job result from wrf2kml ~p" [(os/cmd cmd-str)])
-              (jobmaster/updatestate job-id [:kmls kml-basename])
-              (let* (jstate (jobmaster/getstate job-id))
-                (log-f :info "nasa-fire-job simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
-                            (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time] :not-available jstate)))
-          (monitor-wrf-execution job-id wdir pid sim-from sim-to mon-pid log-f))))
-      ({:proc-started pid comp-start}
-        (log-f :info "nasa-fire-job WRF computation started on ~w, monitoring" [comp-start])
-        (let* (real-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start job-id log-f))
-          (monitor-wrf-execution job-id wdir pid sim-from sim-to real-mon-pid log-f)))
-      ({:ext-proc-complete pid result}
-        (jobmaster/removestate job-id [:qid])
-        (case mon-pid
-          (:undefined :ok)
-          (valid-pid (erl/send mon-pid :terminate)))
-        result))))
-
-
 (defn+ run (args log-f)
   "Execute the fire-simulation job with the given arguments:
    sim-from: when to start the simulation
    ign-specs: a list of ignition specifications
-   job-id: unique identifier of the job
+   uuid: unique identifier of the job
    work-dir: working directory
    wrf-inst-dir: WRF installation directory
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
-  (let* (job-id         (plist/get :job-id args)
-         short-jid      (plist/get :short-job-id args)
+  (let* (uuid         (plist/get :uuid args)
+         short-jid      (plist/get :short-uuid args)
          work-dir       (plist/get :work-dir args)
          wrf-idir       (plist/get :wrf-install-dir args)
          ign-specs      (plist/get :ign-specs args)
@@ -75,7 +41,7 @@
          fire-nl0       (nlist/parse "etc/nlists/nasa-fs.fire" :nasa_fs_fire0)
          all-doms       (nlist/all-domains wrf-nl0))
 
-    (log-f :info "nasa-fire-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
+    (log-f :info "nasa-fire-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [uuid work-dir sim-from sim-to])
 
     ; step 1: setup the WRF working directory
     (wrfxlib/clone-wrf wrf-idir wrf-wdir)
@@ -97,18 +63,20 @@
 
     ; step 4: run WRF
     (log-f :info "nasa-fire-job [~p] running WRF" [short-jid])
-    (jobmaster/updatestate job-id [:stage "WRF"])
-    (case (ext-job/run "wrf" (filename/join wrf-wdir "wrf.exe") wrf-wdir num-nodes ppn wall-time-hrs 60000 (erl/* (+ fc-hrs 0.1) 3600000) log-f)
-      ({:running wrf-pid qid}
-        (jobmaster/updatestate job-id [:qid qid])
-        (monitor-wrf-execution job-id wrf-wdir wrf-pid sim-from sim-to :undefined log-f))
-      ({:success exit-code}
-        (let ({:ok kml-fs} (file/list-dir (filename/join [(configsrv/get-conf :wrfx2web-kml-dir) job-id])))
-            (jobmaster/updatestate job-id [:kmls (lists/sort kml-fs)]))
-        (log-f :info "nasa-fire-job [~p] job is already completed, nothing to compute" [short-jid])))
+    (jobmaster/updatestate uuid [:stage "WRF"])
+    (let* (wrf-history-hook
+            (fn (domain-id sim-time)
+              (when (erl/== domain-id 2)
+                (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time ["FIRE_AREA"] log-f)))
+           cfl-violation-hook
+            (fn (ext-mon-pid)
+              (log-f :error "nasa-fire-job detected CFL violation, terminating WRF job." [])
+              (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
+      (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 120 wrf-history-hook cfl-violation-hook log-f))
+
     (log-f :info "nasa-fire-job [~p] end of job reached" [short-jid])
 
-    (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])
+    (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
 
     :ok))
 

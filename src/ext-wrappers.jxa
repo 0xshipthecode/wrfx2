@@ -19,7 +19,9 @@
 
 
 (ns ext-wrappers
-  (require filename lists os io logsrv ext-proc ext-utils
+  (require filename lists os io logsrv 
+           (steward_process :as sproc :joxify)
+           (steward_utils :as sutils :joxify)
            (io_lib :as iol)
            (erlang :as erl :joxify)
            (file :joxify)
@@ -30,14 +32,14 @@
 
 
 (defmacro+ wrap-run (exec-func)
-  "Wrap a standard execution (ext-proc or ext-job) in a function
+  "Wrap a standard execution (steward_process or steward_job) in a function
    that either returns the exit code of the process or fails (throws an error)."
   (let* (pid (gensym)
          error (gensym)
          exit-code (gensym))
     `(case ~exec-func
       ({:running ~pid}
-        (case (ext-utils/wait-for-completion ~pid)
+        (case (sutils/wait-for-completion ~pid)
           ({:success ~exit-code} ~exit-code)
           (~error (erl/throw ~error))))
       ({:success ~exit-code}
@@ -51,9 +53,9 @@
   If not previously run, run the code and check for success.  <tries-left> must be a number greater than
   or equal to 1."
   (let ({adj-tries-left proc-result}
-          (case (ext-proc/run tid cmd out-spec in-dir timeout log-f)
+          (case (sproc/execute tid cmd out-spec in-dir timeout log-f)
             ({:running pid}
-              {(decr tries-left) (ext-utils/wait-for-completion pid)})
+              {(decr tries-left) (sutils/wait-for-completion pid)})
             (already-finished
               {tries-left already-finished}))
 
@@ -64,7 +66,7 @@
               (0
                 (failure-mode-f))
               (more-than-zero
-                (ext-utils/cleanup-execution-files in-dir tid)
+                (sutils/remove-execution-files in-dir tid)
                 (run-process tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f (decr tries-left))))))
 
     (case proc-result
@@ -79,7 +81,7 @@
             (apply-retry-policy adj-tries-left (fn () (erl/throw {tid :wrong-exit-code other-exit-code}))))
         ({:killed with-reason}
             ; cleanup the execution files (since we cannot trust the results anymore)
-            (ext-utils/cleanup-execution-files in-dir tid)
+            (sutils/remove-execution-files in-dir tid)
             (erl/throw {:killed with-reason})))))
 
 

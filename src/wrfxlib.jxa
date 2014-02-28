@@ -1,5 +1,6 @@
 (ns wrfxlib
-  (require filesys filename ext-job ext-utils ext-wrappers plist wrf-monitor
+  (require filesys filename ext-wrappers plist wrf-monitor configsrv
+           (steward_job :as sjob :joxify) (steward_utils :as sutils :joxify)
            (erlang :as erl :joxify) (io_lib :as iol :joxify) (filelib :joxify))
   (use joxa-core utils ext-wrappers))
 
@@ -27,7 +28,7 @@
 
 
 (defn+ run-geogrid (in-dir log-f)
-  (let* (out-spec  (ext-utils/make-std-output-spec in-dir "geogrid"))
+  (let* (out-spec  (sutils/make-std-output-spec in-dir "geogrid"))
     (log-f :info "running GEOGRID" [])
     (run-process "geogrid" "./geogrid.exe" out-spec in-dir 1800000 log-f 0
       (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of geogrid.")) 1)
@@ -37,7 +38,7 @@
 
 (defn+ run-ungrib (in-dir log-f)
   "Run ungrib.exe in the WPS directory <in-dir> and log progress to using <log-f>."
-  (let* (out-spec (ext-utils/make-std-output-spec in-dir "ungrib"))
+  (let* (out-spec (sutils/make-std-output-spec in-dir "ungrib"))
     (log-f :info "running UNGRIB" [])
     (run-process "ungrib" "./ungrib.exe" out-spec in-dir 3600000 log-f 0
       (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of ungrib.")) 1)
@@ -46,7 +47,7 @@
 
 (defn+ run-metgrid (in-dir log-f)
   "Run metgrid.exe in the WPS directory <in-dir> and log progress using <log-f>."
-  (let* (out-spec (ext-utils/make-std-output-spec in-dir "metgrid"))
+  (let* (out-spec (sutils/make-std-output-spec in-dir "metgrid"))
     (log-f :info "running METGRID [SERIAL]" [])
     (run-process "metgrid" "./metgrid.exe" out-spec in-dir 3600000 log-f 0
       (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of metgrid.")) 1)
@@ -56,7 +57,7 @@
 (defn+ run-metgrid-par (in-dir np log-f)
   "Runs metgrid.exe locally using <np> processes on MPI.  Requires the availability of a DMpar installation
    of wrf/wps, logs progress using <log-f>."
-  (let* (out-spec (ext-utils/make-std-output-spec in-dir "metgrid")
+  (let* (out-spec (sutils/make-std-output-spec in-dir "metgrid")
          cmd      (iol/format "mpiexec -n ~p -machinefile ../../../etc/machinefile ./metgrid.exe" [np]))
     (log-f :info "running METGRID [DMPAR]" [])
     (run-process "metgrid" cmd out-spec in-dir 18000000 log-f 0
@@ -118,7 +119,7 @@
       (unless (erl/== :undefined wrf-mon-pid)
         (erl/send wrf-mon-pid :terminate))
       result)
-      ; if a :kill is sent, it will be sent to this process
+      ; if a :kill is sent, it will land right here
     ({:kill with-reason}
       (log-f :warn "[~p] received kill request with reason ~p." [uuid with-reason])
       (erl/send ext-mon-pid {:kill with-reason})
@@ -132,10 +133,10 @@
    and completion time can be estimated.
    Use the hooks <wrf-history-hook> and <cfl-violation-hook> to handle new data in wrfout and the
    detection of a CFL violation."
-  (let* (wrf-cmd (filename/join wdir "wrf.exe")
-         pid-timeout-ms (erl/* pid-timeout-s 1000)
-         job-timeout-ms (erl/* (erl/+ wall-time-hrs 0.1) 3600000)
-         wrf-result (case (ext-job/run "wrf" wrf-cmd wdir num-nodes ppn wall-time-hrs pid-timeout-ms job-timeout-ms log-f)
+  (let* (wrf-cmd       (filename/join wdir "wrf.exe")
+         job-timeout-s (erl/* (erl/+ wall-time-hrs 0.1) 3600)
+         hpc-backend   (configsrv/get-conf :hpc-backend)
+         wrf-result (case (sjob/execute "wrf" wrf-cmd wdir num-nodes ppn wall-time-hrs pid-timeout-s job-timeout-s hpc-backend log-f)
                       ({:running ext-mon-pid qid}
                         (log-f :info "[~p] WRF is queued with id ~p" [uuid qid])
                         (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to :undefined wrf-history-hook cfl-violation-hook log-f))
@@ -155,7 +156,5 @@
       ({:killed with-reason}
         (log-f :info "[~p] WRF task has been killed with reason ~p" [uuid with-reason])
         (erl/throw {:killed with-reason})))))
-
-
 
 
