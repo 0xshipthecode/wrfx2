@@ -37,12 +37,13 @@
 
 
 (defn+ start-link ()
+  "Ensure tables :livejob :jobresult are initialized and ready.  Then globally register
+   the jobmaster and resubmit all jobs that did not complete yet."
   (critical-check :ok (ensure-table-exists (:livejob . (record-fields (livejob/field-info))) []))
   (critical-check :ok (ensure-table-exists (:jobresult . (record-fields (jobresult/field-info))) []))
   (critical-check :ok (mnesia/wait-for-tables [:livejob :jobresult] 10000))
   (gen_server/start_link {:global :jobmaster} :jobmaster {(logsrv/make-log-f "system")} [])
   (gen_server/call {:global :jobmaster} :resubmit-live-jobs))
-
 
 
 (defmacro check-transaction (do-f trans-id on-success)
@@ -60,6 +61,7 @@
 ;; --------------------------------------------
 ;; public API
 ;; --------------------------------------------
+
 
 (defn+ job-done (uuid)
   "Notify the jobmaster that the job <uuid> is complete."
@@ -79,7 +81,7 @@
 
 (defn+ islive? (uuid)
   "Check if the <uuid> exists in the live jobs table.  Returns :error if transaction fails."
-  (check-transaction (mnesia/read {:livejob uuid}) "islive?" (case result ([] :false) ([_] :true))))
+  (check-transaction (mnesia/read {:livejob uuid}) "islive?" (erl/not (empty? result))))
 
 
 (defn+ getstate (uuid)
@@ -93,6 +95,8 @@
 
 
 (defn modify-state (uuid trans-name modify-f)
+  "Modify the state of the job <uuid>.  Use name <trans-name> to identify the transaction.
+   The modification is mediated by the <modify-f> function."
   (check-transaction
     (case (mnesia/read :livejob uuid)
       ([jlj]
