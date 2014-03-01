@@ -8,7 +8,7 @@
 
 (defn get-log-device (log-name)
   "Retrieve the PID associated with the log <log-name>."
-  (case (gen_server/call :wrfx2logsrv {:get-log-device log-name})
+  (case (gen_server/call {:global :wrfx2logsrv} {:get-log-device log-name})
     ({:ok log-dev} log-dev)
     (error (erl/throw (iol/format "logsrv: unknown log ~p" [log-name])))))
 
@@ -51,12 +51,12 @@
 (defn+ create-log (log-name)
   "Create a new log stream with name <log-name> that is sent to log-dir/log-name.log
    and also to any <additional-targets>."
-  (gen_server/call :wrfx2logsrv {:create-log log-name :info}))
+  (gen_server/call {:global :wrfx2logsrv} {:create-log log-name :info}))
 
 
 (defn+ close-log (log-name)
   "Close the log <log-name>, this closes the associated io device."
-  (gen_server/call :wrfx2logsrv {:close-log log-name}))
+  (gen_server/call {:global :wrfx2logsrv} {:close-log log-name}))
 
 
 (defn+ msg (log-name level msg args)
@@ -95,7 +95,7 @@
 (defn+ start-link (log-dir)
   "Start the logging server and construct one default log stream 'system' for general
    messages."
-  (gen_server/start_link {:local :wrfx2logsrv} :logsrv [log-dir (dict/new)] [])
+  (gen_server/start_link {:global :wrfx2logsrv} :logsrv [log-dir (dict/new)] [])
   (create-log "system"))
 
 
