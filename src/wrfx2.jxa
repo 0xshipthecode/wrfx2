@@ -47,15 +47,14 @@
 (defn+ start-otp-subsystem ()
   "Start the OTP subsystems required for wrfx2 platform services."
   (inets/start)
-  (mnesia/create-schema [(erl/node) :wrfx2web@shodan13])
+  (mnesia/create-schema [(erl/node)])
   (mnesia/start)
   (crypto/start))
 
-
-(defn connect-to-wrfx2web-node ()
-  (let ({:ok hostname} (inet/gethostname))
-    (let* (node-name (erl/list-to-atom (erl/++ "wrfx2web@" hostname)))
-      (net_adm/ping node-name))))
+(defn wrfx2web-node-name ()
+  (let (wrfx2web-base  (configsrv/get-conf :wrfx2web-node)
+        {:ok hostname} (inet/gethostname))
+    (erl/list-to-atom (erl/++ wrfx2web-base hostname))))
 
 
 (defn+ start ()
@@ -81,7 +80,7 @@
   ; we are ready to go
   (logsrv/msg "system" :info "wrfx2 startup complete" [])
   ; check if the webserver is up, if yes, connect
-  (connect-to-wrfx2web-node))
+  (net_adm/ping (wrfx2web-node-name)))
 
 
 
