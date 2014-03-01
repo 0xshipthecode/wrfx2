@@ -1,9 +1,0 @@
-(ns raws-src-def
-  (use joxa-records))
-
-;; name - an identifier for the raws source definition
-;; mod-name - name of module that services this source
-;; var-list - list of variables provided by the raws source
-;; max-dl - maximum concurrent downloads allowed by the system
-
-(defrecord+ name mod-name var-list max-dl)
