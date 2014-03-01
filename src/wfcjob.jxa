@@ -68,7 +68,7 @@
       (jobmaster/updatestate uuid [{:stage "GEOGRID (1/6)"}])
       (perftrack/instrument-as :wfcjob uuid :geogrid []
         (fn () (wrfxlib/run-geogrid wps-wdir log-f)))
-
+      
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfcjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-uuid sim-from sim-to])

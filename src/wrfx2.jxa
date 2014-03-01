@@ -40,6 +40,7 @@
   (logsrv/create-log "grib-ingest")
   (let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
     (application/set-env :grib_ingest :logging_function grib-log-f)
+    (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest-storage-dir))
     (grib_ingest/start))
   (afm_ingest/start))
 
