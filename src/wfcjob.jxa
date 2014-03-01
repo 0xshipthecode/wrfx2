@@ -72,9 +72,10 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfcjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-uuid sim-from sim-to])
-      (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve,{:wait_for_mins,5},:try_retrieve]
-            {cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
+      (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve]
+            {:success cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+        (log-f :info "wfcjob [~p] obtained GRIB2 manifest ~p~n" [uuid mfest])
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
         (log-f :info "wfcjob [~p] writing amended namelist.wps for ungrib.exe" [short-uuid])))
@@ -136,10 +137,10 @@
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
          {:grib-src-name :nam_218}
-         {:sim-from {{2013 9 1} {0 0 0}}}
+         {:sim-from {{2014 2 4} {0 0 0}}}
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
+         {:num-nodes 10} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
 
 
 (defn+ submit (from)
@@ -155,7 +156,7 @@
          {:history-interval [180 120 60]}
          {:num-nodes 10} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
 
-(defn+ conus-forecast (from wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src fc-len-hrs)
+(defn+ run-forecast (from wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src fc-len-hrs)
   (let* (uuid (lists/flatten (iol/format "wfc-ondemand-~s" [(ta/to-esmf-str from)])))
     (jobmaster/submit uuid :wfcjob
         [{:sim-from from}
@@ -164,9 +165,10 @@
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
          {:grib-src-name grib-src}
          {:wps-nl (filename/join "etc/nlists" wps-nl)}
-	 {:wrf-nl (filename/join "etc/nlists" wrf-nl)}
-	 {:history-interval [180 120 60]}
-	 {:num-nodes num-nodes}
-	 {:ppn ppn}
+    	 {:wrf-nl (filename/join "etc/nlists" wrf-nl)}
+	     {:history-interval [180 120 60]}
+	     {:num-nodes num-nodes}
+	     {:ppn ppn}
          {:wall-time-hrs wall-time-hrs}
          {:forecast-length-hrs fc-len-hrs}])))
+
