@@ -1,5 +1,5 @@
 
-ERLPREFIX=/usr/local/Cellar/erlang-r16/R16B01/lib/erlang
+ERLPREFIX=/home/mvejmelka/Apps/erlang/lib/erlang
 
 all: compile-deps pre-compile compile
 
@@ -15,7 +15,6 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/postproc.beam \
 		ebin/taskinfo.beam \
 		ebin/perftrack.beam \
-		ebin/network.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
 		ebin/logsrv.beam \
