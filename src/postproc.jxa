@@ -1,0 +1,54 @@
+; Copyright (C) 2013-2014 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+(ns postproc
+  (require (timelib :as ta) (io_lib :as iol) filename (filelib :joxify) 
+           lists (erlang :as erl :joxify) configsrv os)
+  (use joxa-core utils))
+
+
+(defn+ write-raster-kmz-file (uuid wdir sim-from sim-time var-info-list log-f)
+  (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
+         sim-time-str (ta/to-esmf-str sim-time)
+         wrfout-name  (iol/format "~s/wrfout_d03_~s" [wdir (ta/to-esmf-str sim-from)]))
+    (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
+    (lists/map (fn (var-info)
+                  (let ({var-name var-unit} var-info)
+                    (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
+                           kml-absname (filename/join [kml-dir uuid kml-basename])
+                           cmd-str (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
+                                                [wrfout-name var-name var-unit sim-time-str kml-absname]))
+                      (erl/spawn (fn ()
+                                  (log-f :info "job [~s] obtained results for var ~p from raster2kml ~p"
+                                               [uuid var-name (os/cmd cmd-str)])))))) 
+                var-info-list)))
+
+(defn+ write-contour-kmz-file (uuid wdir sim-from sim-time var-list log-f)
+  (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
+         sim-time-str (ta/to-esmf-str sim-time)
+         wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)]))
+    (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
+    (lists/map (fn (var-name)
+                 (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
+                        kml-abs-name (filename/join [kml-dir uuid kml-basename])
+                        cmd-str (iol/format "deps/viswrf/contour2kml.py ~s ~s ~s ~s" [wrfout-name var-name sim-time-str kml-abs-name]))
+                  (erl/spawn (fn ()
+                              (log-f :info "job [~s] obtined result for var ~p from contour2kml ~p" [uuid var-name (os/cmd cmd-str)])))))
+               var-list)))
+
