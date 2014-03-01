@@ -155,3 +155,18 @@
          {:history-interval [180 120 60]}
          {:num-nodes 10} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
 
+(defn+ conus-forecast (from wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src fc-len-hrs)
+  (let* (uuid (lists/flatten (iol/format "wfc-ondemand-~s" [(ta/to-esmf-str from)])))
+    (jobmaster/submit uuid :wfcjob
+        [{:sim-from from}
+         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
+         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
+         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
+         {:grib-src-name grib-src}
+         {:wps-nl (filename/join "etc/nlists" wps-nl)}
+	 {:wrf-nl (filename/join "etc/nlists" wrf-nl)}
+	 {:history-interval [180 120 60]}
+	 {:num-nodes num-nodes}
+	 {:ppn ppn}
+         {:wall-time-hrs wall-time-hrs}
+         {:forecast-length-hrs fc-len-hrs}])))
