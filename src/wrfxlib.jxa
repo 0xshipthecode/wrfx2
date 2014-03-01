@@ -110,12 +110,12 @@
     ({:wrf-history-written domain-id sim-time}
       (wrf-history-hook domain-id sim-time)
       (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f))
-    ({:proc-started ext-mon-pid comp-start}
+    ({:proc_started ext-mon-pid comp-start}
       (log-f :info "[~p] WRF computation started on ~w, monitoring" [uuid comp-start])
       (let* (fname            (filename/join wdir "rsl.error.0000")
              real-wrf-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start uuid log-f))
         (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to real-wrf-mon-pid wrf-history-hook cfl-violation-hook log-f)))
-    ({:proc-complete ext-mon-pid result}
+    ({:proc_terminated ext-mon-pid result}
       (unless (erl/== :undefined wrf-mon-pid)
         (erl/send wrf-mon-pid :terminate))
       result)
