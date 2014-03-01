@@ -135,7 +135,7 @@
          {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-         {:grib-src-name "nam_218"}
+         {:grib-src-name :nam_218}
          {:sim-from {{2013 9 1} {0 0 0}}}
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
@@ -149,7 +149,7 @@
          {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-         {:grib-src-name "nam_218"}
+         {:grib-src-name :nam_218}
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:history-interval [180 120 60]}
