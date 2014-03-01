@@ -37,14 +37,17 @@
 (defn+ start-ingest-system ()
   "Start up the ingest system."
   (raws_ingest/start)
-  (grib_ingest/start)
+  (logsrv/create-log "grib-ingest")
+  (let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
+    (application/set-env :grib_ingest :logging_function grib-log-f)
+    (grib_ingest/start))
   (afm_ingest/start))
 
 
 (defn+ start-otp-subsystem ()
   "Start the OTP subsystems required for wrfx2 platform services."
   (inets/start)
-  (mnesia/create-schema [(erl/node)])
+  (mnesia/create-schema [(erl/node) :wrfx2web@shodan13])
   (mnesia/start)
   (crypto/start))
 
@@ -72,6 +75,6 @@
   ; we are ready to go
   (logsrv/msg "system" :info "wrfx2 startup complete" [])
   ; check if the webserver is up, if yes, connect
-  (net_adm/ping :wrfx2web@gross))
+  (net_adm/ping :wrfx2web@shodan13))
 
 
