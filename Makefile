@@ -15,7 +15,6 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/postproc.beam \
 		ebin/taskinfo.beam \
 		ebin/perftrack.beam \
-		ebin/network.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
 		ebin/logsrv.beam \
