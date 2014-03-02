@@ -52,6 +52,7 @@
   (mnesia/start)
   (crypto/start))
 
+
 (defn wrfx2web-node-name ()
   (let (wrfx2web-base  (configsrv/get-conf :wrfx2web-node)
         {:ok hostname} (inet/gethostname))
