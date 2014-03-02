@@ -61,3 +61,5 @@ compile_jxautorec: deps/jxautorec
 
 clean:
 	rm -f ebin/*.beam
+	rebar clean
+
