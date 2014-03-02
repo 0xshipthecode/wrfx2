@@ -8,5 +8,5 @@
  lists:flatten([lists:seq(0, 36), lists:map(fun(X) -> X * 3 end, lists:seq(13, 28))]),
  1,
  [{vtable_file,"ungrib/Variable_Tables/Vtable.NAM"},
-  {wrf_namelist_keys, {"domains", [{"num_metgrid_levels", [40]}]}}]
+  {wrf_namelist_keys, [{"domains", [{"num_metgrid_levels", [40]}]}]}]
  }.
