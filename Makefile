@@ -1,5 +1,7 @@
 
-ERLPREFIX=/usr/local/Cellar/erlang-r16/R16B01/lib/erlang
+# find the directory in which the file.erl file resides (this will be inside the kernel app supplied with erlang)
+ERLKERNELDIR=$(shell dirname `erl -noshell -eval 'io:format("~s~n",[filename:dirname(code:which(file))])' -eval 'init:stop()'`)
+
 
 all: compile-deps pre-compile compile
 
@@ -39,7 +41,7 @@ ebin/file_info.beam: src/file_info.jxa
 	joxa -p ebin $(INCLUDES) -o ebin -c $<
 
 src/file_info.jxa:
-	deps/jxautorec/jxautorec $(ERLPREFIX)/lib/kernel-*/include/file.hrl src/file_info.jxa file_info true
+	deps/jxautorec/jxautorec $(ERLKERNELDIR)/include/file.hrl src/file_info.jxa file_info true
 
 ebin/nlparser.beam: src/nlparser.yrl
 	erlc -o src src/nlparser.yrl
