@@ -67,7 +67,7 @@
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (when (erl/== domain-id 2)
-                (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time ["FIRE_AREA"] log-f)))
+                (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time ["FIRE_AREA"])))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "nasa-fire-job detected CFL violation, terminating WRF job." [])
