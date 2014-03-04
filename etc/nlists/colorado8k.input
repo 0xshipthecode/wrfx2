@@ -1,0 +1,152 @@
+&time_control            
+run_days                 = 5,
+run_hours                = 0
+run_minutes              = 0,
+run_seconds              = 0,
+start_year               = 2012,
+start_month              = 06,
+start_day                = 1, 
+start_hour               = 0,
+start_minute             = 00,
+start_second             = 00,
+end_year                 = 2012,
+end_month                = 06,
+end_day                  = 6,
+end_hour                 = 0,
+end_minute               = 00,
+end_second               = 00,
+interval_seconds         = 86400,
+input_from_file          = .true.,
+history_interval         = 10,
+frames_per_outfile       = 360,
+restart                  = .false.,
+restart_interval         = 50000,
+io_form_history          = 2,
+io_form_restart          = 2,
+io_form_input            = 2,
+io_form_boundary         = 2,
+debug_level              = 0,
+/
+
+&domains
+time_step                = 60,
+time_step_fract_num      = 0,
+time_step_fract_den      = 1,
+max_dom                  = 1,
+e_we                     = 66,
+e_sn                     = 50,
+dx                       = 8000,
+dy                       = 8000,
+parent_id                = 1,
+i_parent_start           = 1,
+j_parent_start           = 1,
+grid_id                  = 1,
+parent_grid_ratio        = 1,
+parent_time_step_ratio   = 1,
+feedback                 = 0,
+smooth_option            = 0,
+sr_x                     = 1 
+sr_y                     = 1,
+/
+
+&physics                 
+mp_physics               = 6,
+ra_lw_physics            = 1,
+ra_sw_physics            = 1,
+radt                     = 10,
+sf_sfclay_physics        = 1,
+sf_surface_physics       = 2,
+bl_pbl_physics           = 1,
+bldt                     = 0,
+cu_physics               = 0,
+cudt                     = 5,
+isfflx                   = 1,
+ifsnow                   = 0,
+icloud                   = 1,
+surface_input_source     = 1,
+num_soil_layers          = 4,
+sf_urban_physics         = 0,
+maxiens                  = 1,
+maxens                   = 3,
+maxens2                  = 3,
+maxens3                  = 16,
+ensdim                   = 144,
+/
+
+
+ &fire ! be sure to set sr_x,sr_y in domains-namelist (to set refinement in x,y)
+ ifire                   = 2,         ! integer, = 0: no fire, 2=turn on fire model
+ fire_fuel_read          = 0,         ! integer, -1: from WPS, 0= use fire_fuel_cat, 1= by altitude
+ fire_fuel_cat           = 3,         ! integer, if specified which fuel category?
+! ignition 
+ fire_num_ignitions      = 0,         ! integer, only the first fire_num_ignition used, up to 5 allowed
+! moisture model
+ fire_fmc_read           = 0,         ! fmg_g not set
+ fmoist_run              = .true.,   ! run the moisture model, set to false to keep moisture constant
+ fmoist_interp           = .true.,   ! interpolate moisture to fuels
+ fmoist_freq             = 0,         ! frequency of run or 0 to run using the specified fmost_dt
+ fmoist_dt               = 10         ! moisture model time step (s)
+!
+! verbosity
+ fire_print_msg          = 2,         ! 1 print fire debugging messages
+ fire_print_file         = 0,         ! 1 write files for matlab
+/
+
+ &fdda
+ /
+
+ &dynamics
+ w_damping                           = 0,
+ diff_opt                            = 1,
+ km_opt                              = 4,
+ diff_6th_opt                        = 0,
+ diff_6th_factor                     = 0.12,
+ base_temp                           = 290.
+ damp_opt                            = 0,
+ zdamp                               = 5000.,
+ dampcoef                            = 0.2,
+ khdif                               = 0,
+ kvdif                               = 0,
+ non_hydrostatic                     = .true.,
+ moist_adv_opt                       = 1,
+ scalar_adv_opt                      = 1,
+ /
+
+ &bdy_control
+ spec_bdy_width                      = 5,
+ spec_zone                           = 1,
+ relax_zone                          = 4,
+ specified                           = .true.,
+ nested                              = .false.,
+ /
+
+ &grib2
+ /
+
+ &namelist_quilt
+ nio_tasks_per_group = 0,
+ nio_groups = 1,
+ /
+
+ &dfi_control
+ dfi_opt                             = 0
+ dfi_nfilter                         = 7
+ dfi_write_filtered_input            = .false.
+ dfi_write_dfi_history               = .false.
+ dfi_cutoff_seconds                  = 3600  
+ dfi_time_dim                        = 1000 
+ dfi_bckstop_year                    = 2000
+ dfi_bckstop_month                   = 01  
+ dfi_bckstop_day                     = 24  
+ dfi_bckstop_hour                    = 11  
+ dfi_bckstop_minute                  = 00  
+ dfi_bckstop_second                  = 00  
+ dfi_fwdstop_year                    = 2000
+ dfi_fwdstop_month                   = 01  
+ dfi_fwdstop_day                     = 24  
+ dfi_fwdstop_hour                    = 12  
+ dfi_fwdstop_minute                  = 30  
+ dfi_fwdstop_second                  = 00  
+ /
+
+

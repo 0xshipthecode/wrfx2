@@ -18,7 +18,7 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns wfcjob
-  (require wrfxlib nlist nllib plist filesys logsrv io
+  (require wrfxlib nlist nllib plist filesys logsrv io (file :joxify)
            configsrv jobmaster grib_ingest perftrack postproc
            (timelib :as ta) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify) lists)
@@ -48,7 +48,7 @@
          ppn            (plist/get :ppn args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
          hist-ints      (plist/get :history-interval args)
-         grib-info       (grib_ingest/get_grib_info grib-src-name)
+         grib-info      (grib_ingest/get_grib_info grib-src-name)
          sim-to         (ta/shift-by-hours sim-from fc-hrs)
          wps-wdir       (filename/join work-dir "wps")
          wrf-wdir       (filename/join work-dir "wrf")
@@ -68,13 +68,15 @@
       (jobmaster/updatestate uuid [{:stage "GEOGRID (1/6)"}])
       (perftrack/instrument-as :wfcjob uuid :geogrid []
         (fn () (wrfxlib/run-geogrid wps-wdir log-f)))
-
+      
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfcjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-uuid sim-from sim-to])
-      (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve,{:wait_for_mins,5},:try_retrieve]
-            {cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
+      (let (strategy   [{:use_grib_source grib-src-name},:try_retrieve]
+            at-time    (ta/min-time (ta/universal-time) sim-from)
+            {:success cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to at-time strategy)
             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+        (log-f :info "wfcjob [~p] obtained GRIB2 manifest ~p~n" [uuid mfest])
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
         (log-f :info "wfcjob [~p] writing amended namelist.wps for ungrib.exe" [short-uuid])))
@@ -113,8 +115,12 @@
     (jobmaster/updatestate uuid [{:stage "WRF (6/6)"}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
-              (when (erl/== domain-id 2)
-                (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time [{"T2" "K"} {"PSFC" "Pa"}] log-f)))
+              (when (erl/=:= domain-id 1)
+                (let* (job-state (jobmaster/getstate uuid)
+                       comp-time (plist/get :completion-time :undefined job-state)
+                       perc-done (plist/get :percent-done :undefined job-state))
+                (log-f :info "wfcjob detected history write at ~p with ~w percent done and completion time ~w)" [sim-time perc-done comp-time])))
+              (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time domain-id [{"T2" "K"}]))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "wfcjob detected CFL violation, terminating WRF job." [])
@@ -136,10 +142,10 @@
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
          {:grib-src-name :nam_218}
-         {:sim-from {{2013 9 1} {0 0 0}}}
+         {:sim-from {{2014 2 4} {0 0 0}}}
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
-         {:num-nodes 12} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
+         {:num-nodes 10} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
 
 
 (defn+ submit (from)
@@ -155,18 +161,42 @@
          {:history-interval [180 120 60]}
          {:num-nodes 10} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
 
-(defn+ conus-forecast (from wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src fc-len-hrs)
-  (let* (uuid (lists/flatten (iol/format "wfc-ondemand-~s" [(ta/to-esmf-str from)])))
-    (jobmaster/submit uuid :wfcjob
-        [{:sim-from from}
-         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
-         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
-         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-         {:grib-src-name grib-src}
-         {:wps-nl (filename/join "etc/nlists" wps-nl)}
-	 {:wrf-nl (filename/join "etc/nlists" wrf-nl)}
-	 {:history-interval [180 120 60]}
-	 {:num-nodes num-nodes}
-	 {:ppn ppn}
-         {:wall-time-hrs wall-time-hrs}
-         {:forecast-length-hrs fc-len-hrs}])))
+
+(defn preflight-check (items)
+  "Run some sanity checks on the given inputs."
+  (case items
+    ([] [])
+    (({:file-exists path err-msg} . rest)
+      (if (filelib/is-regular path) (preflight-check rest) ({err-msg path} . (preflight-check rest))))
+    (({:is-pid maybe-pid err-msg} . rest)
+      (if (erl/is-pid maybe-pid) (preflight-check rest) ({err-msg maybe-pid} . (preflight-check rest))))
+    (({:positive-integer int0 err-msg} . rest)
+      (if (erl/and (erl/is-integer int0) (erl/> int0 0)) (preflight-check rest) ({err-msg int0} . (preflight-check rest))))))
+
+
+(defn+ forecast (from fc-len-hrs wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src hist-int)
+  (let* (uuid     (lists/flatten (iol/format "wfc-ondemand-~s" [(ta/to-esmf-str from)]))
+         wps-file (filename/join ["etc/nlists" wps-nl])
+         wrf-file (filename/join ["etc/nlists" wrf-nl]))
+    (case (preflight-check [{:file-exists wps-file "wps file missing"}
+                            {:file-exists wrf-file "wrf file missing"}
+                            {:is-pid (grib_ingest/get_grib_server_pid grib-src) "grib source not found"}
+                            {:positive-integer fc-len-hrs "forecast length in hrs must be positive"}
+                            {:positive-integer wall-time-hrs "wall time in hrs must be positive"}])
+      ([]
+        (jobmaster/submit uuid :wfcjob
+            [{:sim-from from}
+             {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
+             {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
+             {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
+             {:grib-src-name grib-src}
+             {:wps-nl wps-file}
+             {:wrf-nl wrf-file}
+             {:history-interval hist-int}
+             {:num-nodes num-nodes}
+             {:ppn ppn}
+             {:wall-time-hrs wall-time-hrs}
+             {:forecast-length-hrs fc-len-hrs}]))
+      (errors
+        {:failure errors}))))
+

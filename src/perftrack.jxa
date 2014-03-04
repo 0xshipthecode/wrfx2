@@ -61,8 +61,8 @@
       (do
         (append-task-info job-type uuid task-name start-time (ta/local-time) {:exception class body} info)
         ; it's not clear how to handle catching only some types of exceptions in joxa, so we catch/log everything here
-        ; and rethrow the exception (even if it wasn't a throw in the first case
-        (erl/throw body))))))
+        ; and rethrow the exception (even if it wasn't a throw in the first case)
+        (erl/throw {body (erl/get-stacktrace)}))))))
 
 
 (defn+ instrument-as (job-type uuid task-name task-f)

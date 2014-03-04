@@ -40,22 +40,23 @@
   (logsrv/create-log "grib-ingest")
   (let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
     (application/set-env :grib_ingest :logging_function grib-log-f)
+    (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest-storage-dir))
     (grib_ingest/start))
   (afm_ingest/start))
+
+
+(defn+ start-otp-subsystem ()
+  "Start the OTP subsystems required for wrfx2 platform services."
+  (inets/start)
+  (mnesia/create-schema [(erl/node)])
+  (mnesia/start)
+  (crypto/start))
 
 
 (defn wrfx2web-node-name ()
   (let (wrfx2web-base  (configsrv/get-conf :wrfx2web-node)
         {:ok hostname} (inet/gethostname))
     (erl/list-to-atom (erl/++ wrfx2web-base hostname))))
-
-
-(defn+ start-otp-subsystem ()
-  "Start the OTP subsystems required for wrfx2 platform services."
-  (inets/start)
-  (mnesia/create-schema [(erl/node) (wrfx2web-node-name)])
-  (mnesia/start)
-  (crypto/start))
 
 
 (defn+ start ()
@@ -82,6 +83,5 @@
   (logsrv/msg "system" :info "wrfx2 startup complete" [])
   ; check if the webserver is up, if yes, connect
   (net_adm/ping (wrfx2web-node-name)))
-
 
 

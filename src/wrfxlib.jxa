@@ -1,6 +1,6 @@
 (ns wrfxlib
   (require filesys filename ext-wrappers plist wrf-monitor configsrv
-           (steward_job :as sjob :joxify) (steward_utils :as sutils :joxify)
+           (steward_job :as sjob :joxify) (steward_utils :as sutils :joxify) (steward_process :as sproc)
            (erlang :as erl :joxify) (io_lib :as iol :joxify) (filelib :joxify))
   (use joxa-core utils ext-wrappers))
 
@@ -65,19 +65,37 @@
     (log-f :info "metgrid completed succesfully." [])))
 
 
-(defn+ run-real (in-dir log-f)
+(defn+ run-real-dmpar (in-dir log-f)
   "Run the (parallel) real.exe in the WRF directory <in-dir> and log progress using <log-f>."
   (let* (cmd          (filename/join in-dir "real.exe")
          out-file     (filename/join in-dir "rsl.out.0000")
          err-file     (filename/join in-dir "rsl.error.0000")
          new-out-file (filename/join in-dir "real.stdout"))
-    (log-f :info "running REAL" [])
+    (log-f :info "running REAL [PARALLEL]" [])
     (run-process "real" cmd [] in-dir 1800000 log-f 0
       (ext-wrappers/make-exit-check-seq-f [
         (fn () (filesys/copy-unless-dst out-file new-out-file) :passed)
         (fn () (exit-check-string-exists new-out-file "SUCCESS COMPLETE REAL_EM"))]) 1)
     (!!= :ok (filesys/copy-unless-dst err-file (filename/join in-dir "real.stderr")))
     (log-f :info "real completed succesfully" [])))
+
+
+(defn+ run-real-serial (in-dir log-f)
+  "Run the serial real.exe in the WRF directory <in-dir> and log progress using <log-f>."
+  (let* (out-file     (filename/join in-dir "real.stdout")
+         err-file     (filename/join in-dir "real.stderr"))
+    (log-f :info "running REAL [SERIAL]" [])
+    (run-process "real" "./real.exe" [{1 out-file} {2 err-file}] in-dir 1800000 log-f 0
+      (fn () (exit-check-string-exists out-file "SUCCESS COMPLETE REAL_EM")) 1)
+    (log-f :info "real complete succesfully" [])))
+
+
+(defn+ run-real (in-dir log-f)
+  "Run real.exe either compiled with DMPAR or Serial option, this is decided by reading
+   the configuration key 'wrf-is-parallel' from the configuration server."
+  (if (configsrv/get-conf :wrf-is-parallel)
+    (run-real-dmpar in-dir log-f)
+    (run-real-serial in-dir log-f)))
 
 
 (defn+ next-grib-suffix (suff)
@@ -101,7 +119,7 @@
 
 
 (defn monitor-wrf-execution (uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f)
-  "Parse the error output of the process with rank 0 in the working
+  "Parse the error output of the process with rank 0 (if in parallel mode) in the working
    directory <wdir> while the wrf job with pid <pid> completes."
   (receive
     (:cfl-violation-detected
@@ -110,12 +128,12 @@
     ({:wrf-history-written domain-id sim-time}
       (wrf-history-hook domain-id sim-time)
       (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to wrf-mon-pid wrf-history-hook cfl-violation-hook log-f))
-    ({:proc-started ext-mon-pid comp-start}
+    ({:proc_started ext-mon-pid comp-start}
       (log-f :info "[~p] WRF computation started on ~w, monitoring" [uuid comp-start])
       (let* (fname            (filename/join wdir "rsl.error.0000")
              real-wrf-mon-pid (wrf-monitor/start fname sim-from sim-to comp-start uuid log-f))
         (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to real-wrf-mon-pid wrf-history-hook cfl-violation-hook log-f)))
-    ({:proc-complete ext-mon-pid result}
+    ({:proc_terminated ext-mon-pid result}
       (unless (erl/== :undefined wrf-mon-pid)
         (erl/send wrf-mon-pid :terminate))
       result)
@@ -133,12 +151,20 @@
    and completion time can be estimated.
    Use the hooks <wrf-history-hook> and <cfl-violation-hook> to handle new data in wrfout and the
    detection of a CFL violation."
-  (let* (wrf-cmd       (filename/join wdir "wrf.exe")
+  (let* (wrf-cmd         (filename/join wdir "wrf.exe")
+         wrf-serial-out  (filename/join wdir "rsl.error.0000")   ; note: this is a hack, serial wrf.exe does not write anything to stderr
+         wrf-serial-err  (filename/join wdir "rsl.aux.0000")     ; so I'm unable to track its progress, thus we route stdout to rsl.stderr.0000
          job-timeout-s (erl/* (erl/+ wall-time-hrs 0.1) 3600)
          hpc-backend   (configsrv/get-conf :hpc-backend)
-         wrf-result (case (sjob/execute "wrf" wrf-cmd wdir num-nodes ppn wall-time-hrs pid-timeout-s job-timeout-s hpc-backend log-f)
+         wrf-exec      (if (configsrv/get-conf :wrf-is-parallel)
+                         (fn () (sjob/execute "wrf" wrf-cmd wdir num-nodes ppn wall-time-hrs pid-timeout-s job-timeout-s hpc-backend log-f))
+                         (fn () (sproc/execute "wrf" wrf-cmd [{1 wrf-serial-out} {2 wrf-serial-err}] wdir job-timeout-s log-f)))
+         wrf-result (case (wrf-exec)
                       ({:running ext-mon-pid qid}
-                        (log-f :info "[~p] WRF is queued with id ~p" [uuid qid])
+                        (log-f :info "[~p] WRF DMPAR is queued with id ~p" [uuid qid])
+                        (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to :undefined wrf-history-hook cfl-violation-hook log-f))
+                      ({:running ext-mon-pid}
+                        (log-f :info "[~p] WRF Serial has been started." [uuid])
                         (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to :undefined wrf-history-hook cfl-violation-hook log-f))
                       (already-done
                         already-done)))
