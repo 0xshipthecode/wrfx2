@@ -72,8 +72,9 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfcjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-uuid sim-from sim-to])
-      (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve]
-            {:success cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
+      (let (strategy   [{:use_grib_source grib-src-name},:try_retrieve]
+            at-time    (ta/min-time (ta/universal-time) sim-from)
+            {:success cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to at-time strategy)
             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (log-f :info "wfcjob [~p] obtained GRIB2 manifest ~p~n" [uuid mfest])
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
@@ -114,8 +115,12 @@
     (jobmaster/updatestate uuid [{:stage "WRF (6/6)"}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
-              (when (erl/== domain-id 2)
-                (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time [{"T2" "K"} {"PSFC" "Pa"}] log-f)))
+              (when (erl/=:= domain-id 1)
+                (let* (job-state (jobmaster/getstate uuid)
+                       comp-time (plist/get :completion-time :undefined job-state)
+                       perc-done (plist/get :percent-done :undefined job-state))
+                (log-f :info "wfcjob detected history write at ~p with ~w percent done and completion time ~w)" [sim-time perc-done comp-time])))
+              (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time domain-id [{"T2" "K"}]))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "wfcjob detected CFL violation, terminating WRF job." [])
@@ -169,7 +174,7 @@
       (if (erl/and (erl/is-integer int0) (erl/> int0 0)) (preflight-check rest) ({err-msg int0} . (preflight-check rest))))))
 
 
-(defn+ forecast (from wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src fc-len-hrs)
+(defn+ forecast (from fc-len-hrs wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src hist-int)
   (let* (uuid     (lists/flatten (iol/format "wfc-ondemand-~s" [(ta/to-esmf-str from)]))
          wps-file (filename/join ["etc/nlists" wps-nl])
          wrf-file (filename/join ["etc/nlists" wrf-nl]))
@@ -187,7 +192,7 @@
              {:grib-src-name grib-src}
              {:wps-nl wps-file}
              {:wrf-nl wrf-file}
-             {:history-interval [180 120 60]}
+             {:history-interval hist-int}
              {:num-nodes num-nodes}
              {:ppn ppn}
              {:wall-time-hrs wall-time-hrs}

@@ -23,24 +23,22 @@
   (use joxa-core utils))
 
 
-(defn+ write-raster-kmz-file (uuid wdir sim-from sim-time var-info-list log-f)
-  (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
+(defn+ write-raster-kmz-file (uuid wdir sim-from sim-time domain-id var-info-list)
+  (let* (kml-dir      (configsrv/get-conf :kml-output-dir)
          sim-time-str (ta/to-esmf-str sim-time)
-         wrfout-name  (iol/format "~s/wrfout_d03_~s" [wdir (ta/to-esmf-str sim-from)]))
+         wrfout-name  (iol/format "~s/wrfout_d~2..0B_~s" [wdir domain-id (ta/to-esmf-str sim-from)]))
     (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
     (lists/map (fn (var-info)
                   (let ({var-name var-unit} var-info)
-                    (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
-                           kml-absname (filename/join [kml-dir uuid kml-basename])
-                           cmd-str (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
-                                                [wrfout-name var-name var-unit sim-time-str kml-absname]))
-                      (erl/spawn (fn ()
-                                  (log-f :info "job [~s] obtained results for var ~p from raster2kml ~p"
-                                               [uuid var-name (os/cmd cmd-str)])))))) 
+                    (let* (kml-filename (iol/format "~s-~2..0B-~s.kmz" [sim-time-str domain-id var-name])
+                           kml-path     (filename/join [kml-dir uuid kml-filename])
+                           cmd-str      (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
+                                                    [wrfout-name var-name var-unit sim-time-str kml-path]))
+                      (erl/spawn (fn () (os/cmd cmd-str))))))
                 var-info-list)))
 
-(defn+ write-contour-kmz-file (uuid wdir sim-from sim-time var-list log-f)
-  (let* (kml-dir      (configsrv/get-conf :wrfx2web-kml-dir)
+(defn+ write-contour-kmz-file (uuid wdir sim-from sim-time var-list)
+  (let* (kml-dir      (configsrv/get-conf :kml-output-dir)
          sim-time-str (ta/to-esmf-str sim-time)
          wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)]))
     (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
@@ -48,7 +46,6 @@
                  (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
                         kml-abs-name (filename/join [kml-dir uuid kml-basename])
                         cmd-str (iol/format "deps/viswrf/contour2kml.py ~s ~s ~s ~s" [wrfout-name var-name sim-time-str kml-abs-name]))
-                  (erl/spawn (fn ()
-                              (log-f :info "job [~s] obtined result for var ~p from contour2kml ~p" [uuid var-name (os/cmd cmd-str)])))))
+                  (erl/spawn (fn () (os/cmd cmd-str)))))
                var-list)))
 
