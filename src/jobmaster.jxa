@@ -47,8 +47,8 @@
 
 
 (defmacro check-transaction (do-f trans-id on-success)
-  "Anaphoric macro (binds result to the result of the transaction if successfull, that attempts a mnesia
-   transaction and if it fails, it flashes a message to the system stream and returns :error.  More information
+  "Anaphoric macro (binds 'result' to the result of the transaction if successfull and if it fails,
+   it flashes a message to the system stream and returns :error.  More information
    is not retrieved as it is unlikely the client will be able to fix this problem."
   (let* (reason (gensym))
     `(case (mnesia/transaction (fn () ~do-f))
@@ -126,12 +126,8 @@
 
 
 ;; --------------------------------------------
-;; gen_server callbacks
+;; internal function
 ;; --------------------------------------------
-
-(defn+ init (args)
-  {:ok args})
-
 
 (defn getjobpid (uuid)
   "Retrieve the pid of the job <uuid>, assuming its live."
@@ -155,6 +151,7 @@
 (defn execute-job-internal (mod args)
   "Execute a job inside a new process."
   (let* (uuid (plist/get :uuid args))
+    (logsrv/create-log uuid)
     (erl/spawn (fn ()
       (try*
         (let* (work-dir (filename/join (configsrv/get-conf :workspace-dir) uuid))
@@ -171,12 +168,25 @@
             (jobmaster/updatestate uuid [{:result "KILLED"} {:reason (lists/flatten (iol/format "killed with reason ~p" [with-reason]))} {:jmts (ta/local-time)}]))
           (_
             (jobmaster/updatestate uuid [{:result "FAILED"} {:reason (lists/flatten (iol/format "crashed with exception type ~p body ~p" [type body]))}])
-            (logsrv/msg "system" :error "job [~s] crashed (exception: type ~p body ~p) stacktrace ~p~n"
+            (logsrv/msg "system" :error "job [~s] crashed (exception type: ~p~nbody: ~p)~nstacktrace:~n~p~n"
                         [uuid type body (erl/get-stacktrace)])))))
       ; whatever happens, the log gets closed
       (logsrv/close-log uuid)
       ; notify the server process that the job is done (and is to be removed from the set of live jobs
       (job-done uuid)))))
+
+
+(defn all-live-job-records()
+  (check-transaction (mnesia/foldl (fn (entry acc) (entry . acc)) [] :livejob)
+                     "jobmaster: retrieve records of all live jobs" result))
+
+
+;; --------------------------------------------
+;; gen_server callbacks
+;; --------------------------------------------
+
+(defn+ init (args)
+  {:ok args})
 
 
 ;; the jobmaster keeps tabs on all running and ended jobs by keeping
@@ -192,7 +202,6 @@
             (log-f :info "jobmaster: did not start job ~p, it is already live" [uuid])
             {:reply {:ok uuid} state})
           (do
-            (logsrv/create-log uuid)
             (let* (args2   (plist/update-with [{:uuid uuid} {:short-uuid (str/substr uuid 1 8)}] args)
                    job-pid (execute-job-internal mod args2))
               (log-f :info "jobmaster: job ~p is going LIVE now." [uuid])
@@ -219,7 +228,11 @@
             {:reply some-error state})))
       ; resubmit libe jobs
       (:resubmit-live-jobs
-        ;TODO: implement resubmission of jobs registered as live in the livejob table
+        (lists/map (fn (lj) (let* (uuid   (livejob/uuid lj)
+                                   module (livejob/module lj)
+                                   args   (livejob/args lj))
+                              (log-f :info "jobmaster: resubmitting live job ~p (module ~p)." [uuid module])
+                              (execute-job-internal module args))) (all-live-job-records))
         {:reply :ok state})
       ; message not understood
       (other
