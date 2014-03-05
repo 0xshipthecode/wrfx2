@@ -161,10 +161,10 @@
                          (fn () (sproc/execute "wrf" wrf-cmd [{1 wrf-serial-out} {2 wrf-serial-err}] wdir job-timeout-s log-f)))
          wrf-result (case (wrf-exec)
                       ({:running ext-mon-pid qid}
-                        (log-f :info "[~p] WRF DMPAR is queued with id ~p" [uuid qid])
+                        (log-f :info "[~p] WRF [DMPAR] is queued with id ~p" [uuid qid])
                         (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to :undefined wrf-history-hook cfl-violation-hook log-f))
                       ({:running ext-mon-pid}
-                        (log-f :info "[~p] WRF Serial has been started." [uuid])
+                        (log-f :info "[~p] WRF [SERIAL] has been started." [uuid])
                         (monitor-wrf-execution uuid wdir ext-mon-pid sim-from sim-to :undefined wrf-history-hook cfl-violation-hook log-f))
                       (already-done
                         already-done)))
