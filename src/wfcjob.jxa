@@ -72,7 +72,7 @@
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "wfcjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-uuid sim-from sim-to])
-      (let (strategy   [{:use_grib_source grib-src-name},:try_retrieve]
+      (let (strategy   [{:use_grib_source grib-src-name} :try_retrieve :shift_cycle :try_retrieve]
             at-time    (ta/min-time (ta/universal-time) sim-from)
             {:success cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to at-time strategy)
             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
