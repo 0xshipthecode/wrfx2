@@ -34,7 +34,7 @@
 (defn+ get-conf (key)
   "Retrieve the configuration value for the key <key>."
   (case (gen_server/call :configsrv {:get-conf key})
-    (:no-such-key (erl/throw :no-such-key))
+    (:no-such-key (erl/throw {:no-such-key key}))
     (value value)))
 
 
