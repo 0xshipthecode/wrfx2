@@ -43,6 +43,7 @@ src/file_info.jxa:
 	deps/jxautorec/jxautorec $(ERLKERNELDIR)/include/file.hrl src/file_info.jxa file_info true
 
 ebin/nlparser.beam: src/nlparser.yrl
+	if [ ! -d "ebin" ] ; then mkdir ebin; fi
 	erlc -o src src/nlparser.yrl
 	erlc -o ebin src/nlparser.erl
 
