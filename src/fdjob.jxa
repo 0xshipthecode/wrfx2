@@ -135,9 +135,8 @@
       (!!= :ok (filesys/create-dir data-dir))
       (let* (now-time       (ta/round-hours (ta/shift-by-hours (ta/universal-time) -1) :down)
              raws-max-time  (ta/min-time now-time sim-to))
-        (lists/map (fn (st-code)
-          (let* (st-data (raws_ingest/retrieve_observations st-code {sim-from raws-max-time}))
-            (fmda/write-raws-info-and-obs st-data data-dir))) station-list)))
+        (let* (st-data (raws_ingest/retrieve_observations station-list [:fm10] {sim-from raws-max-time}))
+            (fmda/write-raws-info-and-obs st-data data-dir))))
 
     ; step 12: run external fuel moisture code
     (jobmaster/updatestate job-id [{:stage "FMDA (8/8)"}])
