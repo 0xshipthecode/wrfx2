@@ -1,10 +1,20 @@
 [
-  {'mnesia-dir', "db"},
-  {'logging-dir', "log"},
-  {'workspace-dir',  "/Users/martin/Projects/wrfx2/wksp"},
-  {'ingest-storage-dir', "/Users/martin/Projects/wrfx2/ingest"},
-  {'wrf-install-dir', "/Users/martin/Packages/op-wrf-fire/WRFV3/run"},
-  {'wps-install-dir', "/Users/martin/Packages/op-wrf-fire/WPS"},
-  {'wps-geog-dir', "/Users/martin/Packages/WPS-GEOG"}
+  {'wrfx2web-node', "wrfx2web"},                                       % the name of the web server node to which wrfx2 is to connect (if any)
+  {'mnesia-dir', "db"},                                                % directory in which mnesia stores its directory
+  {'logging-dir', "log"},                                              % directory in which logs are stored
+  {'workspace-dir',  "wksp"},                                          % directory in which jobs are executed
+  {'ingest-storage-dir', "ingest"},                                    % where are ingested files (e.g. GRIB2) stored?
+
+  {'wrf-install-dir', "/Users/martin/Packages/op-wrf-fire/WRFV3/run"}, % where is WRF located?
+  {'wrf-is-parallel', false},                                          % is WRF compiled with DMPAR (i.e. should we use mpirun?)
+  {'wps-install-dir', "/Users/martin/Packages/op-wrf-fire/WPS"},       % which WPS to use?
+  {'wps-geog-dir', "/Users/martin/Packages/WPS-GEOG"},                 % where is the geogrid data?
+  {'output-dir', "/Users/martin/Projects/wrfx2/outputs"},              % where to store all output files?
+
+  {'sysdiag-get-nodes', "echo 2"},                        % command to detect number of nodes
+  {'sysdiag-get-free-nodes', "echo 2"},                   % shell command to obtain the number of free nodes
+  {'sysdiag-qlen', "echo 1"},                             % shell command to retrieve the current queue length?
+  {'hpc-backend', null},                                  % null batch system (mpirun is executed directly)
+  {'mpirun-extra-params', []}                             % added right behind mpirun command (-np and -hostfile added automatically)
 ].
 
