@@ -15,6 +15,7 @@
   {'sysdiag-get-free-nodes', "echo 2"},                   % shell command to obtain the number of free nodes
   {'sysdiag-qlen', "echo 1"},                             % shell command to retrieve the current queue length?
   {'hpc-backend', null},                                  % null batch system (mpirun is executed directly)
+  {'mpi-path', "mpiexec"},                                % which mpiexec/mpirun should the system use
   {'mpirun-extra-params', []}                             % added right behind mpirun command (-np and -hostfile added automatically)
 ].
 
