@@ -13,6 +13,7 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/plist.beam \
 		ebin/configsrv.beam \
 		ebin/nlscanner.beam \
+		ebin/nlparser.beam \
 		ebin/timelib.beam \
 		ebin/postproc.beam \
 		ebin/taskinfo.beam \
@@ -51,7 +52,7 @@ ebin/nlparser.beam: src/nlparser.yrl
 ebin/%.beam: src/%.jxa
 	deps/joxa/joxa -p ebin $(INCLUDES) -o ebin -c $<
 
-compile: $(BEAMFILES)
+compile: pre-compile $(BEAMFILES) 
 
 get-deps:
 	rebar get-deps
