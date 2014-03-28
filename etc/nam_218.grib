@@ -6,6 +6,7 @@
  fun({{Y, M, D}, {H, _M, _S}}, FcHr) -> io_lib:format("nam.~4..0B~2..0B~2..0B/nam.t~2..0Bz.awphys~2..0B.grb2.tm00", [Y, M, D, H, FcHr]) end,
  "nam_218",
  lists:flatten([lists:seq(0, 36), lists:map(fun(X) -> X * 3 end, lists:seq(13, 28))]),
+ single_cycle,
  1,
  [{vtable_file,"ungrib/Variable_Tables/Vtable.NAM"},
   {wrf_namelist_keys, [{"domains", [{"num_metgrid_levels", [40]}]}]}]
