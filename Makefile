@@ -1,6 +1,7 @@
 
 # find the directory in which the file.erl file resides (this will be inside the kernel app supplied with erlang)
 ERLKERNELDIR=$(shell dirname `erl -noshell -eval 'io:format("~s~n",[filename:dirname(code:which(file))])' -eval 'init:stop()'`)
+JOXA_HOME=$(shell pwd)/deps/joxa
 
 all: joxa compile-deps pre-compile compile
 
@@ -59,7 +60,7 @@ compile-deps: compile_jxautorec
 	rebar compile
 
 compile_jxautorec: deps/jxautorec
-	cd deps/jxautorec && make
+	cd deps/jxautorec && JOXA_HOME=$(JOXA_HOME) make
 
 joxa: get-deps
 	if [ ! -d "deps/joxa" ] ; then git clone https://github.com/vejmelkam/joxa.git deps/joxa; fi
