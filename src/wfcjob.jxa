@@ -85,7 +85,6 @@
     (perftrack/instrument-as :wfcjob uuid :ungrib []
       (fn () (wrfxlib/run-ungrib wps-wdir log-f)))
     (jobmaster/updatestate uuid [{:stage "METGRID (4/6)"}])
-    ;(wrfxlib/run-metgrid-par wps-wdir 6 log-f)
     (perftrack/instrument-as :wfcjob uuid :metgrid []
       (fn () (wrfxlib/run-metgrid wps-wdir log-f)))
 

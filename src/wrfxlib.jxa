@@ -54,17 +54,6 @@
     (log-f :info "metgrid completed succesfully." [])))
 
 
-(defn+ run-metgrid-par (in-dir np log-f)
-  "Runs metgrid.exe locally using <np> processes on MPI.  Requires the availability of a DMpar installation
-   of wrf/wps, logs progress using <log-f>."
-  (let* (out-spec (sutils/make-std-output-spec in-dir "metgrid")
-         cmd      (iol/format "mpiexec -n ~p -machinefile ../../../etc/machinefile ./metgrid.exe" [np]))
-    (log-f :info "running METGRID [DMPAR]" [])
-    (run-process "metgrid" cmd out-spec in-dir 18000000 log-f 0
-      (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of metgrid.")) 1)
-    (log-f :info "metgrid completed succesfully." [])))
-
-
 (defn+ run-real-dmpar (in-dir log-f)
   "Run the (parallel) real.exe in the WRF directory <in-dir> and log progress using <log-f>."
   (let* (cmd          (filename/join in-dir "real.exe")
@@ -156,8 +145,13 @@
          wrf-serial-err  (filename/join wdir "rsl.aux.0000")     ; so I'm unable to track its progress, thus we route stdout to rsl.stderr.0000
          job-timeout-s (erl/* (erl/+ wall-time-hrs 0.1) 3600)
          hpc-backend   (configsrv/get-conf :hpc-backend)
+         mpi-path      (configsrv/get-conf :mpi-path)
+         mpi-x-params  (configsrv/get-conf :mpi-extra-params)
          wrf-exec      (if (configsrv/get-conf :wrf-is-parallel)
-                         (fn () (sjob/execute "wrf" wrf-cmd wdir num-nodes ppn wall-time-hrs pid-timeout-s job-timeout-s hpc-backend log-f))
+                         (fn () (sjob/execute [{:task_id "wrf"} {:cmd wrf-cmd} {:in_dir wdir} {:num_nodes num-nodes}
+                                               {:proc_per_node ppn} {:wall_time_hrs wall-time-hrs} {:pid_timeout_s pid-timeout-s}
+                                               {:job_timeout_s job-timeout-s} {:hpc_backend hpc-backend} {:mpi_path mpi-path}
+                                               {:mpi_extra_params mpi-x-params}] log-f))
                          (fn () (sproc/execute "wrf" wrf-cmd [{1 wrf-serial-out} {2 wrf-serial-err}] wdir job-timeout-s log-f)))
          wrf-result (case (wrf-exec)
                       ({:running ext-mon-pid qid}
