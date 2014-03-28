@@ -20,7 +20,7 @@
   "Start the configuration server <log-f>."
     (case (utils/execute-file "etc/config")
       ({:ok cfg} (gen_server/start_link {:local :configsrv} :configsrv [cfg] []))
-      (error (erl/throw error))))
+      (error     (erl/throw {"Invalid etc/config file" error}))))
 
 
 (defn+ reload-config ()
@@ -35,6 +35,13 @@
   "Retrieve the configuration value for the key <key>."
   (case (gen_server/call :configsrv {:get-conf key})
     (:no-such-key (erl/throw {:no-such-key key}))
+    (value value)))
+
+
+(defn+ get-conf (key default)
+  "Retrieve the configuration value for the key <key>. Return <default> if no such key."
+  (case (gen_server/call :configsrv {:get-conf key})
+    (:no-such-key default)
     (value value)))
 
 
