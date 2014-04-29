@@ -30,8 +30,10 @@
 (defspec monitor-loop ((erl/device) (erl/tuple) (erl/tuple) (erl/tuple) (erl/string) (erl/pid) (erl/function)) (erl/any))
 
 (defn process-timing (line dev sim-start sim-end comp-start uuid master-pid log-f)
-  (let* (esmf-date (str/substr line 23 19)
-         domain-id (erl/list-to-integer (str/strip (str/substr line 52 4))))
+  (let* (time-ndx   (str/str line "time")
+         esmf-date  (str/substr line (+ time-ndx 5) 19)
+         domain-ndx (str/str line "domain")
+         domain-id (erl/list-to-integer (str/strip (str/substr line (+ domain-ndx 6) 4))))
     (when (erl/=:= domain-id 1)
       (let* (now       (ta/local-time)
              sim-now   (ta/parse-esmf esmf-date))
@@ -75,7 +77,7 @@
         (log-f :error "wrf-monitor encountered an error [~p] reading from rsl.error.0000" [reason])))
     (catch (type bdy)
       (do
-        (log-f :flash "wrf-monitor encountered exception type ~p bdy ~p" [type bdy])
+        (log-f :flash "wrf-monitor encountered exception type ~p bdy ~p stack ~p" [type bdy (erl/get-stacktrace)])
         (monitor-loop dev sim-start sim-end comp-start uuid master-pid log-f)))))
 
 
