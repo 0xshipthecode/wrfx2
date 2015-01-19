@@ -144,12 +144,13 @@
          wrf-serial-out  (filename/join wdir "rsl.error.0000")   ; note: this is a hack, serial wrf.exe does not write anything to stderr
          wrf-serial-err  (filename/join wdir "rsl.aux.0000")     ; so I'm unable to track its progress, thus we route stdout to rsl.stderr.0000
          job-timeout-s   (erl/* (erl/+ wall-time-hrs 0.1) 3600)
-         cfg-keys        [:hpc-backend :mpi-path :mpi-extra-params :jobscript-pre-mpiexec :jobscript-post-mpiexec]
-         steward-keys    [:hpc_backend :mpi_path :mpi_extra_params :jobscript_pre_mpiexec :jobscript_post_mpiexec]
+         cfg-keys        [:hpc-profile]
+         steward-keys    [:hpc_profile]
          cfg-vals        (lists/map configsrv/get-conf/1 cfg-keys)
          cfgs            (lists/zip steward-keys cfg-vals)
          params          [{:task_id "wrf"} {:cmd wrf-cmd} {:in_dir wdir} {:num_nodes num-nodes} {:proc_per_node ppn}
-                          {:wall_time_hrs wall-time-hrs} {:pid_timeout_s pid-timeout-s} {:job_timeout_s job-timeout-s}]
+                          {:wall_time_hrs wall-time-hrs} {:wall_time_mins 0} {:pid_timeout_s pid-timeout-s}
+                          {:job_timeout_s job-timeout-s}]
          wrf-exec        (if (configsrv/get-conf :wrf-is-parallel)
                            (fn () (sjob/execute (erl/++ cfgs params) log-f))
                            (fn () (sproc/execute "wrf" wrf-cmd [{1 wrf-serial-out} {2 wrf-serial-err}] wdir job-timeout-s log-f)))
