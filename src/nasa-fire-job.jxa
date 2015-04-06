@@ -25,10 +25,10 @@
    wrf-inst-dir: WRF installation directory
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
-  (let* (uuid         (plist/get :uuid args)
+  (let* (uuid           (plist/get :uuid args)
          short-jid      (plist/get :short-uuid args)
          work-dir       (plist/get :work-dir args)
-         wrf-idir       (plist/get :wrf-install-dir args)
+         wrf-idir       (configsrv/get-conf :wrf-install-dir)
          ign-specs      (plist/get :ign-specs args)
          num-nodes      (plist/get :num-nodes args)
          ppn            (plist/get :ppn args)
@@ -63,11 +63,14 @@
 
     ; step 4: run WRF
     (log-f :info "nasa-fire-job [~p] running WRF" [short-jid])
-    (jobmaster/updatestate uuid [:stage "WRF"])
+    (jobmaster/updatestate uuid [{:stage "WRF"} {:kmls []}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (when (erl/== domain-id 2)
-                (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time ["FIRE_AREA"])))
+                (let* (base-names (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time ["FIRE_AREA"])
+                       kmls0      (plist/get :kmls [] (jobmaster/getstate uuid))
+                       kmls1      (lists/foldl (fn (name acc) (name . acc)) kmls0 base-names))
+                  (jobmaster/updatestate uuid [{:kmls kmls1}]))))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "nasa-fire-job detected CFL violation, terminating WRF job." [])
