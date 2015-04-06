@@ -56,7 +56,7 @@
 (defn wrfx2web-node-name ()
   (let (wrfx2web-base  (configsrv/get-conf :wrfx2web-node)
         {:ok hostname} (inet/gethostname))
-    (erl/list-to-atom (erl/++ wrfx2web-base hostname))))
+    (erl/list-to-atom (lists/flatten [wrfx2web-base "@" hostname]))))
 
 
 (defn+ start ()
@@ -79,9 +79,11 @@
   ; start scheduler
   (logsrv/create-log "scheduler")
   (scheduler/start-link (logsrv/make-log-f "scheduler"))
-  ; we are ready to go
-  (logsrv/msg "system" :info "wrfx2 startup complete" [])
   ; check if the webserver is up, if yes, connect
-  (net_adm/ping (wrfx2web-node-name)))
+  (let (w2w-name (wrfx2web-node-name))
+    (logsrv/msg "system" :info "pinging ~p to check if it is up." [w2w-name])
+    (net_adm/ping w2w-name))
+  ; we are ready to go
+  (logsrv/msg "system" :info "wrfx2 startup complete" []))
 
 
