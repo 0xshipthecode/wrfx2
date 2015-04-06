@@ -88,7 +88,7 @@
   (let* (log-dev (get-log-device log-name))
     (fn (level msg args)
       (let* (text     (iol/format msg args)
-             log-text (lists/flatten [log-name " " (timestamp) " " (level-string level) " " (iol/format msg args) "~n"]))
+             log-text (lists/flatten [(timestamp) " " (level-string level) " " (iol/format msg args) "~n"]))
         (io/fwrite log-dev log-text [])))))
 
 
