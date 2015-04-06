@@ -34,7 +34,8 @@
                            kml-path     (filename/join [kml-dir uuid kml-filename])
                            cmd-str      (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
                                                     [wrfout-name var-name var-unit sim-time-str kml-path]))
-                      (erl/spawn (fn () (os/cmd cmd-str))))))
+                      (erl/spawn (fn () (os/cmd cmd-str)))
+                      kml-filename)))
                 var-info-list)))
 
 (defn+ write-contour-kmz-file (uuid wdir sim-from sim-time var-list)
@@ -46,6 +47,7 @@
                  (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
                         kml-abs-name (filename/join [kml-dir uuid kml-basename])
                         cmd-str (iol/format "deps/viswrf/contour2kml.py ~s ~s ~s ~s" [wrfout-name var-name sim-time-str kml-abs-name]))
-                  (erl/spawn (fn () (os/cmd cmd-str)))))
+                  (erl/spawn (fn () (os/cmd cmd-str)))
+                  kml-basename))
                var-list)))
 
