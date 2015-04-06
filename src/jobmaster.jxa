@@ -74,24 +74,26 @@
   (gen_server/call {:global :jobmaster} {:submit-job uuid mod args}))
 
 
+(defn+ submit (mod args)
+  "Submits a job using submit/3 after creating a new UUID for this job.
+   Useful for web submissions where the submit must return the job uuid."
+   (let (uuid (utils/make-uuid))
+    (submit uuid mod args)))
+
+
 (defn+ livejobs ()
   "Retrieve a list of live jobs from the live jobs table."
-  (check-transaction (mnesia/all-keys :livejob) "livejobs" result))
+  (gen_server/call {:global :jobmaster} :livejobs))
 
 
 (defn+ islive? (uuid)
   "Check if the <uuid> exists in the live jobs table.  Returns :error if transaction fails."
-  (check-transaction (mnesia/read {:livejob uuid}) "islive?" (erl/not (empty? result))))
+  (gen_server/call {:global :jobmaster} {:is-live uuid}))
 
 
 (defn+ getstate (uuid)
   "Retrieve the state of the job <uuid>, assuming its live."
-  (check-transaction
-    (case (mnesia/read :livejob uuid)
-      ([jlj] (livejob/state jlj))
-      ([]   :no-such-job))
-    "getstate"
-    result))
+  (gen_server/call {:global :jobmaster} {:get-state uuid}))
 
 
 (defn modify-state (uuid trans-name modify-f)
@@ -100,8 +102,9 @@
   (check-transaction
     (case (mnesia/read :livejob uuid)
       ([jlj]
-        (let* (state1 (modify-f (livejob/state jlj)))
-          (mnesia/write (livejob/state! jlj state1))))
+        (let* (state1 (modify-f (livejob/state jlj))
+               jlj1   (livejob/state! jlj state1))
+          (mnesia/write jlj1)))
       ([] :no-such-job)
       (:error :error))
     trans-name
@@ -126,7 +129,7 @@
 
 
 ;; --------------------------------------------
-;; internal function
+;; internal functions
 ;; --------------------------------------------
 
 (defn getjobpid (uuid)
@@ -172,8 +175,12 @@
                         [uuid type body (erl/get-stacktrace)])))))
       ; whatever happens, the log gets closed
       (logsrv/close-log uuid)
-      ; notify the server process that the job is done (and is to be removed from the set of live jobs
+      ; notify the server process that the job is done (and is to be removed from the set of live jobs)
       (job-done uuid)))))
+
+
+(defn islive?-internal (uuid)
+  (check-transaction (mnesia/read {:livejob uuid}) "islive?" (erl/not (empty? result))))
 
 
 (defn all-live-job-records()
@@ -197,7 +204,7 @@
     (case request
       ; submit a new/existing job (matched by uuid)
       ({:submit-job uuid mod args}
-        (if (islive? uuid)
+        (if (islive?-internal uuid)
           (do
             (log-f :info "jobmaster: did not start job ~p, it is already live" [uuid])
             {:reply {:ok uuid} state})
@@ -217,6 +224,15 @@
             "job-done"
             result)
            state})
+      ; retrieve job state
+      ({:get-state uuid}
+        (let (job-state
+                (check-transaction
+                  (case (mnesia/read :livejob uuid)
+                    ([jlj] (livejob/state jlj))
+                    ([]   :no-such-job))
+                   "getstate" result))
+          {:reply job-state state}))
       ; kill the job uuid
       ({:kill-job uuid with-reason}
         (case (getjobpid uuid)
@@ -226,6 +242,12 @@
             {:reply :ok state})
           (some-error
             {:reply some-error state})))
+      ; list all live jobs running
+      (:livejobs
+        {:reply (check-transaction (mnesia/all-keys :livejob) "livejobs" result) state})
+      ; check if a uuid corresponds to a live job
+      ({:is-live uuid}
+        {:reply (islive?-internal uuid) state})
       ; resubmit libe jobs
       (:resubmit-live-jobs
         (lists/map (fn (lj) (let* (uuid   (livejob/uuid lj)
