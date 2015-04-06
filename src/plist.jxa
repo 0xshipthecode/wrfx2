@@ -9,12 +9,14 @@
   "Create an empty property list."
   [])
 
+
 (defn+ plist? (x)
   "Check if a passed structure <x> is a plist."
   (case x
     ([] :true)
     (({k v} . rest) (plist? rest))
     (other :false)))
+
 
 (defn+ keys (ps)
   "Retrieve all keys from the property list <ps>."
