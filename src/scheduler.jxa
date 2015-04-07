@@ -34,13 +34,13 @@
   (gen_server/call :scheduler :reload-schedule 5000))
 
 
-(defn+ start-link (log-f)
+(defn+ start-link ()
   (ensure-table-exists (:schedule . (record-fields (schedule/field-info))) [])
   (critical-check :ok (mnesia/wait-for-tables [:schedule] 5000))
-  (!!= {:ok _} (gen_server/start-link {:local :scheduler} :scheduler [(ta/local-time) [] [] log-f] []))
-  (log-f :info "scheduler: pre-init ok, loading schedules now" [])
+  (!!= {:ok _} (gen_server/start-link {:local :scheduler} :scheduler [(ta/local-time) [] []] []))
+  (log-info "scheduler: pre-init ok, loading schedules now" [])
   (!!= :ok (reload-schedule))
-  (log-f :info "scheduler: schedule loaded successfully" []))
+  (log-info "scheduler: schedule loaded successfully" []))
 
 
 (defn+ add (job-name job-start start-func)
@@ -97,7 +97,7 @@
   (lists/sort (fn (x y) (erl/< (schedule/job-start-time x) (schedule/job-start-time y))) job-list))
 
 
-(defn start-jobs (last-ts now-ts jobs-past jobs-todo log-f)
+(defn start-jobs (last-ts now-ts jobs-past jobs-todo)
   (let ({last-day last-time} last-ts
         {day-now  time-now}  now-ts)
     (case day-now
@@ -109,14 +109,14 @@
             (schedule/let job (job-name job-name job-start-time ts job-f job-f)
               (if (erl/and (lte ts time-now) (gte ts last-time))
                 (do
-                  (log-f :info "scheduler: starting job ~p at ~w, start time was ~w." [job-name {day-now time-now} ts])
+                  (log-info "scheduler: starting job ~p at ~w, start time was ~w." [job-name {day-now time-now} ts])
                   (erl/spawn (fn ()
                     (try*
-                      (job-f log-f)
+                      (job-f)
                     (catch (type bdy)
-                      (log-f :error "scheduler: job function of job ~p threw exception type ~w body ~w~nstacktrace ~p"
+                      (log-error "scheduler: job function of job ~p threw exception type ~w body ~w~nstacktrace ~p"
                              [job-name type bdy (erl/get-stacktrace)])))))
-                  (start-jobs last-ts now-ts (job . jobs-past) jobs-todo-rest log-f))
+                  (start-jobs last-ts now-ts (job . jobs-past) jobs-todo-rest))
                 ; since jobs are sorted by time, if this job didn't bite neither will any other
                 ; this assumes no jobs slips through the cracks (if a job didn't run and job-start < last-time
                 ; but under no circumstances is that supposed to happen)
@@ -125,7 +125,7 @@
         ; we have rolled over midnight, move all jobs started to jobs that need to be run
         ; make sure (by another invocation of start-jobs that jobs that should have been started between midnight and now
         ; are started
-        (start-jobs {day-now {0 0 0}} now-ts [] (sort-jobs (erl/++ jobs-past jobs-todo)) log-f)))))
+        (start-jobs {day-now {0 0 0}} now-ts [] (sort-jobs (erl/++ jobs-past jobs-todo)))))))
 
 
 ;; gen_server callbacks
@@ -134,15 +134,15 @@
 
 
 (defn+ handle_call (request from state)
-  (let ([{last-day last-time} _ _ log-f] state)
+  (let ([{last-day last-time} _ _] state)
     (case request
       (:reload-schedule
         (let ({:atomic jobs} (mnesia/transaction (fn () (mnesia/foldl (fn (rec acc) (rec . acc)) [] :schedule)) [] 3)
               {jobs-past jobs-todo} (lists/partition (fn (x) (erl/< (schedule/job-start-time x) last-time)) jobs))
           ; jobs-past cannot be triggered today anymore and jobs-todo can
-          {:reply :ok [{last-day last-time} jobs-past (sort-jobs jobs-todo) log-f] 5000}))
+          {:reply :ok [{last-day last-time} jobs-past (sort-jobs jobs-todo)] 5000}))
       (other
-        (log-f :flash "scheduler: message ~p not understood, fix it!" [other])
+        (log-error "scheduler: message ~p not understood, fix it!" [other])
           {:reply :invalid-request state}))))
 
 
@@ -151,14 +151,14 @@
 
 
 (defn+ handle_info (info state)
-  (let ([last-ts jobs-past jobs-todo log-f] state)
+  (let ([last-ts jobs-past jobs-todo] state)
     (case info
       (:timeout
         (let (now-ts                    (ta/local-time)
-             {jobs-past-2 jobs-todo-2}  (start-jobs last-ts now-ts jobs-past jobs-todo log-f))
-          {:noreply [now-ts jobs-past-2 jobs-todo-2 log-f] 5000}))
+             {jobs-past-2 jobs-todo-2}  (start-jobs last-ts now-ts jobs-past jobs-todo))
+          {:noreply [now-ts jobs-past-2 jobs-todo-2] 5000}))
       (other
-        (log-f :flash "scheduler: handle_info got message ~w, what's this?" [info])
+        (log-error "scheduler: handle_info got message ~w, what's this?" [info])
         {:noreply state 5000}))))
 
 

@@ -18,7 +18,7 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns testjob
-  (require wrfxlib nlist nllib plist filesys ext-wrappers logsrv perftrack
+  (require wrfxlib nlist nllib plist filesys ext-wrappers perftrack
            configsrv jobmaster (timelib :as ta) os grib_ingest
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))

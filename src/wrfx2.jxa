@@ -20,10 +20,8 @@
 (ns wrfx2
     (require
        jobmaster configsrv logsrv sysmon afm_ingest raws_ingest grib_ingest scheduler perftrack
-       inet inets io (file :joxify) filename crypto
-       (application :joxify) (mnesia :joxify)
-       (io_lib :as iol) (erlang :as erl :joxify)
-       (filelib :joxify) net_adm)
+       inet inets io (file :joxify) filename crypto (application :joxify) (mnesia :joxify)
+       (io_lib :as iol) (erlang :as erl :joxify) (filelib :joxify) net_adm)
     (use joxa-core utils))
 
 
@@ -38,10 +36,11 @@
   "Start up the ingest system."
   (raws_ingest/start)
   (logsrv/create-log "grib-ingest")
-  (let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
-    (application/set-env :grib_ingest :logging_function grib-log-f)
-    (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest-storage-dir))
-    (grib_ingest/start))
+  ;NOTE: this was removed as we want grib_ingest to use the standard error_logger
+  ;(let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
+    ;(application/set-env :grib_ingest :logging_function grib-log-f))
+  (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest-storage-dir))
+  (grib_ingest/start)
   (afm_ingest/start))
 
 
@@ -69,7 +68,7 @@
   ; start logging subsystem
   (start-logging)
   ; initialize the performance tracking and instrumentation library
-  (perftrack/initialize (logsrv/make-log-f "system"))
+  (perftrack/initialize (fn (_level msg args) (log-info msg args)))
   ; start the ingest system
   (start-ingest-system)
   ; start the job manager
@@ -77,13 +76,14 @@
   ; start the system monitor
   (sysmon/start-link)
   ; start scheduler
-  (logsrv/create-log "scheduler")
-  (scheduler/start-link (logsrv/make-log-f "scheduler"))
+  (scheduler/start-link)
   ; check if the webserver is up, if yes, connect
   (let (w2w-name (wrfx2web-node-name))
-    (logsrv/msg "system" :info "pinging ~p to check if it is up." [w2w-name])
-    (net_adm/ping w2w-name))
+    (log-info "pinging ~p to check if it is up." [w2w-name])
+    (case (net_adm/ping w2w-name)
+      (:pong (log-info "node ~p is up & connected." [w2w-name]))
+      (:pang (log-info "node ~p is currently unreachable." [w2w-name]))))
   ; we are ready to go
-  (logsrv/msg "system" :info "wrfx2 startup complete" []))
+  (log-info "wrfx2 startup complete" []))
 
 

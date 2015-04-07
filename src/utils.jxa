@@ -21,7 +21,7 @@
     (require lists filelib timer erl_scan erl_parse
              (erl_eval :joxify) (mnesia :joxify) (file :joxify)
              (string :as str) (io_lib :as iol) (erlang :as erl :joxify)
-             (joxa-lists :as jxl) (crypto :joxify))
+             (joxa-lists :as jxl) (crypto :joxify) (error_logger :as errlog :joxify))
     (use joxa-core))
 
 
@@ -308,4 +308,37 @@
 (defn+ record-fields (finfo)
   "Map the result of joxa-records/field-info <finfo> into a list of field names."
   (lists/map (fn (field) (erl/element 1 field)) finfo))
+
+
+(defn+ log-info (arg)
+  "Add an INFO report to the log. If <arg> is an iolist, applies lists/flatten, else no modification."
+  (errlog/info-report (if (erlang/is-list arg) (lists/flatten arg) arg)))
+
+
+(defn+ log-info (fmt args)
+  "Adds an INFO report to the log.  <fmt> must be a string and <args> must be a list of arguments.
+   Both are passed to iol/format."
+  (log-info (iol/format fmt args)))
+
+
+(defn+ log-warn (arg)
+  "Add an WARN report to the log. If <arg> is an iolist, applies lists/flatten, else no modification."
+  (errlog/warning-report (if (erlang/is-list arg) (lists/flatten arg) arg)))
+
+
+(defn+ log-warn (fmt args)
+  "Adds an WARN report to the log.  <fmt> must be a string and <args> must be a list of arguments.
+   Both are passed to iol/format."
+  (log-warn (iol/format fmt args)))
+
+
+(defn+ log-error (arg)
+  "Add an ERROR report to the log. If <arg> is an iolist, applies lists/flatten, else no modification."
+  (errlog/error-report (if (erlang/is-list arg) (lists/flatten arg) arg)))
+
+
+(defn+ log-error (fmt args)
+  "Adds an ERROR report to the log.  <fmt> must be a string and <args> must be a list of arguments.
+   Both are passed to iol/format."
+    (log-error (iol/format fmt args)))
 

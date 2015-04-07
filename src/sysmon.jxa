@@ -1,6 +1,6 @@
 (ns sysmon
   (require plist os (dict :joxify) gen_server (erlang :as erl :joxify) 
-           (calendar :as cal :joxify) logsrv (string :as str) configsrv)
+           (calendar :as cal :joxify) (string :as str) configsrv utils)
   (use joxa-core))
 
 
@@ -30,6 +30,7 @@
 (defn get-cmd-output (cmd)
   (str/strip (os/cmd cmd) :right 10))
 
+
 (defn update-state (state)
   (let ({cmds ss}        state
         [count-nodes-cmd free-nodes-cmd qlen-cmd] cmds)
@@ -43,8 +44,9 @@
                                   {:lastupdated now}] ss)})
     (catch (type body)
       (do
-        (logsrv/error :error "sysmon: failed to update state, exception ~p with body ~p, stack trace ~p" [type body (erl/get-stacktrace)])
-        state)))))
+        (utils/log-error "sysmon: failed to update state, exception ~p with body ~p, stack trace ~p" [type body (erl/get-stacktrace)])
+        state))))
+        )
 
 ; gen_server callbacks
 
