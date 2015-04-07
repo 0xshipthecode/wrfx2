@@ -19,7 +19,7 @@
 
 (ns wrfx2
     (require
-       jobmaster configsrv logsrv sysmon afm_ingest raws_ingest grib_ingest scheduler perftrack
+       jobmaster configsrv logsrv sysmon raws_ingest grib_ingest scheduler perftrack
        inet inets io (file :joxify) filename crypto (application :joxify) (mnesia :joxify)
        (io_lib :as iol) (erlang :as erl :joxify) (filelib :joxify) net_adm)
     (use joxa-core utils))
@@ -40,8 +40,7 @@
   ;(let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
     ;(application/set-env :grib_ingest :logging_function grib-log-f))
   (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest-storage-dir))
-  (grib_ingest/start)
-  (afm_ingest/start))
+  (grib_ingest/start))
 
 
 (defn+ start-otp-subsystem ()
