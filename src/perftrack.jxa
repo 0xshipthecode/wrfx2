@@ -1,4 +1,4 @@
-; Copyright (C) 2014 Martin Vejmelka, UC Denver
+; Copyright (C) 2015 Martin Vejmelka, UC Denver
 ;
 ; Permission is hereby granted, free of charge, to any person obtaining a copy
 ; of this software and associated documentation files (the "Software"), to deal
@@ -17,34 +17,46 @@
 ; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+(ns taskinfo
+  (use joxa-records))
+
+(defrecord+ uuid job-type task-name start-time end-time result info)
 
 (ns perftrack
-  (require (erlang :as erl :joxify) lists (timelib :as ta) taskinfo (mnesia :joxify)
-           (io_lib :as iol) (file :joxify))
+  (require (erlang :as erl :joxify) lists (timelib :as ta) taskinfo (io_lib :as iol)
+            (file :joxify) (pgsql_manager :as dbif :joxify))
   (use joxa-core utils))
 
 
-(defn+ initialize (log-f)
-  "Ensures all mnesia tables are created."
-  (ensure-table-exists (:taskinfo . (record-fields (taskinfo/field-info))) [:job-type :task-name] [{:type :bag}])
-  (critical-check :ok (mnesia/wait-for-tables [:taskinfo] 5000))
-  (log-f :info "perftrack: initialized, tables available." []))
+(defn+ initialize ()
+  "Ensures all tables are available."
+  (critical-check :true (table-exists? "taskinfo"))
+  (log-info "perftrack: initialized, tables available." []))
+
+
+(defn+ append-task-info (job-type uuid task-name start-time end-time result info)
+  "A shortcut that makes it unnecessary to require taskinfos for clients using this module."
+  (dbif/extended-query "insert into taskinfo(uuid,job_type,task_name,start_time,end_time,result,info) values ($1,$2,$3,$4,$5,$6,$7)"
+    [uuid job-type task-name start-time end-time (iol/format "~p" [result]) (iol/format "~p" [info])]))
 
 
 (defn+ append-task-info (ti)
   "Appends the taskinfo <pr> to the table :taskinfo.  This function can be used to append performance
    records gathered by mechanisms outside of the scope of the perfmon."
-  (mnesia/transaction (fn () (mnesia/write ti))))
+  (taskinfo/let ti (uuid uuid job-type jt task-name tn start-time st end-time et result res info info)
+    (append-task-info jt uuid tn st et res info)))
 
 
-(defn+ append-task-info (job-type uuid task-name start-time end-time result info)
-  "A shortcut that makes it unnecessary to require taskinfos for clients using this module."
-  (append-task-info (taskinfo/make uuid job-type task-name start-time end-time result info)))
-
-
-(defn+ get-task-infos (job-type task-name)
-  "Retrieves the performance records for task <task-name> executed within <job-type>."
-  (mnesia/dirty-select :taskinfo [{{:taskinfo :$1 job-type task-name :$2 :$3 :$4 :$5} [] [{{:$1 :$2 :$3 :$4 :$5}}]}]))
+(defn+ get-task-stats (job-type task-name)
+  "Retrieves the performance statistics (avg, min, max) for task <task-name> executed within <job-type>."
+  (let* (res (dbif/extended-query "select extract('epoch' from avg(end_time - start_time)),
+                                          extract('epoch' from min(end_time - start_time)),
+                                          extract('epoch' from max(end_time - start_time))
+                                          from taskinfo where job_type=$1 and task_name=$2" [job-type task-name]))
+    (case res
+      ({{:select 1} [{avg} {min} {max}]}
+        {avg min max})
+      (_ :error))))
 
 
 (defn+ instrument-as (job-type uuid task-name info task-f)
@@ -62,7 +74,7 @@
         (append-task-info job-type uuid task-name start-time (ta/local-time) {:exception class body} info)
         ; it's not clear how to handle catching only some types of exceptions in joxa, so we catch/log everything here
         ; and rethrow the exception (even if it wasn't a throw in the first case)
-        (erl/throw {body (erl/get-stacktrace)}))))))
+        (erl/throw body))))))
 
 
 (defn+ instrument-as (job-type uuid task-name task-f)
