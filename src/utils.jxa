@@ -18,10 +18,10 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns utils
-    (require lists filelib timer erl_scan erl_parse
-             (erl_eval :joxify) (mnesia :joxify) (file :joxify)
-             (string :as str) (io_lib :as iol) (erlang :as erl :joxify)
-             (joxa-lists :as jxl) (crypto :joxify) (error_logger :as errlog :joxify))
+    (require lists filelib timer erl_scan erl_parse (erl_eval :joxify)
+             (file :joxify) (string :as str) (io_lib :as iol) (erlang :as erl :joxify)
+             (joxa-lists :as jxl) (crypto :joxify) (error_logger :as errlog :joxify)
+             (pgsql_manager :as dbif :joxify))
     (use joxa-core))
 
 
@@ -67,29 +67,6 @@
         (let* (~msg (iol/format "FAILURE in ~p: expected ~p~ninstead returned ~p~nstacktrace is ~p~n" [(quote ~func) ~succ-result ~other (erl/get-stacktrace)])) 
           (file/write-file "critical_failure.log" ~msg)
           (erl/throw (lists/flatten ~msg)))))))
-
-
-(defn+ ensure-table-exists (tuple-fields index-fields extra-opts)
-  "Ensure that a table either exists or is created with fields <tuple-fields>
-   and indices for <index-fields>.  The table name is the first element of <tuple-fields>.
-   The list <extra-opts> is appended to the table options in mnesia/create-table/2."
-  (let ((table-name . attrs) tuple-fields)
-    (if (lists/member table-name (mnesia/system-info :tables))
-      :ok
-      (let* (opts ({:attributes attrs} . ({:index index-fields} . ({:disc_copies [(erl/node)]} . extra-opts))))
-        (critical-check {:atomic :ok} (mnesia/create-table table-name opts))))))
-
-
-(defn+ ensure-table-exists (tuple-fields index-fields)
-  "Calls ensure-table-exists/3 with no extra options."
-  (ensure-table-exists tuple-fields index-fields []))
-
-
-;; define a macro that matches an arbitrary structure to
-;; a single function argument
-(defmacro+ fnm1 (args body)
-  (let* (arg (gensym))
-    `(fn (~arg) (let (~args ~arg) ~body))))
 
 
 ;; format a task error tuple
@@ -164,8 +141,8 @@
     ({:ok scanned _}
       (case (erl_parse/parse_exprs scanned)
         ({:ok parsed} (erl_eval/exprs parsed env))
-        ({:error info} {:parse-error info})))
-      ({:error err-info err-loc} {:scan-error err-info err-loc})))
+        ({:error info} {:error :parse info})))
+      ({:error err-info err-loc} {:error :scan {err-info err-loc}})))
 
 
 (defn pmap (func workers max-workers tasks res-list)
@@ -305,6 +282,23 @@
   result)
 
 
+(defn+ term-to-string (et)
+  "Convert en erlang term to a string."
+  (iol/format "~p." [et]))
+
+
+(defn+ string-to-term (str)
+  "Converts a string to an erlang term. Returns {:ok term} on success,
+   otherwise returns {:error err-type err-info}."
+  (case (eval-erlang str (erl_eval/new-bindings))
+    ({:value et _} et)))
+
+
+(defn+ binary-to-term (bin)
+  "Convert a binary to an erlang term via string-to-term/1."
+  (string-to-term (erl/binary-to-list bin)))
+    
+
 (defn+ record-fields (finfo)
   "Map the result of joxa-records/field-info <finfo> into a list of field names."
   (lists/map (fn (field) (erl/element 1 field)) finfo))
@@ -342,3 +336,10 @@
    Both are passed to iol/format."
     (log-error (iol/format fmt args)))
 
+
+(defn+ table-exists? (name)
+  "Check if a table exists (within a database implicitly specified by conn-id."
+  (case (dbif/extended-query "select * from information_schema.tables where table_name = $1" [name])
+    ({{:select 1} _} :true)
+    (_               :false)))
+ 
