@@ -26,7 +26,6 @@
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
   (let* (uuid           (plist/get :uuid args)
-         short-jid      (plist/get :short-uuid args)
          work-dir       (plist/get :work-dir args)
          wrf-idir       (configsrv/get-conf :wrf-install-dir)
          ign-specs      (plist/get :ign-specs args)
@@ -45,24 +44,24 @@
 
     ; step 1: setup the WRF working directory
     (wrfxlib/clone-wrf wrf-idir wrf-wdir)
-    (log-f :info "nasa-fire-job [~p]: created WRF working directory" [short-jid])
+    (log-f :info "nasa-fire-job [~p]: created WRF working directory" [uuid])
 
     ; step 2: symlink wrfinputs to WRF
     (let ({:ok cwd} (file/get-cwd))
       (!!= :ok (filesys/symlink-files-to-dir ["wrfinput_d01" "wrfinput_d02" "wrfbdy_d01"]
                                              (filename/join cwd "precomputed/nasa-fire-job")
                                              wrf-wdir)))
-    (log-f :info "nasa-fire-job [~p]: symlinked precomputed files" [short-jid])
+    (log-f :info "nasa-fire-job [~p]: symlinked precomputed files" [uuid])
 
     ; step 3: construct the WRF namelist (ignition when/where, etc.) and write it, write namelist.fire (no changes)
     (let* (wrf-nl1 (make-wrf-namelist sim-from sim-to ign-specs wrf-nl0))
-      (log-f :info "nasa-fire-job [~p] writing namelist.input for WRF" [short-jid])
+      (log-f :info "nasa-fire-job [~p] writing namelist.input for WRF" [uuid])
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
     (!!= {:ok _} (file/copy "etc/nlists/nasa-fs.fire" (filename/join wrf-wdir "namelist.fire"))) 
 
     ; step 4: run WRF
-    (log-f :info "nasa-fire-job [~p] running WRF" [short-jid])
+    (log-f :info "nasa-fire-job [~p] running WRF" [uuid])
     (jobmaster/updatestate uuid [{:stage "WRF"} {:kmls []}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
@@ -77,7 +76,7 @@
               (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
       (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 120 wrf-history-hook cfl-violation-hook log-f))
 
-    (log-f :info "nasa-fire-job [~p] end of job reached" [short-jid])
+    (log-f :info "nasa-fire-job [~p] end of job reached" [uuid])
 
     (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
 
