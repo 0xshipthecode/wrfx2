@@ -5,7 +5,7 @@ JOXA_HOME=$(shell pwd)/deps/joxa
 
 all: joxa compile-deps pre-compile compile
 
-INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/ebin -p deps/steward/ebin
+INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/ebin -p deps/steward/ebin -p deps/pgsql/ebin
 
 
 BEAMFILES =	ebin/file_info.beam \
@@ -16,7 +16,6 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/nlparser.beam \
 		ebin/timelib.beam \
 		ebin/postproc.beam \
-		ebin/taskinfo.beam \
 		ebin/perftrack.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
@@ -24,6 +23,7 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/scheduler.beam \
 		ebin/filesys.beam \
 		ebin/sysmon.beam \
+		ebin/job.beam \
 		ebin/jobmaster.beam \
 		ebin/fmda.beam \
 		ebin/ext-wrappers.beam \

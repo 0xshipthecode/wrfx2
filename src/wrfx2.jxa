@@ -20,8 +20,9 @@
 (ns wrfx2
     (require
        jobmaster configsrv logsrv sysmon raws_ingest grib_ingest scheduler perftrack
-       inet inets io (file :joxify) filename crypto (application :joxify) (mnesia :joxify)
-       (io_lib :as iol) (erlang :as erl :joxify) (filelib :joxify) net_adm)
+       inet inets io (file :joxify) filename crypto (application :joxify)
+       (io_lib :as iol) (erlang :as erl :joxify) (filelib :joxify) net_adm
+       (pgsql_manager :as dbif :joxify))
     (use joxa-core utils))
 
 
@@ -34,7 +35,7 @@
 
 (defn+ start-ingest-system ()
   "Start up the ingest system."
-  (raws_ingest/start)
+  ;(raws_ingest/start)
   (logsrv/create-log "grib-ingest")
   ;NOTE: this was removed as we want grib_ingest to use the standard error_logger
   ;(let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
@@ -46,8 +47,6 @@
 (defn+ start-otp-subsystem ()
   "Start the OTP subsystems required for wrfx2 platform services."
   (inets/start)
-  (mnesia/create-schema [(erl/node)])
-  (mnesia/start)
   (crypto/start))
 
 
@@ -60,14 +59,17 @@
 (defn+ start ()
   ; start the configuation server
   (configsrv/start-link)
-  ; sset the mnesia database dir from config (before starting mnesia!)
-  (application/set-env :mnesia :dir (configsrv/get-conf :mnesia-dir))
   ; start otp subsystems that we need
   (start-otp-subsystem)
-  ; start logging subsystem
+  ; start the RDBMS interface (with a pool of 5 connections)
+  (let* (dbname (configsrv/get-conf :dbname)
+         dbuser (configsrv/get-conf :dbuser)
+         dbpwd  (configsrv/get-conf :dbpwd))
+    (dbif/start-link dbname dbuser dbpwd 5))
+  ; start logging subsystem for jobs
   (start-logging)
   ; initialize the performance tracking and instrumentation library
-  (perftrack/initialize (fn (_level msg args) (log-info msg args)))
+  (perftrack/initialize)
   ; start the ingest system
   (start-ingest-system)
   ; start the job manager
