@@ -1,0 +1,13 @@
+{grib_source,
+ hrrr,
+ [0, 6, 12, 18],
+ 2,
+ "http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod",
+ fun({{Y, M, D}, {H, _M, _S}}, FcHr) -> io_lib:format("hrrr.~4..0B~2..0B~2..0B/hrrr.t~2..0Bz.wrfnatf~2..0B.grib2", [Y, M, D, H, FcHr]) end,
+ "hrrr",
+ lists:seq(0, 15),
+ single_cycle,
+ 1,
+ [{vtable_file,"ungrib/Variable_Tables/Vtable.RUCb"},
+  {wrf_namelist_keys, [{"domains", [{"num_metgrid_levels", [40]}]}]}]
+ }.
