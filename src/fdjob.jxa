@@ -30,14 +30,13 @@
   "Execute the fire danger job with the given arguments:
    sim-from: simulate from
    forecast-length-hrs: hours to run from sim-from
-   job-id: unique identifier of the job
+   uuid: unique identifier of the job
    work-dir: working directory
    wrf-inst-dir: WRF installation directory
    wps-inst-dir: WPS installation directory
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
-  (let* (job-id         (plist/get :job-id args)
-         short-jid      (plist/get :short-job-id args)
+  (let* (job-id         (plist/get :uuid args)
          work-dir       (plist/get :work-dir args)
          wps-idir       (plist/get :wps-install-dir args)
          wrf-idir       (plist/get :wrf-install-dir args)
@@ -69,19 +68,19 @@
     (jobmaster/updatestate job-id [{:stage "GEOGRID (1/8)"}])
     (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
            wps-nl-name (filename/join wps-wdir "namelist.wps"))
-      (log-f :info "fdjob [~p] writing namelist.wps for geogrid" [short-jid])
+      (log-f :info "fdjob [~p] writing namelist.wps for geogrid" [uuid])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
       (wrfxlib/run-geogrid wps-wdir log-f)
 
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
       (jobmaster/updatestate job-id [{:stage "GRIB retrieval (2/8)"}])
-      (log-f :info "fdjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [short-jid sim-from sim-to])
+      (log-f :info "fdjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [uuid sim-from sim-to])
       (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve,{:wait_for_mins,5},:try_retrieve]
             {cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
             wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
         (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
         (wrfxlib/symlink-grib-files mfest wps-wdir)
-        (log-f :info "fdjob [~p] writing amended namelist.wps for ungrib.exe" [short-jid])))
+        (log-f :info "fdjob [~p] writing amended namelist.wps for ungrib.exe" [uuid])))
 
     ; step 3: run ungrib & metgrid
     (jobmaster/updatestate job-id [{:stage "UNGRIB (3/8)"}])
@@ -91,18 +90,18 @@
     (wrfxlib/run-metgrid wps-wdir log-f)
 
     ; step 4: setup the WRF working directory
-    (log-f :info "fdjob [~p]: creating WRF working directory" [short-jid])
+    (log-f :info "fdjob [~p]: creating WRF working directory" [uuid])
     (wrfxlib/clone-wrf wrf-idir wrf-wdir)
 
     ; step 5: symlink all met_em* files to the wrfdir
     (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
-      (log-f :info "fdjob [~p] symlinking ~p met_em* files to the wrf dir." [short-jid (erl/length met-em-files)])
+      (log-f :info "fdjob [~p] symlinking ~p met_em* files to the wrf dir." [uuid (erl/length met-em-files)])
       (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
 
     ; step 6: construct the WRF namelist
     (let* (nl-keys (plist/get :wrf_namelist_keys grib-info)
            wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to nl-keys hist-ints all-doms wrf-nl0))
-      (log-f :info "fdjob [~p] writing namelist.input for WRF" [short-jid])
+      (log-f :info "fdjob [~p] writing namelist.input for WRF" [uuid])
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
     ;step 7: run real.exe
@@ -110,7 +109,7 @@
     (wrfxlib/run-real wrf-wdir log-f)
 
     ; step 9: run WRF
-    (log-f :info "fdjob [~p] running WRF" [short-jid])
+    (log-f :info "fdjob [~p] running WRF" [uuid])
     (jobmaster/updatestate job-id [{:stage "WRF (6/8)"}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
@@ -148,7 +147,7 @@
                               0 (fn () :passed) 1)
 
     ; step 13: postprocess and store all results somewhere
-    (log-f :info "fdjob [~p] end of job reached successfully" [short-jid])
+    (log-f :info "fdjob [~p] end of job reached successfully" [uuid])
     (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])
 
     :ok))
