@@ -36,7 +36,7 @@
    wps-inst-dir: WPS installation directory
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
-  (let* (job-id         (plist/get :uuid args)
+  (let* (uuid         (plist/get :uuid args)
          work-dir       (plist/get :work-dir args)
          wps-idir       (plist/get :wps-install-dir args)
          wrf-idir       (plist/get :wrf-install-dir args)
@@ -59,13 +59,13 @@
          wrf-nl0        (nlist/parse (plist/get :wrf-nl args) :weather-sim-wrf)
          all-doms       (nlist/all-domains wps-nl0))
 
-    (log-f :info "fdjob [~p] work-dir ~p sim-from ~w sim-to ~w~n" [job-id work-dir sim-from sim-to])
+    (log-f :info "fdjob [~p] work-dir ~p sim-from ~w sim-to ~w~n" [uuid work-dir sim-from sim-to])
 
     ; create the working directory for WPS
     (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) []))
 
     ; step 1: edit WPS namelist and run geogrid
-    (jobmaster/updatestate job-id [{:stage "GEOGRID (1/8)"}])
+    (jobmaster/updatestate uuid [{:stage "GEOGRID (1/8)"}])
     (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
            wps-nl-name (filename/join wps-wdir "namelist.wps"))
       (log-f :info "fdjob [~p] writing namelist.wps for geogrid" [uuid])
@@ -73,7 +73,7 @@
       (wrfxlib/run-geogrid wps-wdir log-f)
 
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-      (jobmaster/updatestate job-id [{:stage "GRIB retrieval (2/8)"}])
+      (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/8)"}])
       (log-f :info "fdjob [~p] retrieving GRIB files for the simulation extent ~w to ~w" [uuid sim-from sim-to])
       (let (strategy                [{:use_grib_source grib-src-name},:try_retrieve,{:wait_for_mins,5},:try_retrieve]
             {cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to sim-from strategy)
@@ -83,10 +83,10 @@
         (log-f :info "fdjob [~p] writing amended namelist.wps for ungrib.exe" [uuid])))
 
     ; step 3: run ungrib & metgrid
-    (jobmaster/updatestate job-id [{:stage "UNGRIB (3/8)"}])
+    (jobmaster/updatestate uuid [{:stage "UNGRIB (3/8)"}])
     (wrfxlib/run-ungrib wps-wdir log-f)
 
-    (jobmaster/updatestate job-id [{:stage "METGRID (4/8)"}])
+    (jobmaster/updatestate uuid [{:stage "METGRID (4/8)"}])
     (wrfxlib/run-metgrid wps-wdir log-f)
 
     ; step 4: setup the WRF working directory
@@ -105,29 +105,29 @@
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
     ;step 7: run real.exe
-    (jobmaster/updatestate job-id [{:stage "REAL (5/8)"}])
+    (jobmaster/updatestate uuid [{:stage "REAL (5/8)"}])
     (wrfxlib/run-real wrf-wdir log-f)
 
     ; step 9: run WRF
     (log-f :info "fdjob [~p] running WRF" [uuid])
-    (jobmaster/updatestate job-id [{:stage "WRF (6/8)"}])
+    (jobmaster/updatestate uuid [{:stage "WRF (6/8)"}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (log-f :info "fdjob detected WRF history write at ~w in domain ~p" [sim-time domain-id])
               (when (erl/== domain-id 1)
                 (log-f :info "fdjob simulation info - ~p percent done, acceleration ~p time to go ~p completion at ~w"
                              (plist/get-list [:percent-done :sim-acceleration :seconds-to-finish :completion-time]
-                                              :not-available (jobmaster/getstate job-id)))))
+                                              :not-available (jobmaster/getstate uuid)))))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "fdjob detected CFL violation, terminating WRF job." [])
               (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
 
-      (wrfxlib/run-wrf job-id wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to
+      (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to
                     300 wrf-history-hook cfl-violation-hook log-f))
 
     ; step 10: retrieve FMDA data (do this 'almost' last so that we have the freshest data)
-    (jobmaster/updatestate job-id [{:stage "Retrieving RAWS observations (7/8)"}])
+    (jobmaster/updatestate uuid [{:stage "Retrieving RAWS observations (7/8)"}])
     (let ({:ok sysdir} (file/get-cwd))
       (!!= :ok (filesys/clone-with-files (filename/join sysdir "deps/fmda") fmda-wdir [ "src" "fmda_auto.sh"])))
     (let* (data-dir (filename/join fmda-wdir "data"))
@@ -138,7 +138,7 @@
             (fmda/write-raws-info-and-obs st-data data-dir))))
 
     ; step 12: run external fuel moisture code
-    (jobmaster/updatestate job-id [{:stage "FMDA (8/8)"}])
+    (jobmaster/updatestate uuid [{:stage "FMDA (8/8)"}])
 
     (let* (wrfout-path (erl/++ "../wrf/wrfout_d03_" (ta/to-esmf-str sim-from))
            cfg-path    (filename/join fmda-wdir "fmda.cfg"))
@@ -148,7 +148,7 @@
 
     ; step 13: postprocess and store all results somewhere
     (log-f :info "fdjob [~p] end of job reached successfully" [uuid])
-    (jobmaster/updatestate job-id [{:stage "COMPLETE"} {:percent-done 100.0}])
+    (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
 
     :ok))
 
