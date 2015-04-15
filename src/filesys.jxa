@@ -28,9 +28,11 @@
 
 
 (defn+ file-type (fname)
-  "Returns the file type of <fname> from the read-link-info function."
-  (let ({:ok fi} (file/read-link-info fname))
-    (file_info/type fi)))
+  "Returns the file type of <fname> from the read-link-info function or :enoent
+   if the file does not exist."
+  (case (file/read-link-info fname)
+    ({:ok fi} (file_info/type fi))
+    ({:error :enoent} :enoent)))
 
 
 (defn+ delete (fd)
@@ -49,6 +51,16 @@
     (:ok :ok)
     ({:error :eexist} :ok)
     (other (erl/throw other))))
+
+
+(defn+ make-symlink (from to)
+  "If the target file <to> exists, it is deleted and overwritten with a
+   symlink to <from>.  The file <from> must exist."
+  (!!= :true (filelib/is-file from))
+  (case (file-type to)
+    (:enoent :ok)
+    (_       (file/delete to)))
+  (file/make-symlink from to))
 
 
 (defn+ list-dir-regexp (dir regexp)
