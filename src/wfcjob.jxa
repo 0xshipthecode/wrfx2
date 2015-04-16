@@ -41,6 +41,7 @@
          wps-idir       (plist/get :wps-install-dir args)
          wrf-idir       (plist/get :wrf-install-dir args)
          grib-src-name  (plist/get :grib-src-name args)
+         geogrid-tbl    (plist/get :geogrid-tbl args)
          sim-from       (plist/get :sim-from args)
          fc-hrs         (plist/get :forecast-length-hrs args)
          num-nodes      (plist/get :num-nodes args)
@@ -57,7 +58,7 @@
 
     (log-f :info "job starting: work dir is ~p sim range [~w,~w]~n" [work-dir sim-from sim-to])
     ; create the working directory for WPS
-    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) []))
+    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) geogrid-tbl []))
 
     ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
     (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
@@ -65,7 +66,7 @@
       (log-f :info "writing namelist.wps for geogrid" [])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
       (jobmaster/updatestate uuid [{:stage "GEOGRID (1/6)"}])
-      (perftrack/instrument-as :wfcjob uuid :geogrid []
+      (perftrack/instrument-as :wfcjob uuid "geogrid" []
         (fn () (wrfxlib/run-geogrid wps-wdir log-f)))
       
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
@@ -82,15 +83,15 @@
 
     ; step 3: run ungrib & metgrid
     (jobmaster/updatestate uuid [{:stage "UNGRIB (3/6)"}])
-    (perftrack/instrument-as :wfcjob uuid :ungrib []
+    (perftrack/instrument-as :wfcjob uuid "ungrib" []
       (fn () (wrfxlib/run-ungrib wps-wdir log-f)))
     (jobmaster/updatestate uuid [{:stage "METGRID (4/6)"}])
-    (perftrack/instrument-as :wfcjob uuid :metgrid []
+    (perftrack/instrument-as :wfcjob uuid "metgrid" []
       (fn () (wrfxlib/run-metgrid wps-wdir log-f)))
 
     ; step 4: setup the WRF working directory
     (log-f :info "creating WRF working directory" [])
-    (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+    (wrfxlib/clone-wrf wrf-idir wrf-wdir [])
 
     ; step 5: symlink all met_em* files to the wrfdir
     (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
@@ -105,7 +106,7 @@
 
     ;step 7: run real.exe
     (jobmaster/updatestate uuid [{:stage "REAL (5/6)"}])
-    (perftrack/instrument-as :wfcjob uuid :real
+    (perftrack/instrument-as :wfcjob uuid "real"
       (fn () (wrfxlib/run-real wrf-wdir log-f)))
 
     ; step 8: run WRF
@@ -123,7 +124,7 @@
             (fn (ext-mon-pid)
               (log-f :error "*** detected CFL violation, terminating WRF job. ***" [])
               (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
-      (perftrack/instrument-as :wfcjob uuid :wrf [{:num-nodes num-nodes} {:ppn ppn}]
+      (perftrack/instrument-as :wfcjob uuid "wrf" [{:num-nodes num-nodes} {:ppn ppn}]
         (fn () (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 120 wrf-history-hook cfl-violation-hook log-f))))
 
     (log-f :info "end of job reached" [])
@@ -139,25 +140,12 @@
          {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
+         {:geogrid-tbl "geogrid/GEOGRID.TBL.ARW"}
          {:grib-src-name :nam_218}
          {:sim-from {{2014 2 4} {0 0 0}}}
          {:wps-nl "etc/nlists/colo_3dom.wps"}
          {:wrf-nl "etc/nlists/colo_3dom.input"}
          {:num-nodes 10} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
-
-
-(defn+ submit (from)
-  (let* (uuid (lists/flatten (iol/format "wfc-colo3-~s" [(ta/to-esmf-str from)])))
-    (jobmaster/submit uuid :wfcjob
-        [{:sim-from from}
-         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
-         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
-         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-         {:grib-src-name :nam_218}
-         {:wps-nl "etc/nlists/colo_3dom.wps"}
-         {:wrf-nl "etc/nlists/colo_3dom.input"}
-         {:history-interval [180 120 60]}
-         {:num-nodes 10} {:ppn 12} {:wall-time-hrs 12} {:forecast-length-hrs 48} ])))
 
 
 (defn preflight-check (items)
@@ -187,6 +175,7 @@
              {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
              {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
              {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
+             {:geogrid-tbl "geogrid/GEOGRID.TBL.ARW"}
              {:grib-src-name grib-src}
              {:wps-nl wps-file}
              {:wrf-nl wrf-file}

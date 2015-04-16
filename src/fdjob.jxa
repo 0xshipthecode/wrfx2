@@ -42,6 +42,7 @@
          wrf-idir       (plist/get :wrf-install-dir args)
          grib-src-name  (plist/get :grib-src-name args)
          raws-src-name  (plist/get :raws-src-name args)
+         geogrid-tbl    (plist/get :geogrid-tbl args)
          sim-from       (plist/get :sim-from args)
          fc-hrs         (plist/get :forecast-length-hrs args)
          num-nodes      (plist/get :num-nodes args)
@@ -62,7 +63,7 @@
     (log-f :info "fdjob [~p] work-dir ~p sim-from ~w sim-to ~w~n" [uuid work-dir sim-from sim-to])
 
     ; create the working directory for WPS
-    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) []))
+    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) geogrid-tbl []))
 
     ; step 1: edit WPS namelist and run geogrid
     (jobmaster/updatestate uuid [{:stage "GEOGRID (1/8)"}])
@@ -91,7 +92,7 @@
 
     ; step 4: setup the WRF working directory
     (log-f :info "fdjob [~p]: creating WRF working directory" [uuid])
-    (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+    (wrfxlib/clone-wrf wrf-idir wrf-wdir [])
 
     ; step 5: symlink all met_em* files to the wrfdir
     (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
@@ -161,6 +162,7 @@
          {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
          {:grib-src-name "nam_218"}
+         {:geogrid-tbl "geogrid/GEOGRID.TBL.ARW"}
          {:raws-src-name "mesowest"}
          {:station-list-file "etc/colo_station_list"}
          {:sim-from {{2014 1 10} {0 0 0}}}
@@ -177,6 +179,7 @@
          {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
          {:grib-src-name "nam_218"}
          {:raws-src-name "mesowest"}
+         {:geogrid-tbl "geogrid/GEOGRID.TBL.ARW"}
          {:station-list-file "etc/colo_station_list"}
          {:sim-from sim-from}
          {:wps-nl "etc/nlists/colo_3dom.wps"}

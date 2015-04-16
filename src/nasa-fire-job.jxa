@@ -43,7 +43,7 @@
     (log-f :info "nasa-fire-job [~p] work-dir ~p sim-from ~w sim-to ~w~n" [uuid work-dir sim-from sim-to])
 
     ; step 1: setup the WRF working directory
-    (wrfxlib/clone-wrf wrf-idir wrf-wdir)
+    (wrfxlib/clone-wrf wrf-idir wrf-wdir ["namelist.fire_emissions"])
     (log-f :info "nasa-fire-job [~p]: created WRF working directory" [uuid])
 
     ; step 2: symlink wrfinputs to WRF
@@ -66,7 +66,7 @@
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (when (erl/== domain-id 2)
-                (let* (base-names (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time ["FIRE_AREA"])
+                (let* (base-names (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time domain-id ["FIRE_AREA"])
                        kmls0      (plist/get :kmls [] (jobmaster/getstate uuid))
                        kmls1      (lists/foldl (fn (name acc) (name . acc)) kmls0 base-names))
                   (jobmaster/updatestate uuid [{:kmls kmls1}]))))
