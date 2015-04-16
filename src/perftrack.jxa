@@ -34,10 +34,10 @@
   (log-info "perftrack: initialized, tables available." []))
 
 
-(defn+ append-task-info (job-type uuid task-name start-time end-time result info)
+(defn+ append-task-info (job-module uuid task-name start-time end-time result info)
   "A shortcut that makes it unnecessary to require taskinfos for clients using this module."
   (dbif/extended-query "insert into taskinfo(uuid,job_type,task_name,start_time,end_time,result,info) values ($1,$2,$3,$4,$5,$6,$7)"
-    [uuid job-type task-name start-time end-time (iol/format "~p" [result]) (iol/format "~p" [info])]))
+    [uuid (erl/atom-to-list job-module) task-name start-time end-time (term-to-string result) (term-to-string info)]))
 
 
 (defn+ append-task-info (ti)
