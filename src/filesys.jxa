@@ -99,14 +99,14 @@
   (!!= :ok (file/rename src-name tgt-name)))
 
 
-(defn+ copy (src dst)
-  "Copy the name <src> to <dst>."
+(defn+ copy-file (src dst)
+  "Copy the file <src> to <dst>."
   (!!= {:ok _} (file/copy src dst))
   :ok)
 
 
 (defn+ copy-unless-dst (src dst)
-  "Performs a copy from <src> to <dst> if <src> exists and <dst> does not exist."
+  "Copies a file from <src> to <dst> if <src> exists and <dst> does not exist."
   (when (erl/and (erl/not (filelib/is-file dst)) (filelib/is-file src))
     (!!= {:ok _} (file/copy src dst)))
   :ok)
