@@ -5,26 +5,30 @@
   (use joxa-core utils ext-wrappers))
 
 
-(defn+ clone-wps (src dst vtable add-files)
-  "Clone the WPS directory <src> to another location <dst>.
-   This function uses a standard list of files that must be symlinked with
-   other standard files, such as the <vtable> relative path passed automatically."
-  (!!= :ok (filesys/clone-with-files src dst [ "geogrid.exe" "geogrid" "metgrid.exe" "metgrid" "ungrib.exe" "ungrib"]))
+(defn+ clone-wps (src dst vtable gtable with-extra-files)
+  "Clone the WPS directory <src> to another location <dst>. This function uses a standard list of
+   files and directories that must be symlinked.  As an exception, the geogrid directory is copied
+   entirely, since the geogrid table link therein may need to be overwitten.  The ungrib vtable and
+   a geogrid table are accepted as special arguments."
+  (!!= :ok (filesys/clone-with-files src dst [ "geogrid.exe" "metgrid.exe" "metgrid" "ungrib.exe" "ungrib"]))
+  (!!= :ok (filesys/create-dir (filename/join dst "geogrid")))
+  (!!= :ok (filesys/make-symlink (filename/join src gtable) (filename/join [dst "geogrid" "GEOGRID.TBL"])))
   (!!= :ok (filesys/symlink-unless-exists (filename/join src vtable) (filename/join dst "Vtable")))
-  (filesys/symlink-files-to-dir add-files src dst))
+  (filesys/symlink-files-to-dir with-extra-files src dst))
 
 
-(defn+ clone-wrf (src dst)
-  "Clone the WRF director <src> to another location <dst>.
+(defn+ clone-wrf (src dst with-extra-files)
+  "Clone the WRF directory <src> to another location <dst>.
    Makes symlinks to a standard list of files."
   (filesys/clone-with-files src dst
-   ["CAM_ABS_DATA" "CAM_AEROPT_DATA" "co2_trans" "ETAMPNEW_DATA" "ETAMPNEW_DATA_DBL"
-    "ETAMPNEW_DATA.expanded_rain" "ETAMPNEW_DATA.expanded_rain_DBL" "GENPARM.TBL"
-    "gribmap.txt" "grib2map.tbl" "LANDUSE.TBL" "MPTABLE.TBL" "namelist.fire"
-    "namelist.fire_emissions" "ozone.formatted" "ozone_lat.formatted" "ozone_plev.formatted"
-    "real.exe" "RRTM_DATA" "RRTM_DATA_DBL" "RRTMG_LW_DATA" "RRTMG_LW_DATA_DBL"
-    "RRTMG_SW_DATA" "RRTMG_SW_DATA_DBL" "SOILPARM.TBL" "tc.exe" "tr49t67" "tr49t85"
-    "tr67t85" "URBPARM.TBL" "URBPARM_UZE.TBL" "VEGPARM.TBL" "wrf.exe"]))
+    (erl/++ with-extra-files
+      ["CAM_ABS_DATA" "CAM_AEROPT_DATA" "co2_trans" "ETAMPNEW_DATA" "ETAMPNEW_DATA_DBL"
+       "ETAMPNEW_DATA.expanded_rain" "ETAMPNEW_DATA.expanded_rain_DBL" "GENPARM.TBL"
+       "gribmap.txt" "grib2map.tbl" "LANDUSE.TBL" "MPTABLE.TBL" "namelist.fire"
+       "ozone.formatted" "ozone_lat.formatted" "ozone_plev.formatted"
+       "real.exe" "RRTM_DATA" "RRTM_DATA_DBL" "RRTMG_LW_DATA" "RRTMG_LW_DATA_DBL"
+       "RRTMG_SW_DATA" "RRTMG_SW_DATA_DBL" "SOILPARM.TBL" "tc.exe" "tr49t67" "tr49t85"
+       "tr67t85" "URBPARM.TBL" "URBPARM_UZE.TBL" "VEGPARM.TBL" "wrf.exe"])))
 
 
 (defn+ run-geogrid (in-dir log-f)
@@ -48,7 +52,7 @@
 (defn+ run-metgrid (in-dir log-f)
   "Run metgrid.exe in the WPS directory <in-dir> and log progress using <log-f>."
   (let* (out-spec (sutils/make-std-output-spec in-dir "metgrid"))
-    (log-f :info "running METGRID [SERIAL]" [])
+    (log-f :info "running METGRID" [])
     (run-process "metgrid" "./metgrid.exe" out-spec in-dir 3600000 log-f 0
       (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of metgrid.")) 1)
     (log-f :info "metgrid completed succesfully." [])))
