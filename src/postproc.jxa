@@ -38,10 +38,10 @@
                       kml-filename)))
                 var-info-list)))
 
-(defn+ write-contour-kmz-file (uuid wdir sim-from sim-time var-list)
+(defn+ write-contour-kmz-file (uuid wdir sim-from sim-time domain-id var-list)
   (let* (kml-dir      (configsrv/get-conf :output-dir)
          sim-time-str (ta/to-esmf-str sim-time)
-         wrfout-name  (iol/format "~s/wrfout_d02_~s" [wdir (ta/to-esmf-str sim-from)]))
+         wrfout-name  (iol/format "~s/wrfout_d~2..0B_~s" [wdir domain-id (ta/to-esmf-str sim-from)]))
     (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
     (lists/map (fn (var-name)
                  (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
