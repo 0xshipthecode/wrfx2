@@ -30,7 +30,7 @@
     (filelib/ensure-dir (filename/join [kml-dir uuid "fakefile"]))
     (lists/map (fn (var-info)
                   (let ({var-name var-unit} var-info)
-                    (let* (kml-filename (iol/format "~s-~2..0B-~s.kmz" [sim-time-str domain-id var-name])
+                    (let* (kml-filename (lists/flatten (iol/format "~s-~2..0B-~s.kmz" [sim-time-str domain-id var-name]))
                            kml-path     (filename/join [kml-dir uuid kml-filename])
                            cmd-str      (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
                                                     [wrfout-name var-name var-unit sim-time-str kml-path]))
