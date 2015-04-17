@@ -119,7 +119,7 @@
                      perc-done (plist/get :percent-done :undefined job-state)
                      sim-accel (plist/get :sim-acceleration :undefined job-state))
                 (log-f :info "detected history write at ~p with ~w percent done, completion time ~w and acceleration ~w" [sim-time perc-done comp-time sim-accel]))
-              (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time domain-id [{"T2" "K"}]))
+              (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time domain-id [{"T2" "K"} {"RELH" "-"}]))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "*** detected CFL violation, terminating WRF job. ***" [])
