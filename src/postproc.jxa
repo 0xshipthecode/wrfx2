@@ -24,6 +24,10 @@
 
 
 (defn+ write-raster-kmz-file (uuid wdir sim-from sim-time domain-id var-info-list)
+  "Write a (geolocated) raster into a kmz file.  Accepts the simulation time to process, the
+   variable and domain id.  A systematic name for the output file is built from the parameters.
+   This function is useful if a bundle is desired with a single colorbar in native units of
+   the raster, nicely packed into a kmz bundle."
   (let* (kml-dir      (configsrv/get-conf :output-dir)
          sim-time-str (ta/to-esmf-str sim-time)
          wrfout-name  (iol/format "~s/wrfout_d~2..0B_~s" [wdir domain-id (ta/to-esmf-str sim-from)]))
@@ -32,13 +36,16 @@
                   (let ({var-name var-unit} var-info)
                     (let* (kml-filename (lists/flatten (iol/format "~s-~2..0B-~s.kmz" [sim-time-str domain-id var-name]))
                            kml-path     (filename/join [kml-dir uuid kml-filename])
-                           cmd-str      (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
-                                                    [wrfout-name var-name var-unit sim-time-str kml-path]))
+                           cmd-str      (lists/flatten (iol/format "deps/viswrf/raster2kml.py ~s ~s ~s ~s ~s"
+                                                    [wrfout-name var-name var-unit sim-time-str kml-path])))
+                      ;(log-info "write-raster-kmz-file invoking command line ~p." [cmd-str])
                       (erl/spawn (fn () (os/cmd cmd-str)))
                       kml-filename)))
                 var-info-list)))
 
 (defn+ write-contour-kmz-file (uuid wdir sim-from sim-time domain-id var-list)
+  "Extracts a contour from the given variables at the given simulation time.
+   Stores the result as a kmz file, whose name is systematically build from the parameters."
   (let* (kml-dir      (configsrv/get-conf :output-dir)
          sim-time-str (ta/to-esmf-str sim-time)
          wrfout-name  (iol/format "~s/wrfout_d~2..0B_~s" [wdir domain-id (ta/to-esmf-str sim-from)]))
@@ -46,7 +53,8 @@
     (lists/map (fn (var-name)
                  (let* (kml-basename (lists/flatten [sim-time-str "-" var-name ".kmz"])
                         kml-abs-name (filename/join [kml-dir uuid kml-basename])
-                        cmd-str (iol/format "deps/viswrf/contour2kml.py ~s ~s ~s ~s" [wrfout-name var-name sim-time-str kml-abs-name]))
+                        cmd-str (lists/flatten (iol/format "deps/viswrf/contour2kml.py ~s ~s ~s ~s" [wrfout-name var-name sim-time-str kml-abs-name])))
+                  ;(log-info "write-contour-kmz-file invoking command line ~p." [cmd-str])
                   (erl/spawn (fn () (os/cmd cmd-str)))
                   kml-basename))
                var-list)))
