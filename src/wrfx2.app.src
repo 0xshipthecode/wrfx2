@@ -1,0 +1,12 @@
+{application, wrfx2,
+ [
+  {description, "WRF platform and execution services"},
+  {vsn, "1.0"},
+  {mod, {wrfx2, []}},
+  {modules,[]},
+  {registered, []},
+  {applications, [kernel,stdlib,inets]},
+  {included_applications, []},
+  {env, []}
+]}.
+
