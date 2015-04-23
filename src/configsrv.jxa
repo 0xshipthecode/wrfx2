@@ -14,19 +14,24 @@
     (error {:false error})))
 
 
+(defn get-system-dir ()
+  "Retrieves the current working directory, which is the system directory."
+  (let ({:ok sysdir} (file/get-cwd))
+    sysdir))
+
 ; API
 
 (defn+ start-link ()
   "Start the configuration server <log-f>."
-    (case (utils/execute-file "etc/config")
-      ({:ok cfg} (gen_server/start_link {:local :configsrv} :configsrv [cfg] []))
-      (error     (erl/throw {"Invalid etc/config file" error}))))
+  (case (utils/execute-file "etc/config")
+    ({:ok cfg} (gen_server/start_link {:local :configsrv} :configsrv [({:sysdir (get-system-dir)} . cfg)] []))
+    (error     (erl/throw {"Invalid etc/config file" error}))))
 
 
 (defn+ reload-config ()
   "Reload the configuration file."
   (case (utils/execute-file "etc/config")
-    ({:ok cfg} (gen_server/call :configsrv {:reload cfg})
+    ({:ok cfg} (gen_server/call :configsrv {:reload ({:sysdir (get-system-dir)} . cfg)})
                :success)
     (error error)))
 
