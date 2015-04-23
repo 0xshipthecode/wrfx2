@@ -11,7 +11,6 @@ INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/eb
 BEAMFILES =	ebin/file_info.beam \
 		ebin/utils.beam \
 		ebin/plist.beam \
-		ebin/configsrv.beam \
 		ebin/nlscanner.beam \
 		ebin/nlparser.beam \
 		ebin/perftrack.beam \
