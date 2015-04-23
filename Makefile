@@ -14,8 +14,6 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/configsrv.beam \
 		ebin/nlscanner.beam \
 		ebin/nlparser.beam \
-		ebin/timelib.beam \
-		ebin/postproc.beam \
 		ebin/perftrack.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
@@ -31,8 +29,8 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/wrfxlib.beam \
 		ebin/testjob.beam \
 		ebin/nasa-fire-job.beam \
+		ebin/firejob.beam \
 		ebin/wfcjob.beam \
-		ebin/fdjob.beam \
 		ebin/wrfx2.beam
 
 
