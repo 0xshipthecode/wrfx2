@@ -19,40 +19,44 @@
 
 -module(postproc).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
--export([render/6]).
+-export([render/6,render_domains/3]).
 
 %% @doc Render a raster or contour from the instructions in <VarInfos>.
-%% @doc Each instruction can be either {V,kml}, {V,png} or {V,contour_kml}, where
+%% @doc Each instruction can be either {kml,V}, {png,V} or {contour_kml,V}, where
 %% @doc V is the name of the variable.
+-spec render(string(),string(),calendar:datetime(),calendar:datetime(),integer(),[{atom(),string()}]) -> ok.
 render(Uuid, Workdir, SimFrom, SimTime, DomId, VarInfos) ->
   SimTimeS = timelib:to_esmf_str(SimTime),
   SimFromS = timelib:to_esmf_str(SimFrom),
   OutPath = filename:join([configsrv:get_conf('output-dir'),Uuid,SimTimeS]),
   WrfOut = io_lib:format("~s/wrfout_d~2..0B_~s",[Workdir,DomId,SimFromS]),
   filelib:ensure_dir(filename:join(OutPath,"fakefile")),
-  lists:map(fun(VI) -> postprocess(WrfOut,OutPath,SimTimeS,DomId,VI) end, VarInfos).
+  lists:foreach(fun(VI) -> postprocess(WrfOut,OutPath,SimTimeS,DomId,VI) end, VarInfos),
+  ok.
 
 
+-spec postprocess(string(),string(),string(),pos_integer(),{atom(),string()}) -> pid().
 postprocess(WrfOut,OutPath,SimTimeS,DomId,{kml,Var}) ->
-  Name = lists:flatten(io_lib:format("~s-~2..0B-~s.kmz",[Var,DomId,SimTimeS])),
-  Path = filename:join(OutPath,Name),
-  Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2kml.py ~s ~s ~s ~s", [WrfOut,Var,SimTimeS,Path])),
-  error_logger:info_msg("postproc: ~p~n", [Cmd]),
-  spawn(fun() -> os:cmd(Cmd) end),
-  Name;
-postprocess(WrfOut,OutPath,SimTimeS,DomId,{png,Var}) ->
-  Name = lists:flatten(io_lib:format("~s-~2..0B-~s",[Var,DomId,SimTimeS])),
-  Path = filename:join(OutPath,Name),
-  Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2png.py ~s ~s ~s ~s", [WrfOut,Var,SimTimeS,Path])),
-  error_logger:info_msg("postproc: ~p~n", [Cmd]),
-  spawn(fun() -> os:cmd(Cmd) end),
-  Name;
-postprocess(WrfOut,OutPath,SimTimeS,DomId,{contour_kml,Var}) ->
-  Name = lists:flatten(io_lib:format("~s-~2..0B-~s.kml",[Var,DomId,SimTimeS])),
-  Path = filename:join(OutPath,Name),
-  Cmd = lists:flatten(io_lib:format("deps/viswrf/contour2kml.py ~s ~s ~s ~s", [WrfOut,Var,SimTimeS,Path])),
-  error_logger:info_msg("postproc: ~p~n", [Cmd]),
-  spawn(fun() -> os:cmd(Cmd) end),
-  Name.
+  Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2kml.py ~s ~s ~p ~s ~s", [WrfOut,Var,DomId,SimTimeS,OutPath])),
+  error_logger:info_msg("postproc [kml] ~p~n", [Cmd]),
+  spawn(fun() -> os:cmd(Cmd) end);
 
+postprocess(WrfOut,OutPath,SimTimeS,DomId,{png,Var}) ->
+  Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2png.py ~s ~s ~p ~s ~s", [WrfOut,Var,DomId,SimTimeS,OutPath])),
+  error_logger:info_msg("postproc [png] ~p~n", [Cmd]),
+  spawn(fun() -> os:cmd(Cmd) end);
+
+postprocess(WrfOut,OutPath,SimTimeS,DomId,{contour_kml,Var}) ->
+  Cmd = lists:flatten(io_lib:format("deps/viswrf/contour2kml.py ~s ~s ~p ~s ~s", [WrfOut,Var,DomId,SimTimeS,OutPath])),
+  error_logger:info_msg("postproc [cont/kml] ~p~n", [Cmd]),
+  spawn(fun() -> os:cmd(Cmd) end).
+
+
+-spec render_domains(string(),pos_integer(),string()) -> pid().
+render_domains(WpsWdir,NDoms,OutPath) ->
+  Path = filename:join(OutPath,"domains.kml"),
+  filelib:ensure_dir(Path),
+  GeoEMs = lists:map(fun(I) -> filename:join(WpsWdir,io_lib:format("geo_em.d~2..0B.nc", [I])) end, lists:seq(1,NDoms)),
+  Cmd = lists:flatten(["deps/viswrf/dom2kml.py domains ", Path, GeoEMs]),
+  spawn(fun() -> os:cmd(Cmd) end).
 
