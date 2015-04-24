@@ -27,7 +27,7 @@
 render(Uuid, Workdir, SimFrom, SimTime, DomId, VarInfos) ->
   SimTimeS = timelib:to_esmf_str(SimTime),
   SimFromS = timelib:to_esmf_str(SimFrom),
-  OutPath = filename:join([configsrv:'get-conf'('output-dir'),Uuid,SimTimeS]),
+  OutPath = filename:join([configsrv:get_conf('output-dir'),Uuid,SimTimeS]),
   WrfOut = io_lib:format("~s/wrfout_d~2..0B_~s",[Workdir,DomId,SimFromS]),
   filelib:ensure_dir(filename:join(OutPath,"fakefile")),
   lists:map(fun(VI) -> postprocess(WrfOut,OutPath,SimTimeS,DomId,VI) end, VarInfos).
@@ -37,21 +37,21 @@ postprocess(WrfOut,OutPath,SimTimeS,DomId,{kml,Var}) ->
   Name = lists:flatten(io_lib:format("~s-~2..0B-~s.kmz",[Var,DomId,SimTimeS])),
   Path = filename:join(OutPath,Name),
   Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2kml.py ~s ~s ~s ~s", [WrfOut,Var,SimTimeS,Path])),
-  error_logger:info_msg("postproc: ~p", [Cmd]),
+  error_logger:info_msg("postproc: ~p~n", [Cmd]),
   spawn(fun() -> os:cmd(Cmd) end),
   Name;
 postprocess(WrfOut,OutPath,SimTimeS,DomId,{png,Var}) ->
   Name = lists:flatten(io_lib:format("~s-~2..0B-~s",[Var,DomId,SimTimeS])),
   Path = filename:join(OutPath,Name),
   Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2png.py ~s ~s ~s ~s", [WrfOut,Var,SimTimeS,Path])),
-  error_logger:info_msg("postproc: ~p", [Cmd]),
+  error_logger:info_msg("postproc: ~p~n", [Cmd]),
   spawn(fun() -> os:cmd(Cmd) end),
   Name;
 postprocess(WrfOut,OutPath,SimTimeS,DomId,{contour_kml,Var}) ->
   Name = lists:flatten(io_lib:format("~s-~2..0B-~s.kml",[Var,DomId,SimTimeS])),
   Path = filename:join(OutPath,Name),
   Cmd = lists:flatten(io_lib:format("deps/viswrf/contour2kml.py ~s ~s ~s ~s", [WrfOut,Var,SimTimeS,Path])),
-  error_logger:info_msg("postproc: ~p", [Cmd]),
+  error_logger:info_msg("postproc: ~p~n", [Cmd]),
   spawn(fun() -> os:cmd(Cmd) end),
   Name.
 
