@@ -19,10 +19,7 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/scheduler.beam \
 		ebin/filesys.beam \
 		ebin/sysmon.beam \
-		ebin/job.beam \
-		ebin/jobmaster.beam \
 		ebin/fmda.beam \
-		ebin/ext-wrappers.beam \
 		ebin/wrf-monitor.beam \
 		ebin/wrfxlib.beam \
 		ebin/testjob.beam \
