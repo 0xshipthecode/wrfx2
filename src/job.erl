@@ -103,7 +103,7 @@ find_latest_overlapping_job(Ts,GridCode) ->
 
 -spec retrieve_live_jobs() -> [#job{}].
 retrieve_live_jobs() ->
-  Qry = "select (uuid,module,args,status,start_time,end_time,sim_from,sim_to,num_nodes,ppn,grid_code,state) where status = 'live'",
+  Qry = "select (uuid,module,args,status,start_time,end_time,sim_from,sim_to,num_nodes,ppn,grid_code,state) from jobs where status = 'live'",
   case pgsql_manager:simple_query(Qry) of
     {{select,_N},Jobs} -> lists:map(fun sql_to_record/1, Jobs);
     Error ->

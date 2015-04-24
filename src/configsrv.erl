@@ -80,7 +80,7 @@ all_keys() ->
 init(Args) -> {ok, Args}.
 
 handle_call({get_conf,Key}, _From, Cfg) -> {reply, plist:get(Key,no_such_key,Cfg), Cfg};
-handle_call(all_keys,_From,Cfg) ->  io:format("configsrv all_keys has ~p~n", [Cfg]), {reply, plist:keys(Cfg), Cfg};
+handle_call(all_keys,_From,Cfg) ->  {reply, plist:keys(Cfg), Cfg};
 handle_call({reload,Cfg1},_From,_Cfg) -> {reply, ok, [Cfg1]};
 handle_call(stop_cfg_server,_From,Cfg) -> {stop, normal, ok, Cfg};
 handle_call(Invalid,_From,Cfg) ->
