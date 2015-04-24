@@ -19,8 +19,8 @@
 
 
 (ns jobmaster
-  (require utils plist filesys filename configsrv job lists (string :as str)
-           (gen_server :as gsrv :joxify) (file :joxify) (timelib :as ta)
+  (require utils (plist :joxify) filesys filename (configsrv :joxify) job lists (string :as str)
+           (gen_server :as gsrv :joxify) (file :joxify) (timelib :as ta :joxify)
            (pgsql_manager :as dbif :joxify) (dict :joxify) (erlang :as erl :joxify)
            (io_lib :as iol) os logsrv)
   (use joxa-core utils))
@@ -141,17 +141,21 @@
   (case request
     ; submit a new/existing job (matched by uuid)
     ({:submit-job uuid mod args}
-      (if (dict/is-key uuid live-jobs)
-        (do
-          (utils/log-info "jobmaster: did not start job ~p, it is already live" [uuid])
-          {:reply :ok live-jobs})
-        (do
-          (let* (job-pid (execute-job-internal uuid mod args)
-                 start-time (ta/local-time))
-            (utils/log-info "jobmaster: job ~p is going LIVE now." [uuid])
-            (let* (jr (job/make uuid mod args :live job-pid start-time :null []))
-              (job/insert jr)
-              {:reply :ok (dict/store uuid jr live-jobs)})))))
+      (case (plist/find-missing [:sim-from :forecast-length-hrs :num-nodes :ppn] args)
+        ([]
+          (if (dict/is-key uuid live-jobs)
+            (do
+              (utils/log-info "jobmaster: did not start job ~p, it is already live" [uuid])
+              {:reply :ok live-jobs})
+            (do
+              (let* (job-pid (execute-job-internal uuid mod args)
+                     start-time (ta/local-time))
+                (utils/log-info "jobmaster: job ~p is going LIVE now." [uuid])
+                (let* (jr (job/make uuid mod args :live job-pid start-time :null []))
+                  (job/insert jr)
+                  {:reply :ok (dict/store uuid jr live-jobs)})))))
+        (missing-keys
+          {:reply {:error {:missing-keys missing-keys}} live-jobs})))
     ; notification that a job has been deactivated (from the job)
     ({:job-done uuid completion-status}
       (utils/log-info "jobmaster: notified that job ~p is done with completion status ~p" [uuid completion-status])
