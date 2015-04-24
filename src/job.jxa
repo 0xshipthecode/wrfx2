@@ -20,7 +20,7 @@
 
 (ns job
   (require (io_lib :as iol) (erlang :as erl :joxify) utils (joxa-core :as jxc)
-           (pgsql_manager :as dbif :joxify) (timelib :as ta))
+           (pgsql_manager :as dbif :joxify) (timelib :as ta :joxify) plist)
   (use joxa-records))
 
 (defrecord+ uuid module args status pid start-time end-time state)
@@ -64,10 +64,15 @@
 
 
 (defn+ insert(jr)
-  (let jr (uuid uuid module mod args as pid pid start-time st)
-    (dbif/extended-query "insert into jobs(uuid,module,args,status,start_time,state)
-                                      values($1,$2,$3,'live',$4,'[].')"
-                         [uuid (erl/atom-to-list mod) (utils/term-to-string as) st])))
+  "Insert a job record into the database table together with additional information extracted from the job arguments."
+  (let jr (uuid uuid module mod args args pid pid start-time st)
+    (let* (sim-from   (plist/get :sim-from args)
+           sim-to     (ta/shift-by sim-from (plist/get :forecast-length-hrs args) :hours)
+           num-nodes  (plist/get :num-nodes args)
+           ppn        (plist/get :ppn args)
+           grid-code  (plist/get :grid-code args))
+      (dbif/extended-query "insert into jobs(uuid,module,args,status,start_time,sim_from,sim_to,num_nodes,ppn,grid_code,state) values($1,$2,$3,'live',$4,$5,$6,$7,$8,$9,'[].')"
+         [uuid (erl/atom-to-list mod) (utils/term-to-string args) st sim-from sim-to num-nodes ppn grid-code]))))
 
 
 (defn+ update-state (uuid new-state)
