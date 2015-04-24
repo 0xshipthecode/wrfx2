@@ -1,4 +1,4 @@
-; Copyright (C) 2013 Martin Vejmelka, UC Denver
+; Copyright (C) 2013-2015 Martin Vejmelka, UC Denver
 ;
 ; Permission is hereby granted, free of charge, to any person obtaining a copy
 ; of this software and associated documentation files (the "Software"), to deal
@@ -29,21 +29,6 @@
            (string :as str)
            (timelib :as ta))
   (use joxa-core utils))
-
-
-(defmacro+ wrap-run (exec-func)
-  "Wrap a standard execution (steward_process or steward_job) in a function
-   that either returns the exit code of the process or fails (throws an error)."
-  (let* (pid (gensym)
-         error (gensym)
-         exit-code (gensym))
-    `(case ~exec-func
-      ({:running ~pid}
-        (case (sutils/wait-for-completion ~pid)
-          ({:success ~exit-code} ~exit-code)
-          (~error (erl/throw ~error))))
-      ({:success ~exit-code}
-        ~exit-code))))
 
 
 (defn+ run-process (tid cmd out-spec in-dir timeout log-f required-exit-code exit-check-f tries-left)
