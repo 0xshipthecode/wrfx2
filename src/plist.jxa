@@ -74,6 +74,11 @@
   (lists/foldl (fn (k a) (erl/and (contains k ps) a)) :true ks))
 
 
+(defn+ find-missing (ks ps)
+  "Returns the keys from the list <ks> that are missing from the property list <ps>."
+  (lists/foldl (fn (k a) (if (contains k ps) a (k . a))) [] ks))
+
+
 (defn+ remove (k ps)
   "Remove the key-value pair with key <k> from the property list <ps>."
   (case ps
