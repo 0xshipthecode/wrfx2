@@ -23,6 +23,7 @@
 -export([make_symlink/2,list_dir_regexp/2,delete_regexp_files/2]).
 -export([symlink_files_to_dir/2,symlink_files_to_dir/3,clone_with_files/3]).
 -export([rename_file/2,copy_file/2,copy_unless_dst/2,move_directory/2]).
+-include_lib("kernel/include/file.hrl").
 
 
 -spec create_dir(string()) -> ok.
@@ -47,6 +48,7 @@ file_type(Name) ->
     {ok,#file_info{type=T}} -> T;
     {error,enoent}          -> enoent
   end.
+
 
 -spec delete(string()) -> ok.
 delete(Path) ->
@@ -74,14 +76,14 @@ make_symlink(From,To) ->
   file:make_symlink(From,To).
 
 
--spec list_dir_regexp(string(),re()) - ok.
+-spec list_dir_regexp(string(),string()) -> ok.
 list_dir_regexp(Dir,RE) ->
   {ok,MP} = re:compile(RE),
   {ok,Fs} = file:list_dir(Dir),
-  lists:filter(fun (X) -> case re:run(MP) of {match,_} -> true; nomatch -> false end end, Fs).
+  lists:filter(fun (X) -> case re:run(X,MP) of {match,_} -> true; nomatch -> false end end, Fs).
 
 
--spec delete_regexp_files(string(),re()) -> ok.
+-spec delete_regexp_files(string(),string()) -> ok.
 delete_regexp_files(Dir,RE) ->
   lists:foreach(fun (X) -> ok = file:delete(X) end, list_dir_regexp(Dir,RE)).
 
@@ -102,9 +104,9 @@ symlink_files_to_dir(Fs,Src,Tgt) ->
 
 -spec clone_with_files(string(),string(),[string()]) ->ok.
 clone_with_files(Src,Dst,Fs) ->
-  directory = file_type(Sec),
-  create_dir(Tgt),
-  F = fun (X) -> symlink_unless_exists(filename:join(Src,X),filename:join(Tgt,X)) end,
+  directory = file_type(Src),
+  create_dir(Dst),
+  F = fun (X) -> symlink_unless_exists(filename:join(Src,X),filename:join(Dst,X)) end,
   lists:map(F, Fs),
   ok.
 
@@ -119,9 +121,11 @@ copy_file(Src,Dst) -> ok = file:copy(Src,Dst), ok.
 
 -spec copy_unless_dst(string(),string()) -> ok.
 copy_unless_dst(Src,Dst) ->
-  if not filelib:is_file(Dst) and filelib:is_file(Src) -> ok = file:copy(Src,Dst) end, ok.
+ case filelib:is_file(Src) and not filelib:is_file(Dst) of
+   true -> ok = file:copy(Src,Dst)
+ end, ok.
 
 
--spec move_directory(string(),string() -> ok.
+-spec move_directory(string(),string()) -> ok.
 move_directory(Src,Dst) -> ok = file:rename(Src,Dst), ok.
 

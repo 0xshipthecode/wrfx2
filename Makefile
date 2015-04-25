@@ -8,7 +8,7 @@ all: joxa compile-deps pre-compile compile
 INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/ebin -p deps/steward/ebin -p deps/pgsql/ebin
 
 
-BEAMFILES =	ebin/file_info.beam \
+BEAMFILES =	\
 		ebin/utils.beam \
 		ebin/nlscanner.beam \
 		ebin/nlparser.beam \
@@ -17,7 +17,6 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/nllib.beam \
 		ebin/logsrv.beam \
 		ebin/scheduler.beam \
-		ebin/filesys.beam \
 		ebin/sysmon.beam \
 		ebin/fmda.beam \
 		ebin/wrf-monitor.beam \
@@ -29,13 +28,7 @@ BEAMFILES =	ebin/file_info.beam \
 		ebin/wrfx2.beam
 
 
-pre-compile: ebin/nlparser.beam ebin/file_info.beam
-
-ebin/file_info.beam: src/file_info.jxa
-	deps/joxa/joxa -p ebin $(INCLUDES) -o ebin -c $<
-
-src/file_info.jxa:
-	deps/jxautorec/jxautorec $(ERLKERNELDIR)/include/file.hrl src/file_info.jxa file_info true
+pre-compile: ebin/nlparser.beam
 
 ebin/nlparser.beam: src/nlparser.yrl
 	if [ ! -d "ebin" ] ; then mkdir ebin; fi
@@ -45,7 +38,7 @@ ebin/nlparser.beam: src/nlparser.yrl
 ebin/%.beam: src/%.jxa
 	deps/joxa/joxa -p ebin $(INCLUDES) -o ebin -c $<
 
-compile: pre-compile $(BEAMFILES) 
+compile: pre-compile compile-deps $(BEAMFILES) 
 
 get-deps:
 	rebar get-deps
