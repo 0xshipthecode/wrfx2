@@ -116,14 +116,15 @@ rename_file(Src,Tgt) -> ok = file:rename(Src,Tgt), ok.
 
 
 -spec copy_file(string(),string()) -> ok.
-copy_file(Src,Dst) -> ok = file:copy(Src,Dst), ok.
+copy_file(Src,Dst) -> {ok,_Nbytes} = file:copy(Src,Dst), ok.
 
 
 -spec copy_unless_dst(string(),string()) -> ok.
 copy_unless_dst(Src,Dst) ->
  case filelib:is_file(Src) and not filelib:is_file(Dst) of
-   true -> ok = file:copy(Src,Dst)
- end, ok.
+   true -> {ok,_Nbytes} = file:copy(Src,Dst);
+   false -> ok
+ end.
 
 
 -spec move_directory(string(),string()) -> ok.
