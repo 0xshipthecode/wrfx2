@@ -38,7 +38,7 @@
 
 
 (ns scheduler
-  (require (pgsql_manager :as dbif :joxify) lists (gen_server :as gsrv :joxify) (timelib :as ta)
+  (require (pgsql_manager :as dbif :joxify) lists (gen_server :as gsrv :joxify) (timelib :as ta :joxify)
            (erlang :as erl :joxify) schedule io (io_lib :as iol) (file :joxify))
   (use joxa-core utils))
 
@@ -49,7 +49,7 @@
 
 
 (defn+ start-link ()
-  (critical-check :true (table-exists? "schedule"))
+  ;(critical-check :true (table-exists? "schedule"))
   (!!= {:ok _} (gsrv/start-link {:local :scheduler} :scheduler [(ta/local-time) [] []] []))
   (log-info "scheduler: pre-init ok, loading schedules now" [])
   (!!= :ok (reload-schedule))
@@ -132,6 +132,5 @@
 
 (defn+ code_change (old-vsn state extra)
   {:ok state})
-
 
 
