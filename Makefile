@@ -16,12 +16,10 @@ BEAMFILES =	\
 		ebin/nllib.beam \
 		ebin/fmda.beam \
 		ebin/wrf-monitor.beam \
-		ebin/wrfxlib.beam \
 		ebin/testjob.beam \
 		ebin/nasa-fire-job.beam \
 		ebin/firejob.beam \
-		ebin/wfcjob.beam \
-		ebin/wrfx2.beam
+		ebin/wfcjob.beam
 
 
 pre-compile: ebin/nlparser.beam
