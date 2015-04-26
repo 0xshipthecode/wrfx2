@@ -1,6 +1,6 @@
 (ns sysmon
-  (require plist os (dict :joxify) gen_server (erlang :as erl :joxify) 
-           (calendar :as cal :joxify) (string :as str) configsrv utils)
+  (require (plist :joxify) os (dict :joxify) gen_server (erlang :as erl :joxify) 
+           (calendar :as cal :joxify) (string :as str) (configsrv :joxify) utils)
   (use joxa-core))
 
 
@@ -10,9 +10,9 @@
   "Start the sysmon server.  Either starts up succesfully or throws an error."
   (let* (host (os/cmd "hostname")
          now  (cal/local-time)
-         count-nodes (configsrv/get-conf :sysdiag-get-nodes)
-         free-nodes  (configsrv/get-conf :sysdiag-get-free-nodes)
-         queue-len   (configsrv/get-conf :sysdiag-qlen)
+         count-nodes (configsrv/get-conf :sysdiag_get_nodes)
+         free-nodes  (configsrv/get-conf :sysdiag_get_free_nodes)
+         queue-len   (configsrv/get-conf :sysdiag_qlen)
          cmds        [count-nodes free-nodes queue-len])
     (case (gen_server/start_link {:global :sysmon} :sysmon { cmds [{:host host} {:lastupdated now}] } [])
       ({:ok _} :ok)
@@ -40,8 +40,8 @@
              queue-len   (erl/list-to-integer (get-cmd-output qlen-cmd))
              now         (cal/local-time))
 	{cmds (plist/update-with [{:nodes total-nodes} {:freenodes free-nodes}
-                                  {:qlen (if (gte queue-len 2) (- queue-len 2) queue-len)}
-                                  {:lastupdated now}] ss)})
+                            {:qlen queue-len}
+                            {:lastupdated now}] ss)})
     (catch (type body)
       (do
         (utils/log-error "sysmon: failed to update state, exception ~p with body ~p, stack trace ~p" [type body (erl/get-stacktrace)])
