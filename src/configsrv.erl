@@ -20,7 +20,7 @@
 -module(configsrv).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
 -export([is_valid_config/1,get_system_dir/0]).
--export([reload_config/0,get_conf/1,get_conf/2,all_keys/0]).
+-export([reload_config/0,get_conf/1,get_conf/2,get_confs/1,get_confs/2,all_keys/0]).
 -export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
 
 
@@ -32,12 +32,6 @@ is_valid_config(Path) ->
   end.
 
 
--spec get_system_dir() -> string().
-get_system_dir() ->
-  {ok, SysDir} = file:get_cwd(),
-  SysDir.
-
-
 -spec start_link() -> ok.
 start_link() ->
   case utils:execute_file("etc/config") of
@@ -46,7 +40,7 @@ start_link() ->
   end.
 
 
--spec reload_config() -> success|any().
+-spec reload_config() -> success|term().
 reload_config() ->
   case utils:execute_file("etc/config") of
     {ok,Cfg} -> gen_server:call(configsrv, {reload, [{sysdir,get_system_dir()}|Cfg]});
@@ -54,7 +48,7 @@ reload_config() ->
   end.
 
 
--spec get_conf(atom) -> any().
+-spec get_conf(atom()) -> term().
 get_conf(Key) ->
   case gen_server:call(configsrv,{get_conf,Key}) of
     no_such_key -> throw({no_such_key,Key});
@@ -62,7 +56,15 @@ get_conf(Key) ->
   end.
 
 
--spec get_conf(atom(),term()) -> any().
+-spec get_confs([atom()]) -> [term()].
+get_confs(Keys) -> lists:map(fun get_conf/1, Keys).
+
+
+-spec get_confs([atom()],[term()]) -> [term()].
+get_confs(Keys,Defaults) -> lists:map(fun ({K,D}) -> get_conf(K,D) end, lists:zip(Keys,Defaults)).
+
+
+-spec get_conf(atom(),term()) -> term().
 get_conf(Key,Default) ->
   case gen_server:call(configsrv,{get_conf,Key}) of
     no_such_key -> Default;
@@ -75,7 +77,9 @@ all_keys() ->
   gen_server:call(configsrv, all_keys).
 
 
-% gen_server implementation
+%% --------------------------------------
+%% gen_server implementation
+%% --------------------------------------
 
 init(Args) -> {ok, Args}.
 
@@ -91,4 +95,15 @@ handle_cast(_Msg,State) -> {noreply, State}.
 handle_info(_Info,State) -> {noreply, State}.
 terminate(_Reason,_State) -> ok.
 code_change(_OldVer,State,_Extra) -> {ok, State}.
+
+%% --------------------------------------
+%% internal functions
+%% --------------------------------------
+
+-spec get_system_dir() -> string().
+get_system_dir() ->
+  {ok, SysDir} = file:get_cwd(),
+  SysDir.
+
+
 
