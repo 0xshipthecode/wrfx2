@@ -19,28 +19,27 @@
 
 (ns wrfx2
     (require
-       jobmaster configsrv logsrv sysmon raws_ingest grib_ingest scheduler perftrack
-       inet inets io (file :joxify) filename crypto (application :joxify)
-       (io_lib :as iol) (erlang :as erl :joxify) (filelib :joxify) net_adm
-       (pgsql_manager :as dbif :joxify))
+       jobmaster (configsrv :joxify) (logsrv :joxify) (sysmon :joxify) raws_ingest grib_ingest
+       (scheduler :joxify) perftrack inet inets io (file :joxify) filename crypto net_adm
+       (io_lib :as iol) (erlang :as erl :joxify) (filelib :joxify) (application :joxify)
+       (pgsql_manager :as dbif :joxify) (catmaster :joxify))
     (use joxa-core utils))
 
 
 (defn+ start-logging ()
   "Start the logging subsystem."
-  (let* (log-dir (configsrv/get-conf :logging-dir))
-    (critical-check :ok (filelib/ensure-dir (filename/join [log-dir "log-file"])))
+  (let* (log-dir (configsrv/get-conf :logging_dir))
+    (filelib/ensure-dir (filename/join [log-dir "log-file"]))
     (logsrv/start-link log-dir)))
 
 
 (defn+ start-ingest-system ()
   "Start up the ingest system."
-  ;(raws_ingest/start)
-  (logsrv/create-log "grib-ingest")
+  (raws_ingest/start)
   ;NOTE: this was removed as we want grib_ingest to use the standard error_logger
   ;(let* (grib-log-f (logsrv/make-log-f "grib-ingest"))
     ;(application/set-env :grib_ingest :logging_function grib-log-f))
-  (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest-storage-dir))
+  (application/set-env :grib_ingest :grib_storage_dir (configsrv/get-conf :ingest_dir))
   (grib_ingest/start))
 
 
@@ -51,10 +50,18 @@
 
 
 (defn wrfx2web-node-name ()
-  (let (wrfx2web-base  (configsrv/get-conf :wrfx2web-node)
+  (let (wrfx2web-base  (configsrv/get-conf :wrfx2web_node)
         {:ok hostname} (inet/gethostname))
     (erl/list-to-atom (lists/flatten [wrfx2web-base "@" hostname]))))
 
+
+(defn start-dbase ()
+  "Start up the PostgreSQL interface."
+  (let* (dbname (configsrv/get-conf :dbname)
+         dbuser (configsrv/get-conf :dbuser)
+         dbpwd  (configsrv/get-conf :dbpwd))
+    (dbif/start-link dbname dbuser dbpwd 5)))
+ 
 
 (defn+ start ()
   ; start the configuation server
@@ -62,10 +69,11 @@
   ; start otp subsystems that we need
   (start-otp-subsystem)
   ; start the RDBMS interface (with a pool of 5 connections)
-  (let* (dbname (configsrv/get-conf :dbname)
-         dbuser (configsrv/get-conf :dbuser)
-         dbpwd  (configsrv/get-conf :dbpwd))
-    (dbif/start-link dbname dbuser dbpwd 5))
+  (log-info "config srv keys: ~p" [(configsrv/all-keys)])
+  ; start the database interface
+  (start-dbase)
+  ; start the catalog manager
+  (catmaster/start-link (configsrv/get-conf :product_dir) (configsrv/get-conf :catalog_keep_days))
   ; start logging subsystem for jobs
   (start-logging)
   ; initialize the performance tracking and instrumentation library
@@ -73,7 +81,7 @@
   ; start the ingest system
   (start-ingest-system)
   ; start the job manager
-  (jobmaster/start-link)
+  (jobmaster/start_link)
   ; start the system monitor
   (sysmon/start-link)
   ; start scheduler
