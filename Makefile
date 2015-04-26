@@ -8,8 +8,7 @@ all: joxa compile-deps pre-compile compile
 INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/ebin -p deps/steward/ebin -p deps/pgsql/ebin
 
 
-BEAMFILES =	\
-		ebin/utils.beam \
+BEAMFILES =	ebin/utils.beam \
 		ebin/nlscanner.beam \
 		ebin/nlparser.beam \
 		ebin/nlist.beam \
