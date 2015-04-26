@@ -1,8 +1,8 @@
 (ns wrfxlib
-  (require filesys filename ext-wrappers plist wrf-monitor configsrv
+  (require (filesys :joxify) filename (extwrap :joxify) plist wrf-monitor (configsrv :joxify)
            (steward_job :as sjob :joxify) (steward_utils :as sutils :joxify) (steward_process :as sproc)
            (erlang :as erl :joxify) (io_lib :as iol :joxify) (filelib :joxify))
-  (use joxa-core utils ext-wrappers))
+  (use joxa-core utils))
 
 
 (defn+ clone-wps (src dst vtable gtable with-extra-files)
@@ -34,8 +34,8 @@
 (defn+ run-geogrid (in-dir log-f)
   (let* (out-spec  (sutils/make-std-output-spec in-dir "geogrid"))
     (log-f :info "running GEOGRID" [])
-    (run-process "geogrid" "./geogrid.exe" out-spec in-dir 1800000 log-f 0
-      (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of geogrid.")) 1)
+    (extwrap/run-process "geogrid" "./geogrid.exe" out-spec in-dir 1800000 log-f 0
+      (fn () (extwrap/exit-check-string-exists (plist/get 1 out-spec) "Successful completion of geogrid.")) 1)
     (log-f :info "geogrid completed successfully" [])
     {:success 0}))
 
@@ -44,8 +44,8 @@
   "Run ungrib.exe in the WPS directory <in-dir> and log progress to using <log-f>."
   (let* (out-spec (sutils/make-std-output-spec in-dir "ungrib"))
     (log-f :info "running UNGRIB" [])
-    (run-process "ungrib" "./ungrib.exe" out-spec in-dir 3600000 log-f 0
-      (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of ungrib.")) 1)
+    (extwrap/run-process "ungrib" "./ungrib.exe" out-spec in-dir 3600000 log-f 0
+      (fn () (extwrap/exit-check-string-exists (plist/get 1 out-spec) "Successful completion of ungrib.")) 1)
     (log-f :info "ungrib completed succesfully." [])))
 
 
@@ -53,8 +53,8 @@
   "Run metgrid.exe in the WPS directory <in-dir> and log progress using <log-f>."
   (let* (out-spec (sutils/make-std-output-spec in-dir "metgrid"))
     (log-f :info "running METGRID" [])
-    (run-process "metgrid" "./metgrid.exe" out-spec in-dir 3600000 log-f 0
-      (fn () (exit-check-string-exists (plist/get 1 out-spec) "Successful completion of metgrid.")) 1)
+    (extwrap/run-process "metgrid" "./metgrid.exe" out-spec in-dir 3600000 log-f 0
+      (fn () (extwrap/exit-check-string-exists (plist/get 1 out-spec) "Successful completion of metgrid.")) 1)
     (log-f :info "metgrid completed succesfully." [])))
 
 
@@ -65,10 +65,10 @@
          err-file     (filename/join in-dir "rsl.error.0000")
          new-out-file (filename/join in-dir "real.stdout"))
     (log-f :info "running REAL [PARALLEL]" [])
-    (run-process "real" cmd [] in-dir 1800000 log-f 0
-      (ext-wrappers/make-exit-check-seq-f [
+    (extwrap/run-process "real" cmd [] in-dir 1800000 log-f 0
+      (extwrap/make-exit-check-seq-f [
         (fn () (filesys/copy-unless-dst out-file new-out-file) :passed)
-        (fn () (exit-check-string-exists new-out-file "SUCCESS COMPLETE REAL_EM"))]) 1)
+        (fn () (extwrap/exit-check-string-exists new-out-file "SUCCESS COMPLETE REAL_EM"))]) 1)
     (!!= :ok (filesys/copy-unless-dst err-file (filename/join in-dir "real.stderr")))
     (log-f :info "real completed succesfully" [])))
 
@@ -78,15 +78,15 @@
   (let* (out-file     (filename/join in-dir "real.stdout")
          err-file     (filename/join in-dir "real.stderr"))
     (log-f :info "running REAL [SERIAL]" [])
-    (run-process "real" "./real.exe" [{1 out-file} {2 err-file}] in-dir 1800000 log-f 0
-      (fn () (exit-check-string-exists out-file "SUCCESS COMPLETE REAL_EM")) 1)
+    (extwrap/run-process "real" "./real.exe" [{1 out-file} {2 err-file}] in-dir 1800000 log-f 0
+      (fn () (extwrap/exit-check-string-exists out-file "SUCCESS COMPLETE REAL_EM")) 1)
     (log-f :info "real complete succesfully" [])))
 
 
 (defn+ run-real (in-dir log-f)
   "Run real.exe either compiled with DMPAR or Serial option, this is decided by reading
-   the configuration key 'wrf-is-parallel' from the configuration server."
-  (if (configsrv/get-conf :wrf-is-parallel)
+   the configuration key 'wrf_is_parallel' from the configuration server."
+  (if (configsrv/get-conf :wrf_is_parallel)
     (run-real-dmpar in-dir log-f)
     (run-real-serial in-dir log-f)))
 
@@ -148,14 +148,11 @@
          wrf-serial-out  (filename/join wdir "rsl.error.0000")   ; note: this is a hack, serial wrf.exe does not write anything to stderr
          wrf-serial-err  (filename/join wdir "rsl.aux.0000")     ; so I'm unable to track its progress, thus we route stdout to rsl.stderr.0000
          job-timeout-s   (erl/* (erl/+ wall-time-hrs 0.1) 3600)
-         cfg-keys        [:hpc-profile]
-         steward-keys    [:hpc_profile]
-         cfg-vals        (lists/map configsrv/get-conf/1 cfg-keys)
-         cfgs            (lists/zip steward-keys cfg-vals)
+         cfgs            [{:hpc_profile (configsrv/get-conf :hpc_profile)}]
          params          [{:task_id "wrf"} {:cmd wrf-cmd} {:in_dir wdir} {:num_nodes num-nodes} {:proc_per_node ppn}
                           {:wall_time_hrs wall-time-hrs} {:wall_time_mins 0} {:pid_timeout_s pid-timeout-s}
                           {:job_timeout_s job-timeout-s}]
-         wrf-exec        (if (configsrv/get-conf :wrf-is-parallel)
+         wrf-exec        (if (configsrv/get-conf :wrf_is_parallel)
                            (fn () (sjob/execute (erl/++ cfgs params) log-f))
                            (fn () (sproc/execute "wrf" wrf-cmd [{1 wrf-serial-out} {2 wrf-serial-err}] wdir job-timeout-s log-f)))
          wrf-result (case (wrf-exec)
