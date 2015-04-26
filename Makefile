@@ -14,7 +14,6 @@ BEAMFILES =	\
 		ebin/nlparser.beam \
 		ebin/nlist.beam \
 		ebin/nllib.beam \
-		ebin/sysmon.beam \
 		ebin/fmda.beam \
 		ebin/wrf-monitor.beam \
 		ebin/wrfxlib.beam \
