@@ -11,9 +11,6 @@ INCLUDES=-p deps/grib_ingest/ebin -p deps/afm_ingest/ebin -p deps/raws_ingest/eb
 BEAMFILES =	ebin/utils.beam \
 		ebin/nlscanner.beam \
 		ebin/nlparser.beam \
-		ebin/nlist.beam \
-		ebin/fmda.beam \
-		ebin/wrf-monitor.beam \
 		ebin/testjob.beam \
 		ebin/nasa-fire-job.beam \
 		ebin/firejob.beam \
