@@ -20,14 +20,14 @@
 
 -module(nllib).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
--export([make_geogrid_namelist/3,make_ungrib_namelist/4,make_wrf_namelist/6]).
+-export([make_geogrid_namelist/2,make_ungrib_namelist/4,make_wrf_namelist/6]).
 -include("wrfx2.hrl").
 
 
--spec make_geogrid_namelist(string(),plist(),#nls{}) -> #nls{}.
-make_geogrid_namelist(GeogDir,Args,Nls0) ->
+-spec make_geogrid_namelist(plist(),#nls{}) -> #nls{}.
+make_geogrid_namelist(Args,Nls0) ->
   GeogDir = plist:get(wps_geog_dir,Args),
-  nlist:set_entry("geogrid", geog_data_path, [GeogDir], Nls0).
+  nlist:set_entry("geogrid", "geog_data_path", [GeogDir], Nls0).
 
 -spec make_ungrib_namelist(calendar:datetime(),calendar:datetime(),[integer()],#nls{}) -> #nls{}.
 make_ungrib_namelist(CovFrom,CovTo,Doms,Nls0) ->
