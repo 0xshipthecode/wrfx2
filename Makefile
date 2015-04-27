@@ -12,7 +12,6 @@ BEAMFILES =	ebin/utils.beam \
 		ebin/nlscanner.beam \
 		ebin/nlparser.beam \
 		ebin/nlist.beam \
-		ebin/nllib.beam \
 		ebin/fmda.beam \
 		ebin/wrf-monitor.beam \
 		ebin/testjob.beam \
