@@ -61,16 +61,16 @@
     (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) geogrid-tbl []))
 
     ; step 1:  construct innermost domain from ignition point and add it to the namelist and run geogrid
-    (let* (wps-nl1 (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
+    (let* (wps-nl1 (nllib/make-geogrid-namelist args wps-nl0)
            wps-nl-name (filename/join wps-wdir "namelist.wps"))
       (log-f :info "writing namelist.wps for geogrid" [])
       (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
-      (jobmaster/updatestate uuid [{:stage "GEOGRID (1/6)"}])
+      (jobmaster/update_state uuid [{:stage "GEOGRID (1/6)"}])
       (perftrack/instrument-as :wfcjob uuid "geogrid" []
         (fn () (wrfxlib/run-geogrid wps-wdir log-f)))
       
       ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
-      (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
+      (jobmaster/update_state uuid [{:stage "GRIB retrieval (2/6)"}])
       (log-f :info "retrieving GRIB files for the simulation extent ~w to ~w" [sim-from sim-to])
       (let (strategy   [{:use_grib_source grib-src-name} :try_retrieve :shift_cycle :try_retrieve]
             at-time    (ta/min-time (ta/universal-time) sim-from)
@@ -82,10 +82,10 @@
         (log-f :info "writing amended namelist.wps for ungrib.exe" [])))
 
     ; step 3: run ungrib & metgrid
-    (jobmaster/updatestate uuid [{:stage "UNGRIB (3/6)"}])
+    (jobmaster/update_state uuid [{:stage "UNGRIB (3/6)"}])
     (perftrack/instrument-as :wfcjob uuid "ungrib" []
       (fn () (wrfxlib/run-ungrib wps-wdir log-f)))
-    (jobmaster/updatestate uuid [{:stage "METGRID (4/6)"}])
+    (jobmaster/update_state uuid [{:stage "METGRID (4/6)"}])
     (perftrack/instrument-as :wfcjob uuid "metgrid" []
       (fn () (wrfxlib/run-metgrid wps-wdir log-f)))
 
@@ -105,13 +105,13 @@
       (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
 
     ;step 7: run real.exe
-    (jobmaster/updatestate uuid [{:stage "REAL (5/6)"}])
+    (jobmaster/update_state uuid [{:stage "REAL (5/6)"}])
     (perftrack/instrument-as :wfcjob uuid "real"
       (fn () (wrfxlib/run-real wrf-wdir log-f)))
 
     ; step 8: run WRF
     (log-f :info "running WRF" [])
-    (jobmaster/updatestate uuid [{:stage "WRF (6/6)"}])
+    (jobmaster/update_state uuid [{:stage "WRF (6/6)"}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (let* (job-state (jobmaster/get-state uuid)
@@ -129,7 +129,7 @@
         (fn () (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 120 wrf-history-hook cfl-violation-hook log-f))))
 
     (log-f :info "end of job reached" [])
-    (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
+    (jobmaster/update_state uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
 
     :ok))
 

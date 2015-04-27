@@ -144,7 +144,7 @@ monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,WrfMon,HistH,CflH,LogF) ->
     {proc_started,ExtMon,StartTS} ->
       LogF(info, "[~p] WRF computation started on ~w, monitoring", [U,StartTS]),
       Fname = filename:join(Wdir,"rsl.error.0000"),
-      RealWrfMonPid = 'wrf-monitor':start(Fname,SimF,SimT,StartTS,U,LogF),
+      RealWrfMonPid = wrf_monitor:start(Fname,SimF,SimT,StartTS,U,LogF),
       monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,RealWrfMonPid,HistH,CflH,LogF);
     {proc_terminated,ExtMon,Result} ->
       case WrfMon of
