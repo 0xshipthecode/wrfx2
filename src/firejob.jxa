@@ -1,0 +1,316 @@
+; Copyright (C) 2014-2015 Martin Vejmelka, UC Denver
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy
+; of this software and associated documentation files (the "Software"), to deal
+; in the Software without restriction, including without limitation the rights
+; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+; of the Software, and to permit persons to whom the Software is furnished to do
+; so, subject to the following conditions:
+;
+; The above copyright notice and this permission notice shall be included in all
+; copies or substantial portions of the Software.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+; INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+; A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+; OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+(ns firejob
+  (require (wrfxlib :joxify) (nlist :joxify) nllib plist (filesys :joxify) io (file :joxify) (configsrv :joxify)
+           (jobmaster :joxify) grib_ingest (perftrack :joxify) (postproc :joxify) (timelib :as ta :joxify) os
+           (io_lib :as iol) (string :as str) filename (file :joxify) (erlang :as erl :joxify)
+           (filelib :joxify) lists fmda (raws_ingest :as raws :joxify) (extwrap :joxify)
+           (raws_export :as rawsexp :joxify) (steward_utils :as sutils :joxify))
+  (use joxa-core utils))
+
+
+(defn build-job-uuid (sim-from fc-len)
+  "Build a UUID for the firejob given the simulation start and forecast length."
+  (lists/flatten ["firejob-" (ta/to-esmf-str sim-from) "-" (iol/format "~2..0B" [fc-len])]))
+
+
+(defn make-wrf-namelist (sim-from sim-to nl-keys hist-ints all-doms ign-specs nls0)
+  "Write in the simulation time <sim-from> to <sim-to> into <nls0> and add anything
+   the grib source needs."
+  (let* (wrf-nl1 (nllib/make-wrf-namelist sim-from sim-to nl-keys hist-ints all-doms nls0))
+    (nlist/set-ignitions wrf-nl1 ign-specs 2)))
+
+
+(defn+ run (args log-f)
+  "Execute the firejob with the given arguments:
+   uuid: unique identifier of the job
+   sim-from: simulate from
+   ign-specs: ignition points [may be empty]
+   forecast-length-hrs: hours to run from sim-from
+   fire-ns: the fire namelist
+   wps-nl: the WPS namelist
+   wrf-nl: the WRF namelist
+   work-dir: working directory
+   wrf-inst-dir: WRF installation directory
+   wps-inst-dir: WPS installation directory
+   wps-geog-dir: WPS geography data directory
+   grib-src-name: name of the GRIB source"
+  (let* (uuid           (plist/get :uuid args)
+         work-dir       (plist/get :work_dir args)
+         wps-idir       (plist/get :wps_install_dir args)
+         wrf-idir       (plist/get :wrf_install_dir args)
+         grib-src-name  (plist/get :grib_source_name args)
+         geogrid-tbl    (plist/get :geogrid_table args)
+         sim-from       (plist/get :sim_from args)
+         ign-specs      (plist/get :ign_specs args)
+         fc-hrs         (plist/get :forecast_length_hrs args)
+         num-nodes      (plist/get :num_nodes args)
+         ppn            (plist/get :ppn args)
+         wall-time-hrs  (plist/get :wall_time_hrs args)
+         hist-ints      (plist/get :history_interval args)
+         station-sel    (plist/get :station_selector args)
+         grib-info      (grib_ingest/get_grib_info grib-src-name)
+         sim-to         (ta/shift-by sim-from fc-hrs :hours)
+         wps-wdir       (filename/join work-dir "wps")
+         wrf-wdir       (filename/join work-dir "wrf")
+         fmda-wdir      (filename/join work-dir "fmda")
+         pp-instr       (plist/get :postproc (plist/new) args)
+         wps-nl0        (nlist/parse (plist/get :wps_nl args) :firejob_wps)
+         fire-nl0       (nlist/parse (plist/get :fire_nl args) :firejob_fire)
+         wrf-nl0        (nlist/parse (plist/get :wrf_nl args) :firejob_wrf)
+         all-doms       (nlist/all-domains wps-nl0)
+         wrfx-dir       (configsrv/get-conf :sysdir))
+
+    (log-f :info "firejob starting: work dir is ~p sim range [~w,~w]~n" [work-dir sim-from sim-to])
+
+    ; create the working directory for WPS & link in selected geogrid table
+    (!!= :ok (wrfxlib/clone-wps wps-idir wps-wdir (plist/get :vtable_file grib-info) geogrid-tbl []))
+
+    ; step 1: run geogrid or use pre-linked geogrids
+    (let* (wps-nl1     (nllib/make-geogrid-namelist wps-wdir args wps-nl0)
+           wps-nl-name (filename/join wps-wdir "namelist.wps"))
+      (log-f :info "writing namelist.wps for geogrid" [])
+      (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl1)))
+      (case (plist/get :link_geogrids [] args)
+        ([] ; no pre-computed files, must run geogrid
+          (log-f :info "no precomputed geogrids found, running geogrid." [])
+          (jobmaster/updatestate uuid [{:stage "GEOGRID (1/6)"}])
+          (perftrack/instrument-as :firejob uuid "geogrid" []
+            (fn () (wrfxlib/run-geogrid wps-wdir log-f))))
+        (pre-links ; yay! have precomputed geogrid results, we save time
+          (log-f :info "obtained ~p precomputed geogrids, linking and skipping geogrid." [(erl/length pre-links)])
+          (lists/map (fn (x) (let ({file precomputed} x)
+                                (filesys/symlink-unless-exists
+                                  (filename/join wrfx-dir precomputed)
+                                  (filename/join wps-wdir file)))) pre-links)))
+      ; step 2: retrieve GRIBs and add ungrib-specific entries to namelist and store it
+      (jobmaster/updatestate uuid [{:stage "GRIB retrieval (2/6)"}])
+      (log-f :info "retrieving GRIB files for the simulation extent ~w to ~w" [sim-from sim-to])
+      (perftrack/instrument-as :firejob uuid "grib-retrieval" [:from sim-from :to sim-to :grib_src grib-src-name]
+        (fn ()
+          (let (strategy   [{:use_grib_source grib-src-name} :try_retrieve :shift_cycle :try_retrieve]
+                {:success cov-from cov-to mfest} (grib_ingest/retrieve_gribs sim-from sim-to (ta/universal-time) strategy)
+                wps-nl2                 (nllib/make-ungrib-namelist cov-from cov-to all-doms wps-nl1))
+            (log-f :info "received GRIB2 manifest ~p~n" [mfest])
+            (!!= :ok (file/write-file wps-nl-name (nlist/render-namelists wps-nl2)))
+            (wrfxlib/symlink-grib-files mfest wps-wdir)
+            (log-f :info "writing amended namelist.wps for ungrib.exe" [])))))
+
+    ; step 3: run ungrib & metgrid
+    (jobmaster/updatestate uuid [{:stage "UNGRIB (3/6)"}])
+    (perftrack/instrument-as :firejob uuid "ungrib" []
+      (fn () (wrfxlib/run-ungrib wps-wdir log-f)))
+    (jobmaster/updatestate uuid [{:stage "METGRID (4/6)"}])
+    (perftrack/instrument-as :firejob uuid "metgrid" []
+      (fn () (wrfxlib/run-metgrid wps-wdir log-f)))
+
+    ; step 4: setup the WRF working directory
+    (log-f :info "creating WRF working directory" [])
+    (wrfxlib/clone-wrf wrf-idir wrf-wdir [])
+
+    ; step 5: symlink all met_em* files to the wrfdir
+    (let* (met-em-files (filesys/list-dir-regexp wps-wdir "met_em.+"))
+      (log-f :info "symlinking ~p met_em* files to the wrf dir." [(erl/length met-em-files)])
+      (!!= :ok (filesys/symlink-files-to-dir met-em-files wps-wdir wrf-wdir)))
+
+    ; step 6: construct the WRF namelist
+    (let* (nl-keys (plist/get :wrf_namelist_keys grib-info)
+           wrf-nl1 (make-wrf-namelist sim-from sim-to nl-keys hist-ints all-doms ign-specs wrf-nl0))
+      (log-f :info "writing namelist.input for WRF" [])
+      (!!= :ok (file/write-file (filename/join wrf-wdir "namelist.input") (nlist/render-namelists wrf-nl1))))
+
+    ;step 7: run real.exe
+    (jobmaster/updatestate uuid [{:stage "REAL (5/8)"}])
+    (perftrack/instrument-as :firejob uuid "real" []
+      (fn () (wrfxlib/run-real wrf-wdir log-f)))
+
+    ;step 7b: render topo/fuels static maps
+    (postproc/render-domains wps-wdir (erl/length all-doms) uuid) 
+
+    ;step 8: retrieve raws observations
+    (unless (erl/== station-sel :empty_station_selector)
+      (jobmaster/updatestate uuid [{:stage "FMDA (6/7)"}])
+      (!!= :ok (filesys/clone-with-files (filename/join wrfx-dir "deps/fmda") fmda-wdir [ "src" "fmda_auto.sh"]))
+      (let* (now-time       (ta/round-hours (ta/shift-by (ta/universal-time) 1 :hours) :down)
+             raws-max-time  (ta/min-time now-time sim-to)
+             now-time-24    (ta/shift-by raws-max-time -24 :hours))
+        (perftrack/instrument-as :firejob uuid "raws-retr" []
+          (fn ()
+            (log-f :info "requesting that raws_ingest update observations now (waiting max 4 minutes)" [])
+            ; NOTE: we assume that the station selector in raws_ingest is a superset of our station selector
+            (raws/update-now 240)
+            (log-f :info "retrieving fm10 RAWS observations for station selector ~p" [station-sel])
+            (let* (obss (raws/retrieve-observations station-sel [:fm10] {now-time-24 raws-max-time}))
+              (log-f :info "retrieved ~p fm10 observations from ~p to ~p" [(erl/length obss) now-time-24 raws-max-time])
+              (rawsexp/obs-to-csv obss (filename/join fmda-wdir "observations"))))))
+
+      ; step 9: run external fuel moisture code
+      (log-f :info "writing configuration for fmda" [])
+      (let* (wrfin-path  (filename/join [wrf-wdir "wrfinput_d02"])
+             cfg-path    (filename/join fmda-wdir "fmda.cfg")
+             wksp        (configsrv/get-conf :workspace_dir)
+             ; FIXME: this should do an SQL search in the jobs table for completed jobs in the correct time frame
+             sim-from-24 (ta/shift-by sim-from -24 :hours)                            ; assumption: daily (24hr) cycling
+             pwrfout-f   (lists/append "wrfout_d02_" (ta/to-esmf-str sim-from-24))    ; format is: wrfout_d02_2015-04-20_12:00:00 
+             pwrfout-p   (filename/join [wksp (build-job-uuid sim-from-24 fc-hrs) "wrf" pwrfout-f]))
+        (fmda/write-fmda-cfg wrfin-path pwrfout-p ["constant" "elevation" "pressure" "temperature" "lon" "lat" "rain"] cfg-path))
+      (log-f :info "running fmda (cycling version) now" [])
+      (perftrack/instrument-as :firejob uuid "fmda" []
+        (fn ()
+          (extwrap/run-process "fmda" "PYTHONPATH=src python src/fmda_cycle.py fmda.cfg"
+                               (sutils/make-std-output-spec fmda-wdir "fmda")
+                               fmda-wdir 1200000 log-f 0 (fn () :passed) 1))))
+
+    ; step 10: run WRF
+    (log-f :info "running WRF" [])
+    (jobmaster/updatestate uuid [{:stage "WRF (8/8)"}])
+    (let* (wrf-history-hook
+            (fn (domain-id sim-time)
+              (postproc/render uuid wrf-wdir sim-from sim-time domain-id (plist/get domain-id [] pp-instr))
+              (let* (job-state (jobmaster/get-state uuid)
+                     comp-time (plist/get :completion-time :undefined job-state)
+                     perc-done (plist/get :percent-done :undefined job-state)
+                     sim-accel (plist/get :sim-acceleration :undefined job-state))
+                (log-f :info "detected history write at ~p with ~w percent done, completion time ~w and acceleration ~w"
+                             [sim-time perc-done comp-time sim-accel])))
+           cfl-violation-hook
+            (fn (ext-mon-pid)
+              (log-f :error "*** detected CFL violation, terminating WRF job. ***" [])
+              (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
+      (perftrack/instrument-as :firejob uuid "wrf" [{:num-nodes num-nodes} {:ppn ppn}]
+        (fn () (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 
+                                120 wrf-history-hook cfl-violation-hook log-f))))
+   
+    ; and we are done
+    (log-f :info "end of job reached" [])
+    (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
+    :ok))
+
+
+; ign-specs format: [{{lat lon} {ignite_after_seconds ignition_duration_seconds ign-radius-m}} ...]
+(defn+ firetest (sim-from fc-len-hrs ign-specs)
+  (let* (uuid (build-job-uuid sim-from fc-len-hrs))
+     (jobmaster/submit uuid :firejob
+      [{:sim_from sim-from}
+       {:wrf_install_dir "/share_home/mvejmelka/Packages/wrf-fire.adam/WRFV3/run"}
+       {:wps_install_dir "/share_home/mvejmelka/Packages/wrf-fire.adam/WPS"}
+       {:wps_geog_dir "/share_home/mvejmelka/Packages/WPS-GEOG"}
+       {:ign_specs ign-specs}
+       {:grid_code "colorado_fire_2d_v1"}
+       {:geogrid_table "GEOGRID.TBL_FIRE"}
+       {:link_geogrids [{"geo_em.d01.nc" "precomputed/colorado-firejob/geo_em.d01.nc" }
+                        {"geo_em.d02.nc" "precomputed/colorado-firejob/geo_em.d02.nc"}]}
+       {:postproc [{2 [{:kml "T2"} {:kml "RH_FIRE"} {:kml "F_ROS"} {:kml "F_INT"} {:kml "FMC_G"}
+                       {:png "T2"} {:png "RH_FIRE"} {:png "F_ROS"} {:png "F_INT"} {:png "FMC_G"}]}]}
+       {:grib_source_name :nam_218}
+       {:wps_nl "etc/nlists/colfire2d.wps"}
+       {:wrf_nl "etc/nlists/colfire2d.input"}
+       {:fire_nl "etc/nlists/colfire.fire"}
+       {:station_selector {:region {37 41} {-109.3 -102.2}}}
+       {:history_interval [120,60]}
+       {:num_nodes 12}
+       {:ppn 12}
+       {:wall_time_hrs 2}
+       {:forecast_length_hrs fc-len-hrs}])))
+
+
+(defn+ test (sim-from forecast-length-hrs)
+  (let* (uuid (build-job-uuid sim-from forecast-length-hrs))
+    (jobmaster/submit uuid :firejob
+      [{:sim_from sim-from}
+       {:wrf_install_dir "/share_home/mvejmelka/Packages/wrf-fire.adam/WRFV3/run"}
+       {:wps_install_dir "/share_home/mvejmelka/Packages/wrf-fire.adam/WPS"}
+       {:wps_geog_dir "/share_home/mvejmelka/Packages/WPS-GEOG"}
+       {:ign_specs []}
+       {:link_geogrids [{"geo_em.d01.nc" "precomputed/colorado-firejob/geo_em.d01.nc" }
+                        {"geo_em.d02.nc" "precomputed/colorado-firejob/geo_em.d02.nc"}]}
+       {:grid_code "colorado_fire_2d_v1"}
+       {:geogrid_table "GEOGRID.TBL_FIRE"}
+       {:grib_source_name :nam_218}
+       {:wps_nl "etc/nlists/colfire2d.wps"}
+       {:wrf_nl "etc/nlists/colfire2d.input"}
+       {:fire_nl "etc/nlists/colfire.fire"}
+       {:station_selector {:region {37 41} {-109.3 -102.2}}}
+       {:history_interval [240,120]}
+       {:num_nodes 6}
+       {:ppn 12}
+       {:wall_time_hrs 4}
+       {:forecast_length_hrs forecast-length-hrs}])))
+
+
+(defn+ fmdatest ()
+  (let* (sim-from            {{2015,4,21},{12,0,0}}
+         forecast-length-hrs 2
+         uuid (build-job-uuid sim-from forecast-length-hrs))
+    (jobmaster/submit uuid :firejob
+      [{:sim_from sim-from}
+       {:wrf_install_dir "/share_home/mvejmelka/Packages/wrf-fire.adam/WRFV3/run"}
+       {:wps_install_dir "/share_home/mvejmelka/Packages/wrf-fire.adam/WPS"}
+       {:wps_geog_dir "/share_home/mvejmelka/Packages/WPS-GEOG"}
+       {:ign_specs []}
+       {:link_geogrids [{"geo_em.d01.nc" "precomputed/colorado-firejob/geo_em.d01.nc" }
+                        {"geo_em.d02.nc" "precomputed/colorado-firejob/geo_em.d02.nc"}]}
+       {:grid_code "colorado_fire_2d_v1"}
+       {:geogrid_table "GEOGRID.TBL_FIRE"}
+       {:grib_source_name :nam_218}
+       {:wps_nl "etc/nlists/colfire2d.wps"}
+       {:wrf_nl "etc/nlists/colfire2d.input"}
+       {:fire_nl "etc/nlists/colfire.fire"}
+       {:station_selector {:region {37 41} {-109.3 -102.2}}}
+       {:history_interval [240,120]}
+       {:num_nodes 12}
+       {:ppn 12}
+       {:wall_time_hrs 4}
+       {:forecast_length_hrs forecast-length-hrs}])))
+
+
+(defn+ forecast (from fc-len-hrs wps-nl wrf-nl fire-nl grid-code geog-dir num-nodes ppn wall-time-hrs grib-src hist-int)
+  (let* (uuid      (lists/flatten (iol/format "firejob-~s" [(ta/to-esmf-str from)]))
+         wps-file  (filename/join "etc/nlists" wps-nl)
+         wrf-file  (filename/join "etc/nlists" wrf-nl)
+         fire-file (filename/join "etc/nlists" fire-nl))
+    (case (preflight-check [{:file-exists wps-file "wps namelist missing"}
+                            {:file-exists wrf-file "wrf namelist missing"}
+                            {:file-exists fire-file "wrf namelist missing"}
+                            {:dir-exists geog-dir "geog install directory not found"}
+                            {:is-pid (grib_ingest/get_grib_server_pid grib-src) "grib source not found"}
+                            {:positive-integer fc-len-hrs "forecast length in hrs must be positive"}
+                            {:positive-integer wall-time-hrs "wall time in hrs must be positive"}])
+      ([]
+        (jobmaster/submit uuid :firejob
+            [{:sim_from from}
+             {:wrf_install_dir (configsrv/get-conf :wrf_install_dir)}
+             {:wps_install_dir (configsrv/get-conf :wps_install_dir)}
+             {:grid_code grid-code}
+             {:wps_geog_dir geog-dir}
+             {:ign_specs []}
+             {:geogrid_table "GEOGRID.TBL_FIRE"}
+             {:grib_source_name grib-src}
+             {:wps-nl wps-file}
+             {:wrf-nl wrf-file}
+             {:fire-nl fire-file}
+             {:history-interval hist-int}
+             {:num-nodes num-nodes}
+             {:ppn ppn}
+             {:wall-time-hrs wall-time-hrs}
+             {:forecast-length-hrs fc-len-hrs}]))
+      (errors
+        {:failure errors}))))
+
