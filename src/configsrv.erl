@@ -26,15 +26,15 @@
 
 -spec is_valid_config(string()) -> true|{false,term()}.
 is_valid_config(Path) ->
-  case utils:execute_file(Path) of
-    {ok, Cfg} -> plist:is_plist(Cfg);
-    Error -> {false, Error}
+  case file:consult(Path) of
+    {ok,Cfg} -> plist:is_plist(Cfg);
+    {error,E} -> {false, E}
   end.
 
 
 -spec start_link() -> ok.
 start_link() ->
-  case utils:execute_file("etc/config") of
+  case file:consult("etc/config") of
     {ok,Cfg} -> gen_server:start_link({local, configsrv}, configsrv, [{sysdir, get_system_dir()}|Cfg], []);
     Error -> throw({"Invalid etc/config file", Error})
   end.
@@ -81,6 +81,7 @@ all_keys() ->
 %% gen_server implementation
 %% --------------------------------------
 
+
 init(Args) -> {ok, Args}.
 
 handle_call({get_conf,Key}, _From, Cfg) -> {reply, plist:get(Key,no_such_key,Cfg), Cfg};
@@ -96,9 +97,11 @@ handle_info(_Info,State) -> {noreply, State}.
 terminate(_Reason,_State) -> ok.
 code_change(_OldVer,State,_Extra) -> {ok, State}.
 
+
 %% --------------------------------------
 %% internal functions
 %% --------------------------------------
+
 
 -spec get_system_dir() -> string().
 get_system_dir() ->
