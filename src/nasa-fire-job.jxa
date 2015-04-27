@@ -1,6 +1,6 @@
 (ns nasa-fire-job
-  (require wrfxlib nlist plist filesys configsrv jobmaster
-           (timelib :as ta) os (io_lib :as iol) (filelib :joxify) postproc
+  (require (wrfxlib :joxify) (nlist :joxify) plist (filesys :joxify) (configsrv :joxify) (jobmaster :joxify)
+           (timelib :as ta :joxify) os (io_lib :as iol) (filelib :joxify) postproc
            (string :as str) filename (file :joxify) (erlang :as erl :joxify) lists)
   (use joxa-core utils))
 
@@ -27,14 +27,14 @@
    grib-src-name: name of the GRIB source"
   (let* (uuid           (plist/get :uuid args)
          work-dir       (plist/get :work-dir args)
-         wrf-idir       (configsrv/get-conf :wrf-install-dir)
+         wrf-idir       (configsrv/get-conf :wrf_install_dir)
          ign-specs      (plist/get :ign-specs args)
          num-nodes      (plist/get :num-nodes args)
          ppn            (plist/get :ppn args)
          fc-hrs         (plist/get :forecast-length-hrs args)
          wall-time-hrs  (plist/get :wall-time-hrs args)
-         sim-from       (plist/get :sim-from args)
-         sim-to         (ta/shift-by-hours sim-from fc-hrs)
+         sim-from       (plist/get :sim_from args)
+         sim-to         (ta/shift-by sim-from fc-hrs :hours)
          wrf-wdir       (filename/join work-dir "wrf")
          wrf-nl0        (nlist/parse "etc/nlists/nasa-fs.input" :nasa_fs_wrf0)
          fire-nl0       (nlist/parse "etc/nlists/nasa-fs.fire" :nasa_fs_fire0)
@@ -66,8 +66,8 @@
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (when (erl/== domain-id 2)
-                (let* (base-names (postproc/write-contour-kmz-file uuid wrf-wdir sim-from sim-time domain-id ["FIRE_AREA"])
-                       kmls0      (plist/get :kmls [] (jobmaster/getstate uuid))
+                (let* (base-names (postproc/render uuid wrf-wdir sim-from sim-time domain-id [{:contour_kml "FIRE_AREA"}])
+                       kmls0      (plist/get :products [] (jobmaster/get-state uuid))
                        kmls1      (lists/foldl (fn (name acc) (name . acc)) kmls0 base-names))
                   (jobmaster/updatestate uuid [{:kmls kmls1}]))))
            cfl-violation-hook
@@ -87,13 +87,13 @@
 (defn+ test (fc-len wall-time-hrs)
   (let* (uuid "35b55327-2c43-4d62-beb9-a314ccf91c9f")
     (jobmaster/submit uuid :nasa-fire-job 
-         [{:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
+         [{:wrf_install_dir (configsrv/get-conf :wrf_install_dir)}
          {:ign-specs [ {{47.913  -119.116} {10800 100}}
                        {{48.0271149 -119.39029} {8599 100}}
                        {{48.0313339 -119.3838} {8523 100}}
                        {{48.0315704 -119.3807} {8523 100}}
                        {{48.0265465 -119.38021} {8523 100}} ]}
-         {:sim-from {{2012 9 9} {0 0 0}}} {:num-nodes 12} {:ppn 12}
+         {:sim_from {{2012 9 9} {0 0 0}}} {:num-nodes 12} {:ppn 12} {:grid_code "nasa-wash-grid"}
          {:wall-time-hrs wall-time-hrs} {:forecast-length-hrs fc-len}])))
 
 
@@ -105,7 +105,7 @@
                        {{48.0313339 -119.3838} {8523 100}}
                        {{48.0315704 -119.3807} {8523 100}}
                        {{48.0265465 -119.38021} {8523 100}} ]}
-         {:sim-from {{2012 9 9} {0 0 0}}} {:num-nodes 16} {:ppn 16}
+         {:sim_from {{2012 9 9} {0 0 0}}} {:num-nodes 16} {:ppn 16} {:grid_code "nasa-wash-grid"}
          {:wall-time-hrs wall-time-hrs} {:forecast-length-hrs fc-len}])))
 
 

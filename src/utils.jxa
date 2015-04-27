@@ -1,4 +1,4 @@
-; Copyright (C) 2013-2014 Martin Vejmelka, UC Denver
+; Copyright (C) 2013-2015 Martin Vejmelka, UC Denver
 ;
 ; Permission is hereby granted, free of charge, to any person obtaining a copy
 ; of this software and associated documentation files (the "Software"), to deal
@@ -25,20 +25,6 @@
     (use joxa-core))
 
 
-(defn+ sign (val)
-  "Return sign of number, 0 -> 0, x < 0 -> -1, x > 0 -> 1."
-  (case val
-    (0 0)
-    (v (when (erl/< v 0)) -1)
-    (v 1)))
-
-
-(defn+ zero? (val)
-  "Check if a value is zero."
-  (case val
-    (0 :true)
-    (_ :false)))
-
 
 (defn+ empty? (lst)
   "Check if list is empty."
@@ -52,21 +38,6 @@
    Throws a badarg exception if string is not a number."
   (try* (erl/list-to-float lst)
     (catch (type body) (erl/list-to-integer lst))))
-
-
-(defmacro+ critical-check (succ-result func)
-  "The function <func> must succeed, i.e return the result <succ-result>.  If not
-   the message <fail-msg> is written to file 'critical_failure.log' in the root directory
-   the system and an exception is thrown."
-   (let* (other (gensym)
-          msg   (gensym))
-    `(case ~func
-      (~succ-result
-        :ok)
-      (~other
-        (let* (~msg (iol/format "FAILURE in ~p: expected ~p~ninstead returned ~p~nstacktrace is ~p~n" [(quote ~func) ~succ-result ~other (erl/get-stacktrace)])) 
-          (file/write-file "critical_failure.log" ~msg)
-          (erl/throw (lists/flatten ~msg)))))))
 
 
 ;; format a task error tuple
@@ -108,20 +79,6 @@
   (lists/foreach (fn (tgt) (erl/send tgt msg)) targets))
 
 
-;; use of this macro requires the namespace erlang is required
-(defmacro+ async-send-me (msg)
-  "Execute function f in a new process and send myself the result."
-  (let* (myself (gensym))
-    `(let* (~myself (erlang/self))
-       (erlang/spawn (fn () (erlang/send ~myself ~msg))))))
-
-
-;; execute the task in a separate process and send result
-;; to given target process
-(defmacro+ async-send-to (pid f)
-  `(erlang/spawn (fn () (erlang/send ~pid ~f))))
-
-
 (defn+ wait-for-file (file-name timeout-ms file-wait-chunk-ms)
   "Wait for the file <file-name> to appear on the filesystem for <timeout-ms> ms.
    The file is checked every <file-wait-chunk-ms> ms."
@@ -143,6 +100,13 @@
         ({:ok parsed} (erl_eval/exprs parsed env))
         ({:error info} {:error :parse info})))
       ({:error err-info err-loc} {:error :scan {err-info err-loc}})))
+
+
+(defmacro+ async-send-me (msg)
+  "Execute function f in a new process and send myself the result."
+  (let* (myself (gensym))
+    `(let* (~myself (erlang/self))
+       (erlang/spawn (fn () (erlang/send ~myself ~msg))))))
 
 
 (defn pmap (func workers max-workers tasks res-list)
@@ -185,6 +149,8 @@
         (error error)))
   (error error)))
 
+
+(defn+ execute_file (fname) (execute-file fname))
 
 (defmacro+ !!= (form func)
   "Throws an error if the result of <func> does not match <res-check>."
@@ -233,20 +199,6 @@
                   [a, b, (erl/band c 4095) (erl/bor (erl/band d 16383) 32768) e]))))
 
 
-(defn+ retry-at-most (num-times wait-ms fail? func)
-  "Retry a function <func> at most <num-times> with waiting <wait-ms> between retries.
-   Failure is defined as function <fail?> returning true on result of <func>."
-  (let* (result (func))
-    (if (fail? result)
-      (if (erl/> num-times 0)
-        (do
-          (timer/sleep wait-ms)
-          (retry-at-most (decr num-times) wait-ms fail? func))
-        result)
-      result)))
-
-
-
 (defmacro+ != (a b)
   "A not-equal macro to get rid of ugly syntax in joxa.
    Returns true if not <a> == <b> in the erlang == sense."
@@ -275,13 +227,6 @@
   (wait-for-task-set msg-keys []))
 
 
-(defn+ print-and-pass (result)
-  "A debugging helper that prints the result and then returns it and thus acts
-   as a transparent printer."
-  (io/format "print-and-pass ~p~n" [result])
-  result)
-
-
 (defn+ term-to-string (et)
   "Convert en erlang term to a string."
   (iol/format "~p." [et]))
@@ -308,12 +253,16 @@
   "Add an INFO report to the log. If <arg> is an iolist, applies lists/flatten, else no modification."
   (errlog/info-report (if (erlang/is-list arg) (lists/flatten arg) arg)))
 
+(defn+ log_info (arg) (log-info arg))
+
 
 (defn+ log-info (fmt args)
   "Adds an INFO report to the log.  <fmt> must be a string and <args> must be a list of arguments.
    Both are passed to iol/format."
   (log-info (iol/format fmt args)))
 
+
+(defn+ log_info (fmt args) (log-info fmt args))
 
 (defn+ log-warn (arg)
   "Add an WARN report to the log. If <arg> is an iolist, applies lists/flatten, else no modification."
@@ -336,6 +285,7 @@
    Both are passed to iol/format."
     (log-error (iol/format fmt args)))
 
+(defn+ log_error (fmt args) (log-error fmt args))
 
 (defn+ table-exists? (name)
   "Check if a table exists (within a database implicitly specified by conn-id."

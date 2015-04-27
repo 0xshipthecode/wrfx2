@@ -22,7 +22,7 @@
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
 -include("wrfx2.hrl").
 -export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
--export([is_live/1,job_done/2,submit/3,livejobs/0,getstate/1,removestate/2,updatestate/2,kill/1]).
+-export([is_live/1,job_done/2,submit/3,live_jobs/0,get_state/1,removestate/2,updatestate/2,kill/1]).
 
 -define(SERVER, {global,jobmaster}).
 
@@ -42,14 +42,14 @@ job_done(U,St) -> gen_server:call(?SERVER, {job_done,U,St}).
 -spec submit(string(),atom(),plist()) -> ok|{error,{missing_keys,[term()]}}.
 submit(U,Mod,As) -> gen_server:call(?SERVER, {submit_job,U,Mod,As}).
 
--spec livejobs() -> [string()].
-livejobs() -> gen_server:call(?SERVER,list_live_jobs).
+-spec live_jobs() -> [string()].
+live_jobs() -> gen_server:call(?SERVER,list_live_jobs).
 
 -spec is_live(string()) -> boolean().
 is_live(U) -> gen_server:call(?SERVER,{is_live,U}).
 
--spec getstate(string()) -> plist().
-getstate(U) -> gen_server:call(?SERVER,{get_state,U}).
+-spec get_state(string()) -> plist().
+get_state(U) -> gen_server:call(?SERVER,{get_state,U}).
 
 -spec removestate(string(),[string()]) -> ok|not_found.
 removestate(U,Ks) -> gen_server:call(?SERVER,{modify_state,remove,U,Ks}).
@@ -58,7 +58,7 @@ removestate(U,Ks) -> gen_server:call(?SERVER,{modify_state,remove,U,Ks}).
 updatestate(U,Ps) -> gen_server:call(?SERVER,{modify_state,update,U,[{last_updated,calendar:local_time()}|Ps]}).
 
 -spec kill(string()) -> ok|not_found.
-kill(U) ->  gen_server:call(?SERVER,{kill_job,U,by_request}).
+kill(U) ->  gen_server:call(?SERVER,{kill,U,by_request}).
 
 
 %; --------------------------------------------
@@ -68,11 +68,11 @@ kill(U) ->  gen_server:call(?SERVER,{kill_job,U,by_request}).
 -spec execute_job_internal(string(),atom(),plist()) -> pid().
 execute_job_internal(U,Mod,As) ->
   logsrv:create_log(U),
-  erl:spawn(fun () ->
+  spawn(fun () ->
     try
-      Wdir = filename:join(configsrv:get_conf('workspace-dir'), U),
+      Wdir = filename:join(configsrv:get_conf(workspace_dir), U),
       ok = filesys:create_dir(Wdir),
-      apply(Mod,run,[[{'work-dir',Wdir},{uuid,U}|As], logsrv:make_log_f(U)]),
+      apply(Mod,run,[[{work_dir,Wdir},{uuid,U}|As], logsrv:make_log_f(U)]),
       job_done(U,completed)
     catch _Exc:{killed,by_request} ->
       utils:log_info("job [~s] was killed by request.",[U]),
@@ -109,7 +109,7 @@ init(Args) -> {ok, Args}.
 % track of the tuple {uuid job-pid job-state}
 
 handle_call({submit_job,U,Mod,As},_From,LJs) ->
-  case plist:find_missing(['sim-from','forecast-length-hrs', 'num-nodes', ppn], As) of
+  case plist:find_missing([sim_from,forecast_length_hrs, num_nodes, ppn, grid_code], As) of
     [] ->
       case dict:is_key(U,LJs) of
         true ->
@@ -118,11 +118,11 @@ handle_call({submit_job,U,Mod,As},_From,LJs) ->
         false ->
           Pid = execute_job_internal(U,Mod,As),
           ST = calendar:local_time(),
-          [SF,FL,NN,PPN] = plist:get_list(['sim-from', 'forecast-length-hrs', 'num-nodes', ppn], As),
+          [SF,FL,NN,PPN,GC] = plist:get_list([sim_from, forecast_length_hrs, num_nodes, ppn, grid_code], As),
           utils:log_info("jobmaster: job ~p is going LIVE now.", [U]),
-          J = #job{uuid=U,module=Mod,args=As,status=live,pid=Pid,start_time=ST,end_time=null,
+          J = #job{uuid=U,module=Mod,args=As,status=live,pid=Pid,start_time=ST,end_time=null,grid_code=GC,
                    state=[],sim_from=SF,sim_to=timelib:shift_by(SF,FL,hours),num_nodes=NN,ppn=PPN},
-          job:insert(J),
+          job:upsert(J),
           {reply, ok, dict:store(U,J,LJs)}
       end;
     MK ->
@@ -131,8 +131,9 @@ handle_call({submit_job,U,Mod,As},_From,LJs) ->
 handle_call({job_done,U,Status},_From,LJs) ->
   utils:log_info("jobmaster: notified that job ~p is done with status ~p", [U,Status]),
   case dict:find(U,LJs) of
-    {ok, _J} ->
+    {ok, J} ->
       job:update_status(U,Status),
+      catmaster:update_job(J#job{status=Status}),
       {reply, ok, dict:erase(U,LJs)};
     error ->
       utils:log_warn("jobmaster: job ~p not found, not setting status.", [U]),
@@ -152,10 +153,11 @@ handle_call({kill,U,Reason},_From,LJs) ->
     error ->
       {reply,not_found,LJs}
   end;
-handle_call(live_jobs,_From,LJs) -> {reply, dict:fetch_keys(LJs), LJs};
+handle_call(list_live_jobs,_From,LJs) -> {reply, dict:fetch_keys(LJs), LJs};
 handle_call({is_live,U},_From,LJs) -> {reply, dict:is_key(U,LJs), LJs};
 handle_call(resubmit_live_jobs,_From,LJs) ->
   NewJs = lists:map(fun resubmit_live_job/1, job:retrieve_live_jobs()),
+  lists:map(fun catmaster:update_job/1, NewJs),
   {reply, ok, lists:foldl(fun(J=#job{uuid=U},Js) -> dict:store(U,J,Js) end, LJs, NewJs)};
 handle_call({modify_state,How,U,Arg},_From,LJs) ->
   case dict:find(U,LJs) of
@@ -164,7 +166,10 @@ handle_call({modify_state,How,U,Arg},_From,LJs) ->
         remove -> plist:remove_list(Arg,S0);
         update -> plist:update_with(Arg,S0)
       end,
-      {reply, ok, dict:store(U, J#job{state=S1}, LJs)};
+      J1 = J#job{state=S1},
+      job:update_state(U,S1),
+      catmaster:update_job(J1),
+      {reply, ok, dict:store(U, J1, LJs)};
     error -> {reply, not_found, LJs}
   end;
 handle_call(Other,_From,LJs) ->

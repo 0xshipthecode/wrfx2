@@ -18,8 +18,8 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns testjob
-  (require wrfxlib nlist nllib plist filesys ext-wrappers perftrack
-           configsrv jobmaster (timelib :as ta) os grib_ingest
+  (require wrfxlib nlist nllib plist filesys (extwrap :joxify) (perftrack :joxify)
+           configsrv jobmaster (timelib :as ta :joxify) os grib_ingest
            (string :as str) filename (file :joxify) (erlang :as erl :joxify))
   (use joxa-core utils))
 
@@ -37,16 +37,16 @@
 
     ; retrieve some data from a nam_218 grib source
     (perftrack/instrument-as "testjob" uuid "grib-retr" []
-      (fn () (grib_ingest/retrieve_gribs now (ta/shift-by-hours now 4) now
+      (fn () (grib_ingest/retrieve_gribs now (ta/shift-by now 4 :hours) now
                                          [{:use_grib_source :nam_218} :try_retrieve :shift_cycle :try_retrieve])))
 
     (perftrack/instrument-as "testjob" uuid "task1" []
-      (fn () (ext-wrappers/run-process "task1" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
+      (fn () (extwrap/run-process "task1" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
     (jobmaster/updatestate uuid [{:stage "stage 2"}])
 
     (perftrack/instrument-as "testjob" uuid "task2" []
-      (fn () (ext-wrappers/run-process "task2" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
+      (fn () (extwrap/run-process "task2" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
     (log-f :info "testjob [~s] end of job reached" [uuid])
     (jobmaster/updatestate uuid [{:stage "COMPLETE"}])
@@ -55,8 +55,10 @@
 
 
 (defn+ test ()
-  (let* (uuid "76aabb9e-4d4a-4cfc-b5f0-696ba52d7909")
-    (jobmaster/submit uuid :testjob 
-        [])))
+  (let* (uuid (make-uuid))
+    (jobmaster/submit uuid :testjob [{:sim_from {{2015,4,23},{0,0,0}}}
+                                     {:forecast-length-hrs 1}
+                                     {:nodes 1} {:ppn 1}
+                                     {:grid_code "dummy_test_grid"}])))
 
 

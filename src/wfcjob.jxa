@@ -18,9 +18,9 @@
 ; SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 (ns wfcjob
-  (require wrfxlib nlist nllib plist filesys io (file :joxify)
-           configsrv jobmaster grib_ingest perftrack postproc
-           (timelib :as ta) os (io_lib :as iol) (string :as str) filename
+  (require (wrfxlib :joxify) (nlist :joxify) nllib plist (filesys :joxify) io (file :joxify)
+           (configsrv :joxify) (jobmaster :joxify) grib_ingest (perftrack :joxify) postproc
+           (timelib :as ta :joxify) os (io_lib :as iol) (string :as str) filename
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify) lists)
   (use joxa-core utils))
 
@@ -37,23 +37,23 @@
    wps-geog-dir: WPS geography data directory
    grib-src-name: name of the GRIB source"
   (let* (uuid           (plist/get :uuid args)
-         work-dir       (plist/get :work-dir args)
-         wps-idir       (plist/get :wps-install-dir args)
-         wrf-idir       (plist/get :wrf-install-dir args)
-         grib-src-name  (plist/get :grib-src-name args)
-         geogrid-tbl    (plist/get :geogrid-tbl args)
-         sim-from       (plist/get :sim-from args)
-         fc-hrs         (plist/get :forecast-length-hrs args)
-         num-nodes      (plist/get :num-nodes args)
+         work-dir       (plist/get :work_dir args)
+         wps-idir       (plist/get :wps_install_dir args)
+         wrf-idir       (plist/get :wrf_install_dir args)
+         grib-src-name  (plist/get :grib_source_name args)
+         geogrid-tbl    (plist/get :geogrid_table args)
+         sim-from       (plist/get :sim_from args)
+         fc-hrs         (plist/get :forecast_length_hrs args)
+         num-nodes      (plist/get :num_nodes args)
          ppn            (plist/get :ppn args)
-         wall-time-hrs  (plist/get :wall-time-hrs args)
-         hist-ints      (plist/get :history-interval args)
+         wall-time-hrs  (plist/get :wall_time_hrs args)
+         hist-ints      (plist/get :history_interval args)
          grib-info      (grib_ingest/get_grib_info grib-src-name)
-         sim-to         (ta/shift-by-hours sim-from fc-hrs)
+         sim-to         (ta/shift-by sim-from fc-hrs :hours)
          wps-wdir       (filename/join work-dir "wps")
          wrf-wdir       (filename/join work-dir "wrf")
-         wps-nl0        (nlist/parse (plist/get :wps-nl args) :weather-sim-wps)
-         wrf-nl0        (nlist/parse (plist/get :wrf-nl args) :weather-sim-wrf)
+         wps-nl0        (nlist/parse (plist/get :wps_nl args) :meteo_wps)
+         wrf-nl0        (nlist/parse (plist/get :wrf_nl args) :meteo_wrf)
          all-doms       (nlist/all-domains wps-nl0))
 
     (log-f :info "job starting: work dir is ~p sim range [~w,~w]~n" [work-dir sim-from sim-to])
@@ -114,17 +114,18 @@
     (jobmaster/updatestate uuid [{:stage "WRF (6/6)"}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
-              (let* (job-state (jobmaster/getstate uuid)
+              (let* (job-state (jobmaster/get-state uuid)
                      comp-time (plist/get :completion-time :undefined job-state)
                      perc-done (plist/get :percent-done :undefined job-state)
                      sim-accel (plist/get :sim-acceleration :undefined job-state))
-                (log-f :info "detected history write at ~p with ~w percent done, completion time ~w and acceleration ~w" [sim-time perc-done comp-time sim-accel]))
-              (postproc/write-raster-kmz-file uuid wrf-wdir sim-from sim-time domain-id [{"T2" "K"} {"RELH" "-"}]))
+                (log-f :info "detected history write at ~p with ~w percent done, completion time ~w and acceleration ~w"
+                       [sim-time perc-done comp-time sim-accel]))
+              (postproc/render uuid wrf-wdir sim-from sim-time domain-id [{:kml "T2"}]))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "*** detected CFL violation, terminating WRF job. ***" [])
               (erl/send ext-mon-pid {:kill :cfl-violation-detected})))
-      (perftrack/instrument-as :wfcjob uuid "wrf" [{:num-nodes num-nodes} {:ppn ppn}]
+      (perftrack/instrument-as :wfcjob uuid "wrf" [{:num_nodes num-nodes} {:ppn ppn}]
         (fn () (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 120 wrf-history-hook cfl-violation-hook log-f))))
 
     (log-f :info "end of job reached" [])
@@ -136,31 +137,20 @@
 (defn+ test ()
   (let* (uuid "25b55327-2c43-4d62-beb9-a314ccf91c9f")
     (jobmaster/submit uuid :wfcjob 
-        [{:history-interval [180 120 60]}
-         {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
-         {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
-         {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-         {:geogrid-tbl "geogrid/GEOGRID.TBL.ARW"}
-         {:grib-src-name :nam_218}
-         {:sim-from {{2014 2 4} {0 0 0}}}
-         {:wps-nl "etc/nlists/colo_3dom.wps"}
-         {:wrf-nl "etc/nlists/colo_3dom.input"}
-         {:num-nodes 10} {:ppn 12} {:wall-time-hrs 4} {:forecast-length-hrs 4} ])))
+        [{:history_interval [180 120 60]}
+         {:wrf_install_dir (configsrv/get-conf :wrf_install_dir)}
+         {:wps_install_dir (configsrv/get-conf :wps_install_dir)}
+         {:wps_geog_dir (configsrv/get-conf :wps_geog_dir)}
+         {:geogrid_table "geogrid/GEOGRID.TBL.ARW"}
+         {:grib_source_name :nam_218}
+         {:sim_from {{2014 2 4} {0 0 0}}}
+         {:grid_code "colorado_meteo_3d_v1"}
+         {:wps_nl "etc/nlists/colo_3dom.wps"}
+         {:wrf_nl "etc/nlists/colo_3dom.input"}
+         {:num_nodes 10} {:ppn 12} {:wall_time_hrs 4} {:forecast_length_hrs 4} ])))
 
 
-(defn preflight-check (items)
-  "Run some sanity checks on the given inputs."
-  (case items
-    ([] [])
-    (({:file-exists path err-msg} . rest)
-      (if (filelib/is-regular path) (preflight-check rest) ({err-msg path} . (preflight-check rest))))
-    (({:is-pid maybe-pid err-msg} . rest)
-      (if (erl/is-pid maybe-pid) (preflight-check rest) ({err-msg maybe-pid} . (preflight-check rest))))
-    (({:positive-integer int0 err-msg} . rest)
-      (if (erl/and (erl/is-integer int0) (erl/> int0 0)) (preflight-check rest) ({err-msg int0} . (preflight-check rest))))))
-
-
-(defn+ forecast (from fc-len-hrs wps-nl wrf-nl num-nodes ppn wall-time-hrs grib-src hist-int)
+(defn+ forecast (from fc-len-hrs wps-nl wrf-nl grid-code num-nodes ppn wall-time-hrs grib-src hist-int)
   (let* (uuid     (lists/flatten (iol/format "wfc-ondemand-~s" [(ta/to-esmf-str from)]))
          wps-file (filename/join ["etc/nlists" wps-nl])
          wrf-file (filename/join ["etc/nlists" wrf-nl]))
@@ -171,19 +161,20 @@
                             {:positive-integer wall-time-hrs "wall time in hrs must be positive"}])
       ([]
         (jobmaster/submit uuid :wfcjob
-            [{:sim-from from}
-             {:wrf-install-dir (configsrv/get-conf :wrf-install-dir)}
-             {:wps-install-dir (configsrv/get-conf :wps-install-dir)}
-             {:wps-geog-dir (configsrv/get-conf :wps-geog-dir)}
-             {:geogrid-tbl "geogrid/GEOGRID.TBL.ARW"}
-             {:grib-src-name grib-src}
-             {:wps-nl wps-file}
-             {:wrf-nl wrf-file}
-             {:history-interval hist-int}
-             {:num-nodes num-nodes}
+            [{:sim_from from}
+             {:wrf_install_dir (configsrv/get-conf :wrf_install_dir)}
+             {:wps_install_dir (configsrv/get-conf :wps_install_dir)}
+             {:wps_geog_dir (configsrv/get-conf :wps_geog_dir)}
+             {:geogrid_table "geogrid/GEOGRID.TBL.ARW"}
+             {:grib_source_name grib-src}
+             {:grid_code grid-code}
+             {:wps_nl wps-file}
+             {:wrf_nl wrf-file}
+             {:history_interval hist-int}
+             {:num_nodes num-nodes}
              {:ppn ppn}
-             {:wall-time-hrs wall-time-hrs}
-             {:forecast-length-hrs fc-len-hrs}]))
+             {:wall_time_hrs wall-time-hrs}
+             {:forecast_length_hrs fc-len-hrs}]))
       (errors
         {:failure errors}))))
 

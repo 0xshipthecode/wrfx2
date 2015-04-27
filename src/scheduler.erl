@@ -24,16 +24,18 @@
 -export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
 -include("wrfx2.hrl").
 
--define(SERVER,{local,scheduler}).
+-define(SERVER,wrfx2scheduler).
 
 -spec reload_schedule() -> integer().
-reload_schedule() -> gen_server:call(?SERVER, reload_schedule, 5000).
+reload_schedule() -> 
+  Js = load_schedule(),
+  gen_server:call(?SERVER, {reload_schedule,Js}, 5000).
 
 
 -spec start_link() -> ok.
 start_link() ->
   true = utils:'table-exists?'("schedule"),
-  ok = gen_server:start_link(?SERVER,scheduler,[calendar:local_time(),[],[]], []),
+  {ok,_Pid} = gen_server:start_link({local,?SERVER},scheduler,[calendar:local_time(),[],[]], []),
   utils:log_info("scheduler: pre-init ok, loading schedules ...", []),
   N = reload_schedule(),
   utils:log_info("schedule: ~p schedules loaded succesfully", [N]).
@@ -47,9 +49,9 @@ start_link() ->
 init(Args) -> {ok,Args,5000}.
 
 
-handle_call(reload_schedule,_From,[Last={_,LastT},_,_]) ->
-  {Past,Todo} = lists:partition(fun(#schedule{start_time={_,ST}}) -> ST < LastT end, load_schedule()),
-  {reply, ok, [Last,Past,sort_jobs(Todo)], 5000};
+handle_call({reload_schedule,Js},_From,[Last={_,LastT},_,_]) ->
+  {Past,Todo} = lists:partition(fun(#schedule{start_time=ST}) -> ST < LastT end, Js),
+  {reply, length(Js), [Last,Past,sort_jobs(Todo)], 5000};
 handle_call(Other,_From,State) ->
   utils:log_error("scheduler: invalid request ~p", [Other]),
   {reply, invalid_request, State}.
@@ -58,7 +60,7 @@ handle_call(Other,_From,State) ->
 handle_info(timeout,[Last,Past0,Todo0]) ->
   Now = calendar:local_time(),
   {Past1,Todo1} = start_jobs(Last,Now,Past0,Todo0),
-  {noreply,Now,Past1,Todo1,5000};
+  {noreply,[Now,Past1,Todo1],5000};
 handle_info(Other,State) ->
   utils:log_error("scheduler: received invalid info request ~p", [Other]),
   {noreply,State,5000}.
@@ -76,17 +78,17 @@ code_change(_OldVsn,State,_Extra) -> {ok,State}.
 
 -spec load_schedule() -> [#schedule{}].
 load_schedule() ->
-  case pgsql_manager:simple_query("select (job_name,start_time,function) from schedule") of
+  case pgsql_manager:simple_query("select job_name,start_time,function from schedule") of
     {{select, _N}, Data} -> lists:map(fun sql_to_schedule/1, Data);
     Error                -> utils:log_error("scheduler failed to load schedules with error ~p", [Error]), []
   end.
 
 
 -spec sql_to_schedule(list()) -> #schedule{}.
-sql_to_schedule([JNB,ST,FunB]) ->
+sql_to_schedule({JNB,ST,FunB}) ->
   {ok,Scanned,_} = erl_scan:string(binary_to_list(FunB)),
   {ok,Parsed} = erl_parse:parse_exprs(Scanned),
-  F = erl_eval:exprs(Parsed,[]),
+  {value,F,_Bindings} = erl_eval:exprs(Parsed,[]),
   #schedule{job_name=binary_to_list(JNB),start_time=ST,function=F}.
 
 
@@ -94,20 +96,21 @@ sql_to_schedule([JNB,ST,FunB]) ->
 sort_jobs(Js) -> lists:sort(fun(#schedule{start_time=ST1},#schedule{start_time=ST2}) -> ST1 < ST2 end, Js).
 
 
--spec start_jobs(calendar:datetime(),calendar:datetime(),[#schedule{}],[#schedule{}]) -> {[#schedule{}],[#schedule{}]}.
-start_jobs({LastD,LastT},Now={NowD,NowT},Past,Todo) ->
+-spec start_jobs(calendar:time(),calendar:time(),[#schedule{}],[#schedule{}]) -> {[#schedule{}],[#schedule{}]}.
+start_jobs(L={LastD,LastT},N={NowD,NowT},Past,Todo) ->
   case NowD of
     LastD -> % we have already called start_jobs(..) today
       case Todo of
         [] -> {Past, []};  % nothing to do
-        [J=#schedule{start_time={_,ST}}|TodoRest] ->  % at least one more job to do
+        [J=#schedule{start_time=ST}|TodoRest] ->  % at least one more job to do
           case ST < NowT andalso ST > LastT of
-            true -> exec_job(J,Now), start_jobs(LastT,NowT,[J|Past],TodoRest);
+            true -> exec_job(J,N), start_jobs(L,N,[J|Past],TodoRest);
             false -> {Past,Todo}
           end
       end;
     _NewDay ->
-      start_jobs({NowD,{0,0,0}}, NowT, [], sort_jobs(Past ++ Todo))
+      utils:log_info("scheduler: rolling over to a new day ~p", [N]),
+      start_jobs({NowD,{0,0,0}}, {NowD,NowT}, [], sort_jobs(Past ++ Todo))
  end.
 
 

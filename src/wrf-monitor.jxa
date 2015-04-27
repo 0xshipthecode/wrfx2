@@ -1,5 +1,5 @@
 (ns wrf-monitor
-  (require (timelib :as ta) lists utils jobmaster
+  (require (timelib :as ta :joxify) lists utils jobmaster
            re (file :joxify) (erlang :as erl :joxify)
            (string :as str :joxify))
   (use joxa-core utils))
@@ -44,7 +44,7 @@
             (let* (sim-accel (estimate-acceleration sim-start sim-now comp-start now)
                    to-go-s   (estimate-remaining-time sim-now sim-end sim-accel)
                    perc-done (percent-complete sim-start sim-now sim-end))
-              (jobmaster/updatestate uuid [{:completion-time (ta/shift-by-seconds now to-go-s)} {:seconds-to-finish to-go-s}
+              (jobmaster/updatestate uuid [{:completion-time (ta/shift-by now to-go-s :seconds)} {:seconds-to-finish to-go-s}
                                            {:sim-acceleration sim-accel} {:sim-time sim-now} {:percent-done perc-done}])))))))
   (monitor-loop dev sim-start sim-end comp-start uuid master-pid log-f))
 
