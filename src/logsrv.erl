@@ -89,7 +89,7 @@ code_change(_OldVsn,State,_Extra) -> {ok,State}.
 %% ---------------------------------
 
 -spec get_log_device(string()) -> pid().
-get_log_device(Name) -> {ok, Log} = gen_sever:call(?SERVER,{get_log_device,Name}), Log.
+get_log_device(Name) -> {ok, Log} = gen_server:call(?SERVER,{get_log_device,Name}), Log.
 
 -spec timestamp() -> string().
 timestamp() ->

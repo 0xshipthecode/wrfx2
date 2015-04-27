@@ -21,13 +21,13 @@
 ; This module is a library of namelist manipulation functions.
 
 (ns nllib
-  (require nlist plist))
+  (require (nlist :joxify) plist))
 
 
 (defn+ make-geogrid-namelist (wps-dir args nls0)
   "Fill out entries relevant to geogrid in the namelist <nls> and write the namelist into
    the wps working directory <wps-dir>.  Retrieve job parameters from <args>"
-  (let* (wps-geog-dir (plist/get :wps-geog-dir args)
+  (let* (wps-geog-dir (plist/get :wps_geog_dir args)
          nls1 (nlist/set-entry "geogrid" "geog_data_path" [wps-geog-dir] nls0))
     nls1))
 

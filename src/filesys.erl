@@ -96,13 +96,13 @@ symlink_files_to_dir(Fs,Dir) ->
 
 
 -spec symlink_files_to_dir([string()],string(),string()) -> ok.
-symlink_files_to_dir(Fs,Src,Tgt) ->
-  F = fun (X) -> ok = symlink_unless_exists(filename:join(Src,X),filename:join(Tgt,X)) end,
+symlink_files_to_dir(Fs,Src,Dst) ->
+  F = fun (X) -> ok = symlink_unless_exists(filename:join(Src,X),filename:join(Dst,X)) end,
   lists:map(F, Fs),
   ok.
 
 
--spec clone_with_files(string(),string(),[string()]) ->ok.
+-spec clone_with_files(string(),string(),[string()]) -> ok.
 clone_with_files(Src,Dst,Fs) ->
   directory = file_type(Src),
   create_dir(Dst),
@@ -122,7 +122,7 @@ copy_file(Src,Dst) -> {ok,_Nbytes} = file:copy(Src,Dst), ok.
 -spec copy_unless_dst(string(),string()) -> ok.
 copy_unless_dst(Src,Dst) ->
  case filelib:is_file(Src) and not filelib:is_file(Dst) of
-   true -> {ok,_Nbytes} = file:copy(Src,Dst);
+   true -> {ok,_Nbytes} = file:copy(Src,Dst), ok;
    false -> ok
  end.
 

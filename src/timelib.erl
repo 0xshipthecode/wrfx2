@@ -28,11 +28,13 @@
 -export([to_esmf_str/1,parse_esmf/1]).
 
 
--spec shift_by(calendar:datetime(), integer(), seconds|hours|days) -> calendar:datetime().
+-spec shift_by(calendar:datetime(), integer(), seconds|minutes|hours|days) -> calendar:datetime().
 shift_by(DT, Amt, seconds) ->
   %Shift an erlang datetime DT by <Amt> seconds positive -> future, negative -> past.
   Secs = calendar:datetime_to_gregorian_seconds(DT),
   calendar:gregorian_seconds_to_datetime(Secs + Amt);
+shift_by(DT, Amt, minutes) ->
+  shift_by(DT, Amt * 60, seconds);
 shift_by(DT, Amt, hours) ->
   shift_by(DT, Amt * 3600, seconds);
 shift_by(DT, Amt, days) ->

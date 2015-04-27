@@ -23,18 +23,18 @@
 -export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
 -include("wrfx2.hrl").
 
--define(SERVER,sysmon).
+-define(SERVER,{global,sysmon}).
 
 -record(sms, {commands,state}).
 
 
 -spec start_link() -> ok.
 start_link() ->
-  Host = os:cmd("hostname"),
+  Host = inet:gethostname(),
   Now = calendar:local_time(),
   Cmds = configsrv:get_confs([sysdiag_get_nodes, sysdiag_get_free_nodes, sysdiag_qlen]),
   S = #sms{commands=Cmds, state=[{host,Host},{last_updated,Now}]},
-  case gen_server:start_link({global,?SERVER}, sysmon, S, []) of
+  case gen_server:start_link(?SERVER, sysmon, S, []) of
     {ok, _Pid} -> ok;
     Error      -> throw({"error starting sysmon", Error})
   end.
@@ -43,25 +43,28 @@ start_link() ->
 -spec get_state() -> plist().
 get_state() -> gen_server:call(?SERVER,get_state).
 
+
 %% -----------------------------------------
 %% gen_server functions
 %% -----------------------------------------
 
+
 -spec init([term()]) -> {ok,[term()]}.
 init(Args) -> erlang:send_after(10000, self(), update_state), {ok, Args}.
 
-handle_call(get_state,_From,S={state=SS}) -> {reply, SS, S};
+handle_call(get_state,_From,S=#sms{state=SS}) -> {reply, SS, S};
 handle_call(Other,_From,S) -> utils:log_error("invalid request to sysmon ~p", [Other]), {reply, invalid_request, S}.
 
 handle_cast(_Msg,State) -> {noreply,State}.
 
-handle_info(update_state,S=#sms{state=SS0}) ->
+handle_info(update_state,S0) ->
   erlang:send_after(10000, self(), update_state),
-  {noreply, S#sms{state=update_state(SS0)}};
+  {noreply, update_state(S0)};
 handle_info(_Other,S) -> {noreply, S}.
 
 terminate(_Reason,_State) -> ok.
 code_change(_OldVsn,S,_Extra) -> {ok,S}.
+
 
 %% -----------------------------------------
 %% Internal functions
@@ -71,14 +74,14 @@ code_change(_OldVsn,S,_Extra) -> {ok,S}.
 -spec get_cmd_output(string()) -> string().
 get_cmd_output(Cmd) -> string:strip(os:cmd(Cmd), right, $\n).
 
--spec update_state(plist()) -> plist().
-update_state({Cmds,S}) ->
+-spec update_state(#sms{}) -> plist().
+update_state(S0=#sms{commands=Cmds,state=SS0}) ->
   try
     [NN,FN,QL] = lists:map(fun (Cmd) -> list_to_integer(get_cmd_output(Cmd)) end, Cmds),
-    {Cmds, plist:update_with([{nodes,NN},{freenodes,FN},{qlen,QL},{last_updated,calendar:local_time()}],S)}
+    Us = [{nodes,NN},{free_nodes,FN},{qlen,QL},{last_updated,calendar:local_time()}],
+    S0#sms{state=plist:update_with(Us,SS0)}
   catch Exc:Bdy ->
     utils:log_error("sysmon: failed to update state, exception ~p:~p, stack trace ~p~n", [Exc,Bdy,erlang:get_stacktrace()]),
-    S
+    S0
   end.
-
 

@@ -34,7 +34,7 @@ clone_wps(Src,Dst,Vtable,Gtable,WithFiles) ->
   ok = filesys:clone_with_files(Src,Dst,["geogrid.exe","metgrid.exe","metgrid","ungrib.exe","ungrib"]),
   ok = filesys:create_dir(filename:join(Dst,"geogrid")),
   ok = filesys:make_symlink(filename:join(Src,Gtable),filename:join([Dst,"geogrid","GEOGRID.TBL"])),
-  ok = filesys:symlink_unless_exists(filename:join(Src,Vtable),filename:join(Dst,Vtable)),
+  ok = filesys:symlink_unless_exists(filename:join(Src,Vtable),filename:join(Dst,"Vtable")),
   filesys:symlink_files_to_dir(WithFiles,Src,Dst),
   ok.
 
@@ -43,13 +43,13 @@ clone_wps(Src,Dst,Vtable,Gtable,WithFiles) ->
 clone_wrf(Src,Dst,WithFiles) ->
   ok = filesys:clone_with_files(Src,Dst,WithFiles ++
     ["CAM_ABS_DATA","CAM_AEROPT_DATA","co2_trans","ETAMPNEW_DATA","ETAMPNEW_DATA_DBL",
-       "ETAMPNEW_DATA.expanded_rain" "ETAMPNEW_DATA.expanded_rain_DBL","GENPARM.TBL",
-       "gribmap.txt","grib2map.tbl","LANDUSE.TBL","MPTABLE.TBL","namelist.fire",
-       "ozone.formatted","ozone_lat.formatted","ozone_plev.formatted",
-       "real.exe","RRTM_DATA","RRTM_DATA_DBL","RRTMG_LW_DATA","RRTMG_LW_DATA_DBL",
-       "RRTMG_SW_DATA","RRTMG_SW_DATA_DBL","SOILPARM.TBL","tc.exe","tr49t67","tr49t85",
-       "tr67t85","URBPARM.TBL","URBPARM_UZE.TBL","VEGPARM.TBL","wrf.exe"]),
-  ok.
+     "ETAMPNEW_DATA.expanded_rain","ETAMPNEW_DATA.expanded_rain_DBL","GENPARM.TBL",
+     "gribmap.txt","grib2map.tbl","LANDUSE.TBL","MPTABLE.TBL","namelist.fire",
+     "ozone.formatted","ozone_lat.formatted","ozone_plev.formatted",
+     "real.exe","RRTM_DATA","RRTM_DATA_DBL","RRTMG_LW_DATA","RRTMG_LW_DATA_DBL",
+     "RRTMG_SW_DATA","RRTMG_SW_DATA_DBL","SOILPARM.TBL","tc.exe","tr49t67","tr49t85",
+     "tr67t85","URBPARM.TBL","URBPARM_UZE.TBL","VEGPARM.TBL","wrf.exe"]),
+   ok.
 
 
 -spec run_geogrid(string(),fun()) -> ok.
@@ -126,7 +126,7 @@ next_grib_suffix([S1,S2,S3]) -> [S1,S2,S3+1].
 
 -spec symlink_grib_files(list(),string()) -> ok.
 symlink_grib_files(Manifest,Dir) ->
-  F = fun (X,A) -> filesys:symlink_unless_exists(X,filename:join(Dir,"GRIBFILE."+A)),next_grib_suffix(A) end,
+  F = fun (X,A) -> filesys:symlink_unless_exists(X,filename:join(Dir,"GRIBFILE."++A)), next_grib_suffix(A) end,
   lists:foldl(F, "AAA", Manifest),
   ok.
 
@@ -146,10 +146,10 @@ monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,WrfMon,HistH,CflH,LogF) ->
       Fname = filename:join(Wdir,"rsl.error.0000"),
       RealWrfMonPid = 'wrf-monitor':start(Fname,SimF,SimT,StartTS,U,LogF),
       monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,RealWrfMonPid,HistH,CflH,LogF);
-    {proc_terminated,ExtMon,_Res} ->
+    {proc_terminated,ExtMon,Result} ->
       case WrfMon of
-        undefined -> ok;
-        Pid       -> Pid ! terminate, ok
+        undefined -> Result;
+        Pid       -> Pid ! terminate, Result
       end;
     {kill,Reason} ->
       LogF(warn, "[~p] received kill request with reason ~p.",[U,Reason]),
@@ -185,8 +185,12 @@ run_wrf(U,Wdir,NumNodes,Ppn,WallTimeHrs,SimF,SimT,PidTimeoutS,HistH,CflH,LogF) -
   case Result of
     {failure,Reason} -> LogF(error,"[~p] WRF reported failure with reason ~p.", [U,Reason]), throw({failed,Reason});
     {success, 0} -> LogF(info,"[~p] WRF successfully completed.",[U]);
-    {success, ExC} -> LogF(warn,"[~p] WRF failed with exit code ~p.",[U,ExC]);
-    {killed,Reason} -> LogF(info,"[~p] WRF has been killed with reason ~p", [U,Reason])
+    {success, ExC} -> 
+      LogF(warn,"[~p] WRF failed with exit code ~p.",[U,ExC]), 
+      throw({failed,wrf_exit_code,ExC});
+    {killed,Reason} ->
+      LogF(info,"[~p] WRF has been killed with reason ~p", [U,Reason]),
+      throw({killed,Reason})
   end,
-  ok.
+  Result.
 
