@@ -19,37 +19,41 @@
 
 -module(postproc).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
--export([render/6,render_domains/3]).
+-export([render/6,render_domains/3,update_on_success/5]).
+-include("wrfx2.hrl").
+
 
 %% @doc Render a raster or contour from the instructions in <VarInfos>.
 %% @doc Each instruction can be either {kml,V}, {png,V} or {contour_kml,V}, where
 %% @doc V is the name of the variable.
--spec render(string(),string(),calendar:datetime(),calendar:datetime(),integer(),[{atom(),string()}]) -> ok.
-render(Uuid, Workdir, SimFrom, SimTime, DomId, VarInfos) ->
+-spec render(uuid(),string(),calendar:datetime(),calendar:datetime(),integer(),[{atom(),string()}]) -> ok.
+render(Uuid,Workdir,SimFrom,SimTime,DomId,VarInfos) ->
   SimTimeS = timelib:to_esmf_str(SimTime),
   SimFromS = timelib:to_esmf_str(SimFrom),
   OutPath = filename:join([configsrv:get_conf(product_dir),Uuid,SimTimeS]),
   WrfOut = io_lib:format("~s/wrfout_d~2..0B_~s",[Workdir,DomId,SimFromS]),
   filelib:ensure_dir(filename:join(OutPath,"fakefile")),
-  lists:foreach(fun(VI) -> postprocess(WrfOut,OutPath,SimTimeS,DomId,VI) end, VarInfos),
+  lists:foreach(fun(VI) -> postprocess(Uuid,WrfOut,OutPath,SimTimeS,DomId,VI) end, VarInfos),
   ok.
 
 
--spec postprocess(string(),string(),string(),pos_integer(),{atom(),string()}) -> pid().
-postprocess(WrfOut,OutPath,SimTimeS,DomId,{kml,Var}) ->
+-spec postprocess(uuid(),string(),string(),string(),pos_integer(),{atom(),string()}) -> pid().
+postprocess(U,WrfOut,OutPath,SimTimeS,DomId,{kml,Var}) ->
   Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2kml.py ~s ~s ~p ~s ~s", [WrfOut,Var,DomId,SimTimeS,OutPath])),
   utils:log_info("postproc [kml] ~p~n", [Cmd]),
-  spawn(fun() -> os:cmd(Cmd) end);
+  spawn(fun () -> update_on_success(U,Var,SimTimeS,DomId,Cmd) end);
 
-postprocess(WrfOut,OutPath,SimTimeS,DomId,{png,Var}) ->
+
+postprocess(U,WrfOut,OutPath,SimTimeS,DomId,{png,Var}) ->
   Cmd = lists:flatten(io_lib:format("deps/viswrf/raster2png.py ~s ~s ~p ~s ~s", [WrfOut,Var,DomId,SimTimeS,OutPath])),
   utils:log_info("postproc [png] ~p~n", [Cmd]),
-  spawn(fun() -> os:cmd(Cmd) end);
+  spawn(fun() -> update_on_success(U,Var,SimTimeS,DomId,Cmd) end);
 
-postprocess(WrfOut,OutPath,SimTimeS,DomId,{contour_kml,Var}) ->
+
+postprocess(U,WrfOut,OutPath,SimTimeS,DomId,{contour_kml,Var}) ->
   Cmd = lists:flatten(io_lib:format("deps/viswrf/contour2kml.py ~s ~s ~p ~s ~s", [WrfOut,Var,DomId,SimTimeS,OutPath])),
   utils:log_info("postproc [cont/kml] ~p~n", [Cmd]),
-  spawn(fun() -> os:cmd(Cmd) end).
+  spawn(fun() -> update_on_success(U,Var,SimTimeS,DomId,Cmd) end).
 
 
 -spec render_domains(string(),pos_integer(),string()) -> pid().
@@ -60,4 +64,12 @@ render_domains(WpsWdir,NDoms,OutPath) ->
   Cmd = lists:flatten(["deps/viswrf/dom2kml.py domains ", Path, " ", string:join(GeoEMs, " ")]),
   utils:log_info("postproc [render/dom] ~p~n", [Cmd]),
   spawn(fun() -> os:cmd(Cmd) end).
+
+
+-spec update_on_success(uuid(),string(),string(),integer(),string()) -> ok.
+update_on_success(U,Var,TS,DomId,Cmd) -> 
+  case os:cmd(Cmd ++ " &> /dev/null && echo $?") of
+    "0" -> jobmaster:append_state(U,products,{TS,Var,DomId}), ok;
+    Other -> utils:log_info("update_on_success received [~p]~n", [Other]), ok
+  end.
 
