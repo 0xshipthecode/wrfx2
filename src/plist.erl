@@ -21,6 +21,7 @@
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
 -export([new/0,is_plist/1,keys/1,contains/2,find_missing/2,remove/2,remove_list/2]).
 -export([set/3,get/2,get/3,get_list/2,get_list/3,update_with/2,store/2,load/1]).
+-export([append/3]).
 
 
 -type plist() :: [{term(),term()}].
@@ -44,6 +45,12 @@ keys(Ps) -> lists:map(fun ({K,_V}) -> K end, Ps).
 set(K,V,[]) -> [{K,V}];
 set(K,V,[{K,_V0}|Ps]) -> [{K,V}|Ps];
 set(K,V,[O|Ps]) -> [O|set(K,V,Ps)].
+
+
+-spec append(term(),term(), plist()) -> plist().
+append(K,V,[]) -> [{K,[V]}];
+append(K,V,[{K,L}|Ps]) -> [{K,[V|L]}|Ps];
+append(K,V,[O|Ps]) -> [O|append(K,V,Ps)].
 
 
 -spec get(term(), plist()) -> term().

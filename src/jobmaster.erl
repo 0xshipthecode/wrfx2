@@ -22,9 +22,12 @@
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
 -include("wrfx2.hrl").
 -export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
--export([is_live/1,job_done/2,submit/3,live_jobs/0,get_state/1,removestate/2,updatestate/2,kill/1]).
+-export([is_live/1,submit/3,live_jobs/0,get_state/1,remove_state/2,update_state/2,append_state/3]).
+-export([job_done/2,kill/1]).
+
 
 -define(SERVER, {global,jobmaster}).
+
 
 start_link() ->
   true = utils:'table-exists?'("jobs"),
@@ -36,26 +39,29 @@ start_link() ->
 %; public API
 %; --------------------------------------------
 
--spec job_done(string(),job_status()) -> ok|not_found.
+-spec job_done(uuid(),job_status()) -> ok|not_found.
 job_done(U,St) -> gen_server:call(?SERVER, {job_done,U,St}).
 
--spec submit(string(),atom(),plist()) -> ok|{error,{missing_keys,[term()]}}.
+-spec submit(uuid(),atom(),plist()) -> ok|{error,{missing_keys,[term()]}}.
 submit(U,Mod,As) -> gen_server:call(?SERVER, {submit_job,U,Mod,As}).
 
 -spec live_jobs() -> [string()].
 live_jobs() -> gen_server:call(?SERVER,list_live_jobs).
 
--spec is_live(string()) -> boolean().
+-spec is_live(uuid()) -> boolean().
 is_live(U) -> gen_server:call(?SERVER,{is_live,U}).
 
--spec get_state(string()) -> plist().
+-spec get_state(uuid()) -> plist().
 get_state(U) -> gen_server:call(?SERVER,{get_state,U}).
 
--spec removestate(string(),[string()]) -> ok|not_found.
-removestate(U,Ks) -> gen_server:call(?SERVER,{modify_state,remove,U,Ks}).
+-spec remove_state(uuid(),[string()]) -> ok|not_found.
+remove_state(U,Ks) -> gen_server:call(?SERVER,{modify_state,remove,U,Ks}).
 
--spec updatestate(string(),plist()) -> ok|not_found.
-updatestate(U,Ps) -> gen_server:call(?SERVER,{modify_state,update,U,[{last_updated,calendar:local_time()}|Ps]}).
+-spec update_state(uuid(),plist()) -> ok|not_found.
+update_state(U,Ps) -> gen_server:call(?SERVER,{modify_state,update,U,Ps}).
+
+-spec append_state(uuid(),string(),term()) -> ok|not_found.
+append_state(U,K,V) -> gen_server:call(?SERVER,{modify_state,append,U,{K,V}}).
 
 -spec kill(string()) -> ok|not_found.
 kill(U) ->  gen_server:call(?SERVER,{kill,U,by_request}).
@@ -76,15 +82,15 @@ execute_job_internal(U,Mod,As) ->
       job_done(U,completed)
     catch _Exc:{killed,by_request} ->
       utils:log_info("job [~s] was killed by request.",[U]),
-      updatestate(U,[{note,"killed by request"}]),
+      update_state(U,[{note,"killed by request"}]),
       job_done(U,killed);
     _Exc:{killed,Reason} ->
       utils:log_error("job [~s] was killed with reason ~p.~n",[U,Reason]),
-      updatestate(U,[{note,lists:flatten(io_lib:format("killed with reason ~p", [Reason]))}]),
+      update_state(U,[{note,lists:flatten(io_lib:format("killed with reason ~p", [Reason]))}]),
       job_done(U,killed);
     Exc:Bdy ->
       utils:log_error("job [~s] crashed with exception ~p~n body:~p~n stracktrace:~n~p~n", [U,Exc,Bdy,erlang:get_stacktrace()]),
-      updatestate(U, [{note,lists:flatten(io_lib:format("crashed with exception type ~p body ~p", [Exc,Bdy]))}]),
+      update_state(U, [{note,lists:flatten(io_lib:format("crashed with exception type ~p body ~p", [Exc,Bdy]))}]),
       job_done(U,failed)
     end,
     logsrv:close_log(U) end).
@@ -164,10 +170,12 @@ handle_call({modify_state,How,U,Arg},_From,LJs) ->
     {ok, J=#job{state=S0}} ->
       S1 = case How of
         remove -> plist:remove_list(Arg,S0);
-        update -> plist:update_with(Arg,S0)
+        update -> plist:update_with(Arg,S0);
+        append -> {K,V} = Arg, plist:append(K,V,S0)
       end,
-      J1 = J#job{state=S1},
-      job:update_state(U,S1),
+      S2 = plist:set(last_updated,calendar:local_time(),S1),
+      J1 = J#job{state=S2},
+      job:update_state(U,S2),
       catmaster:update_job(J1),
       {reply, ok, dict:store(U, J1, LJs)};
     error -> {reply, not_found, LJs}
