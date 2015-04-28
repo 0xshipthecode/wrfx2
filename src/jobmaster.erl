@@ -110,7 +110,6 @@ resubmit_live_job(J=#job{uuid=U,module=Mod,args=As}) ->
 init(Args) -> {ok, Args}.
 
 
-
 % the jobmaster keeps tabs on all running and ended jobs by keeping
 % track of the tuple {uuid job-pid job-state}
 
@@ -129,6 +128,7 @@ handle_call({submit_job,U,Mod,As},_From,LJs) ->
           J = #job{uuid=U,module=Mod,args=As,status=live,pid=Pid,start_time=ST,end_time=null,grid_code=GC,
                    state=[],sim_from=SF,sim_to=timelib:shift_by(SF,FL,hours),num_nodes=NN,ppn=PPN},
           job:upsert(J),
+          catmaster:update_job(J),
           {reply, ok, dict:store(U,J,LJs)}
       end;
     MK ->
