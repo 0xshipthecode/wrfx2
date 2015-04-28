@@ -30,7 +30,7 @@
 
 -spec start_link() -> ok.
 start_link() ->
-  Host = inet:gethostname(),
+  {ok,Host} = inet:gethostname(),
   Now = calendar:local_time(),
   Cmds = configsrv:get_confs([sysdiag_get_nodes, sysdiag_get_free_nodes, sysdiag_qlen]),
   S = #sms{commands=Cmds, state=[{host,Host},{last_updated,Now}]},
