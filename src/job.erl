@@ -22,7 +22,16 @@
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
 -export([retrieve/1,upsert/1,update_state/2,update_status/2,find_latest_overlapping_job/2]).
 -export([retrieve_live_jobs/0,retrieve_jobs_completed_after/1]).
+-export([uuid/1,sim_from/1]).
 -include("wrfx2.hrl").
+
+
+-spec uuid(#job{}) -> uuid().
+uuid(#job{uuid=U}) -> U.
+
+
+-spec sim_from(#job{}) -> calendar:datetime().
+sim_from(#job{sim_from=SF}) -> SF.
 
 
 -spec retrieve(string()) -> #job{}|not_found|error.
@@ -77,7 +86,7 @@ update_status(Uuid,NewStatus) ->
 
 -spec find_latest_overlapping_job(calendar:datetime(),string()) -> #job{}|not_found.
 find_latest_overlapping_job(Ts,GridCode) ->
-  Qry = "select (uuid,module,args,status,start_time,end_time,sim_from,sim_to,num_nodes,ppn,grid_code,state) "
+  Qry = "select uuid,module,args,status,start_time,end_time,sim_from,sim_to,num_nodes,ppn,grid_code,state "
         "from jobs where sim_from <= $1 and sim_to >= $1 and grid_code=$2 and status = 'completed' order by sim_from desc",
   case pgsql_manager:extended_query(Qry, [Ts,GridCode]) of
     {{select,0},_} -> not_found;
