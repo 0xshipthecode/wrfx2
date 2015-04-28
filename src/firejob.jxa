@@ -22,7 +22,7 @@
            (configsrv :joxify) (jobmaster :joxify) grib_ingest (perftrack :joxify) os filename 
            (postproc :joxify) (timelib :as ta :joxify) (io_lib :as iol) (string :as str) (extwrap :joxify)
            (file :joxify) (erlang :as erl :joxify) (filelib :joxify) lists (fmda :joxify) 
-           (raws_ingest :as raws :joxify) (raws_export :as rawsexp :joxify)
+           (raws_ingest :as raws :joxify) (raws_export :as rawsexp :joxify) (job :joxify)
            (steward_utils :as sutils :joxify))
   (use joxa-core utils))
 
@@ -67,6 +67,7 @@
          wall-time-hrs  (plist/get :wall_time_hrs args)
          hist-ints      (plist/get :history_interval args)
          station-sel    (plist/get :station_selector args)
+         grid-code      (plist/get :grid_code args)
          grib-info      (grib_ingest/get_grib_info grib-src-name)
          sim-to         (ta/shift-by sim-from fc-hrs :hours)
          wps-wdir       (filename/join work-dir "wps")
@@ -145,7 +146,7 @@
     ;step 7b: render topo/fuels static maps
     (postproc/render-domains wps-wdir (erl/length all-doms) uuid) 
 
-    ;step 8: retrieve raws observations
+    ;step 8: retrieve raws observations for the past 24 hours (we assume 24-hr cycling)
     (unless (erl/== station-sel :empty_station_selector)
       (jobmaster/update_state uuid [{:stage "FMDA (6/7)"}])
       (!!= :ok (filesys/clone-with-files (filename/join wrfx-dir "deps/fmda") fmda-wdir [ "src" "fmda_auto.sh"]))
@@ -167,11 +168,15 @@
       (let* (wrfin-path  (filename/join [wrf-wdir "wrfinput_d02"])
              cfg-path    (filename/join fmda-wdir "fmda.cfg")
              wksp        (configsrv/get-conf :workspace_dir)
-             ; FIXME: this should do an SQL search in the jobs table for completed jobs in the correct time frame
-             sim-from-24 (ta/shift-by sim-from -24 :hours)                            ; assumption: daily (24hr) cycling
-             pwrfout-f   (lists/append "wrfout_d02_" (ta/to-esmf-str sim-from-24))    ; format is: wrfout_d02_2015-04-20_12:00:00 
-             pwrfout-p   (filename/join [wksp (build-job-uuid sim-from-24 fc-hrs) "wrf" pwrfout-f]))
-        (fmda/write-fmda-cfg wrfin-path pwrfout-p ["constant" "elevation" "pressure" "temperature" "lon" "lat" "rain"] cfg-path))
+             ovr-job     (job/find-latest-overlapping-job sim-from grid-code)
+             covars      ["constant" "elevation" "pressure" "temperature" "lon" "lat" "rain"])
+        (case ovr-job
+          (:not_found (fmda/write-fmda-cfg wrfin-path [] covars cfg-path))
+          (real-job
+            (let* (uuid-o     (job/uuid real-job)
+                   sim-from-o (job/sim-from real-job)
+                   pwrfout-p  (filename/join [wksp uuid-o "wrf" (lists/append "wrfout_d02_" (ta/to-esmf-str sim-from-o))]))
+              (fmda/write-fmda-cfg wrfin-path pwrfout-p covars cfg-path)))))
       (log-f :info "running fmda (cycling version) now" [])
       (perftrack/instrument-as :firejob uuid "fmda" []
         (fn ()
@@ -218,7 +223,7 @@
        {:geogrid_table "GEOGRID.TBL_FIRE"}
        {:link_geogrids [{"geo_em.d01.nc" "precomputed/colorado-firejob/geo_em.d01.nc" }
                         {"geo_em.d02.nc" "precomputed/colorado-firejob/geo_em.d02.nc"}]}
-       {:postproc [{2 [{:kml "T2"} {:kml "RH_FIRE"} {:kml "F_ROS"} {:kml "F_INT"} {:kml "FMC_G"}
+       {:postproc [{2 [{:kml "T2"} {:kml "RH_FIRE"} {:kml "F_ROS"} {:kml "F_INT"} {:kml "FMC_G"} {:contour_kml "FIRE_AREA"}
                        {:png "T2"} {:png "RH_FIRE"} {:png "F_ROS"} {:png "F_INT"} {:png "FMC_G"}]}]}
        {:grib_source_name :nam_218}
        {:wps_nl "etc/nlists/colfire2d.wps"}
