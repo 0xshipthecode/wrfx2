@@ -33,7 +33,7 @@
     (log-f :info "testjob [~s] with work-dir ~s" [uuid work-dir])
 
     ; create the working directory for WPS
-    (jobmaster/updatestate uuid [{:stage "BEGIN"}])
+    (jobmaster/update_state uuid [{:stage "BEGIN"}])
 
     ; retrieve some data from a nam_218 grib source
     (perftrack/instrument-as "testjob" uuid "grib-retr" []
@@ -43,13 +43,13 @@
     (perftrack/instrument-as "testjob" uuid "task1" []
       (fn () (extwrap/run-process "task1" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
-    (jobmaster/updatestate uuid [{:stage "stage 2"}])
+    (jobmaster/update_state uuid [{:stage "stage 2"}])
 
     (perftrack/instrument-as "testjob" uuid "task2" []
       (fn () (extwrap/run-process "task2" "sleep 5" [] work-dir 6000 log-f 0 (fn () :passed) 1)))
 
     (log-f :info "testjob [~s] end of job reached" [uuid])
-    (jobmaster/updatestate uuid [{:stage "COMPLETE"}])
+    (jobmaster/update_state uuid [{:stage "COMPLETE"}])
 
     :ok))
 
