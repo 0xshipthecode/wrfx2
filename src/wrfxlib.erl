@@ -138,8 +138,8 @@ monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,WrfMon,HistH,CflH,LogF) ->
     cfl_violation_detected ->
       CflH(ExtMon),
       monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,WrfMon,HistH,CflH,LogF);
-    {wrf_history_written,DomId,SimT} ->
-      HistH(DomId,SimT),
+    {wrf_history_written,DomId,SimN} ->
+      HistH(DomId,SimN),
       monitor_wrf_execution(U,Wdir,ExtMon,SimF,SimT,WrfMon,HistH,CflH,LogF);
     {proc_started,ExtMon,StartTS} ->
       LogF(info, "[~p] WRF computation started on ~w, monitoring", [U,StartTS]),
