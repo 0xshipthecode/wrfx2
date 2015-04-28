@@ -46,25 +46,27 @@ percent_complete(SimF,SimN,SimT) ->
 
 -spec process_timing(#wms{},string()) -> ok.
 process_timing(#wms{uuid=U,simf=SF,simt=ST,comps=CS}, L) ->
-  TimeNdx = string:string(L,"time"),
+  TimeNdx = string:str(L,"time"),
   EsmfDate = string:substr(L,TimeNdx+5,19),
-  DomNdx = string:string(L,"domain"),
+  DomNdx = string:str(L,"domain"),
   DomId = list_to_integer(string:strip(string:substr(L,DomNdx + 6,4))),
-  if DomId =:= 1 ->
-    Now = calendar:local_time(),
-    SimN = timelib:parse_esmf(EsmfDate),
-    case Now of
-      CS -> ok;  % don't compute anything on the first write (division by 0)
-      _Later ->
-        Accel = estimate_acceleration(SF,ST,CS,Now),
-        ToGo  = estimate_remaining_time(SimN,ST,Accel),
-        PercDone = percent_complete(SF,SimN,ST),
-        jobmaster:update_state(U, [{completion_time,timelib:shift_by(Now, ToGo, seconds)},
-                                   {seconds_to_finish,ToGo},{sim_acceleration,Accel},
-                                   {sim_time,SimN},{percent_done,PercDone}])
-    end
-  end,
-  ok.
+  case DomId of
+    1 ->
+      Now = calendar:local_time(),
+      SimN = timelib:parse_esmf(EsmfDate),
+      case Now of
+        CS -> ok;  % don't compute anything on the first write (division by 0)
+        _Later ->
+          Accel = estimate_acceleration(SF,ST,CS,Now),
+          ToGo  = estimate_remaining_time(SimN,ST,Accel),
+          PercDone = percent_complete(SF,SimN,ST),
+          jobmaster:update_state(U, [{completion_time,timelib:shift_by(Now, ToGo, seconds)},
+                                     {seconds_to_finish,ToGo},{sim_acceleration,Accel},
+                                     {sim_time,SimN},{percent_done,PercDone}]),
+          ok
+      end;
+    _ -> ok
+  end.
 
 
 -spec process_writing(#wms{},string()) -> ok.
@@ -100,10 +102,10 @@ monitor_loop(W=#wms{dev=D,pid=Pid,logf=LogF}) ->
         end,
         monitor_loop(W);
       {error,Reason} ->
-        utils:log_error("wrf-monitor encountered an error [~p] reading from rsl.error.0000", [Reason])
+        utils:log_error("wrf_monitor encountered an error [~p] reading from rsl.error.0000", [Reason])
     end
   catch Exc:Bdy ->
-    LogF(flash,"wrf-monitor encountered exception ~p:~p~n stacktrace ~p~n", [Exc,Bdy,erlang:get_stacktrace()]),
+    LogF(flash,"wrf_monitor encountered exception ~p:~p~n stacktrace ~p~n", [Exc,Bdy,erlang:get_stacktrace()]),
     monitor_loop(W)
   end.
            
@@ -116,7 +118,7 @@ run(Path,SF,ST,CS,U,Pid,LogF) ->
       monitor_loop(#wms{dev=D,simf=SF,simt=ST,comps=CS,uuid=U,pid=Pid,logf=LogF}),
       file:close(D);
     {failure,timeout} ->
-      LogF(error, "wrf-monitor waited 120 seconds for file ~p to appear and timed out.", [Path]),
+      LogF(error, "wrf_monitor waited 120 seconds for file ~p to appear and timed out.", [Path]),
       {failure,timeout}
   end.
 
