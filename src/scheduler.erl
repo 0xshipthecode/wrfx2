@@ -20,16 +20,22 @@
 
 -module(scheduler).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
--export([reload_schedule/0]).
+-export([reload_schedule/0,get_schedule/0]).
 -export([start_link/0,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
 -include("wrfx2.hrl").
 
+
 -define(SERVER,wrfx2scheduler).
+
 
 -spec reload_schedule() -> integer().
 reload_schedule() -> 
   Js = load_schedule(),
   gen_server:call(?SERVER, {reload_schedule,Js}, 5000).
+
+
+-spec get_schedule() -> [#schedule{}].
+get_schedule() -> gen_server:call(?SERVER, get_schedule).
 
 
 -spec start_link() -> ok.
@@ -52,6 +58,7 @@ init(Args) -> {ok,Args,5000}.
 handle_call({reload_schedule,Js},_From,[Last={_,LastT},_,_]) ->
   {Past,Todo} = lists:partition(fun(#schedule{start_time=ST}) -> ST < LastT end, Js),
   {reply, length(Js), [Last,Past,sort_jobs(Todo)], 5000};
+handle_call(get_schedule,_From,S=[_,Past,Todo]) -> {reply, Past ++ Todo, S};
 handle_call(Other,_From,State) ->
   utils:log_error("scheduler: invalid request ~p", [Other]),
   {reply, invalid_request, State}.
