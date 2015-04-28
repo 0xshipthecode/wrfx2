@@ -19,8 +19,26 @@
 
 -module(ssh_shuttle).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
--export([send_package/3,remote_execute/2]).
+-export([pack_tree/2,send_file/3,remote_execute/2,send_package/5]).
 -include("wrfx2.hrl").
+
+
+% NOTE: there is a caveat with filenames containing colons. scp needs to be forced
+% to interpret them as local files (it tries to resolve them into host:path) by e.g.
+% writing an absolute path or relative prefixed by ./
+-spec send_package(string(),string(),string(),string(),#ssh_endpoint{}) -> ok|error.
+send_package(Tree,PackFile,RemotePath,RemoteScript,EndPt) ->
+  pack_tree(PackFile,Tree),
+  send_file(PackFile,RemotePath,EndPt),
+  file:delete(PackFile), % this could be optional
+  remote_execute(RemoteScript, EndPt).
+
+
+-spec pack_tree(string(),string()) -> ok|error.
+pack_tree(ArchiveP,Tree) ->
+  Cmd = lists:flatten(io_lib:format("tar -cvjf ~s ~s", [ArchiveP,Tree])),
+  os:cmd(Cmd).
+
 
 
 -spec remote_execute(string(),#ssh_endpoint{}) -> any().
@@ -30,9 +48,11 @@ remote_execute(What,EndPt) ->
   os:cmd(Cmd). 
 
 
--spec send_package(string(),string(),#ssh_endpoint{}) -> ok|error.
-send_package(Path,Dest,EndPt) ->
-  Cmd = lists:flatten(io_lib:format("scp ~s ~s ~s >> /dev/null && echo $?", [key_opt(EndPt), Path, url(EndPt,Dest)])),
+% NOTE: there is a caveat with filenames containing colons. scp needs to be forced
+% to interpret these as relative (see fix_path/1).
+-spec send_file(string(),string(),#ssh_endpoint{}) -> ok|error.
+send_file(Path,Dest,EndPt) ->
+  Cmd = lists:flatten(io_lib:format("scp ~s ~s ~s >> /dev/null && echo $?", [key_opt(EndPt), fix_path(Path), url(EndPt,Dest)])),
   utils:log_info("ssh_shuttle sending package ~p as ~n~p~n", [Path, Cmd]),
   case os:cmd(Cmd) of
     "0\n" -> ok;
@@ -50,3 +70,12 @@ url(#ssh_endpoint{user=U,host=H},P) -> [U,"@",H,":",P].
 
 -spec url(#ssh_endpoint{}) -> list().
 url(#ssh_endpoint{user=U,host=H}) -> [U,"@",H].
+
+
+% NOTE: there is a caveat with filenames containing colons. scp needs to be forced
+% to interpret them as local files (it tries to resolve them into host:path) by e.g.
+% writing an absolute path or relative prefixed by ./
+-spec fix_path(string()) -> string().
+fix_path(P=[$/|_]) -> P;
+fix_path(P) -> "./" ++ P.
+
