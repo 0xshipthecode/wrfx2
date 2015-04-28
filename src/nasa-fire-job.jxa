@@ -62,14 +62,14 @@
 
     ; step 4: run WRF
     (log-f :info "nasa-fire-job [~p] running WRF" [uuid])
-    (jobmaster/updatestate uuid [{:stage "WRF"} {:kmls []}])
+    (jobmaster/update_state uuid [{:stage "WRF"} {:kmls []}])
     (let* (wrf-history-hook
             (fn (domain-id sim-time)
               (when (erl/== domain-id 2)
                 (let* (base-names (postproc/render uuid wrf-wdir sim-from sim-time domain-id [{:contour_kml "FIRE_AREA"}])
                        kmls0      (plist/get :products [] (jobmaster/get-state uuid))
                        kmls1      (lists/foldl (fn (name acc) (name . acc)) kmls0 base-names))
-                  (jobmaster/updatestate uuid [{:kmls kmls1}]))))
+                  (jobmaster/update_state uuid [{:kmls kmls1}]))))
            cfl-violation-hook
             (fn (ext-mon-pid)
               (log-f :error "nasa-fire-job detected CFL violation, terminating WRF job." [])
@@ -78,7 +78,7 @@
 
     (log-f :info "nasa-fire-job [~p] end of job reached" [uuid])
 
-    (jobmaster/updatestate uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
+    (jobmaster/update_state uuid [{:stage "COMPLETE"} {:percent-done 100.0}])
 
     :ok))
 
