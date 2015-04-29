@@ -78,7 +78,8 @@
          fire-nl0       (nlist/parse (plist/get :fire_nl args) :firejob_fire)
          wrf-nl0        (nlist/parse (plist/get :wrf_nl args) :firejob_wrf)
          all-doms       (nlist/all-domains wps-nl0)
-         wrfx-dir       (configsrv/get-conf :sysdir))
+         wrfx-dir       (configsrv/get-conf :sysdir)
+         on-success-h   (plist/get :on_success :not-present args))
 
     (log-f :info "firejob starting: work dir is ~p sim range [~w,~w]~n" [work-dir sim-from sim-to])
 
@@ -203,6 +204,15 @@
       (perftrack/instrument-as :firejob uuid "wrf" [{:num-nodes num-nodes} {:ppn ppn}]
         (fn () (wrfxlib/run-wrf uuid wrf-wdir num-nodes ppn wall-time-hrs sim-from sim-to 
                                 120 wrf-history-hook cfl-violation-hook log-f))))
+
+    ; step 11: run any on-success hooks, if any
+    (case on-success-h
+      (:not-present :ok)
+      (hook-f-text
+        (jobmaster/update_state uuid [{:stage "SUCCESS HOOK"}])
+        (case (utils/eval-erlang hook-f-text [])
+          ({:value hook-f _} (hook-f))
+          (eval-error (log-f :error "unable to compile success hook with error ~p" [eval-error])))))
    
     ; and we are done
     (log-f :info "end of job reached" [])
