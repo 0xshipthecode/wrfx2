@@ -20,7 +20,7 @@
 -module(catmaster).
 -author("Martin Vejmelka <vejmelkam@gmail.com>").
 -export([export_uuid/1,store_variables/3,remove_uuid/1]).
--export([list_jobs/0,get_state/1,get_job/1,update_job/1,purge_stale_jobs/0,purge_stale_jobs/2]).
+-export([list_jobs/0,get_state/1,get_job/1,update_job/1,purge_stale_jobs/0,purge_stale_jobs/2,purge_job/1]).
 -export([start_link/2,init/1,handle_call/3,handle_cast/2,handle_info/2,terminate/2,code_change/3]).
 -include("wrfx2.hrl").
 
@@ -58,6 +58,9 @@ purge_stale_jobs(N,Unit) -> gen_server:handle_call(?SERVER,{purge_stale_jobs,N,U
 -spec purge_stale_jobs() -> ok.
 purge_stale_jobs() -> gen_server:handle_call(?SERVER,purge_stale_jobs).
 
+-spec purge_job(uuid()) -> ok.
+purge_job(U) -> gen_server:call(?SERVER,{purge_job,U}).
+
 
 %% -------------------------------------
 %% gen_server implementation
@@ -83,6 +86,7 @@ handle_call({store_variables,U,TS,Vs}, _From, S=#cms{pdir=D}) -> {reply, store_v
 handle_call(list_jobs,_From,S=#cms{jdict=Jd}) -> {reply, dict:fetch_keys(Jd), S};
 handle_call({get_state,U},_From,S=#cms{jdict=Jd}) -> {reply, get_state_int(find_job(U,Jd)), S};
 handle_call({get_job,U},_From,S=#cms{jdict=Jd}) -> {reply, find_job(U,Jd), S};
+handle_call({purge_job,U},_From,S=#cms{jdict=Jd}) -> purge_job_int(U), {reply, ok, S#cms{jdict=dict:erase(U,Jd)}};
 handle_call(Invalid,_From,Cfg) -> utils:log_error("catman received an invalid request ~p~n", [Invalid]), {reply, invalid_request, Cfg}.
 
 
@@ -123,6 +127,8 @@ write_json_file(Path,JSON) ->
 -spec purge_stale_jobs_int(job_dict(),pos_integer(),time_unit()) -> job_dict().
 purge_stale_jobs_int(Jd,N,Un) ->
   MinEndTime = timelib:shift_by(calendar:local_time(),-N,Un),
+  Jd2 = dict:filter(fun (#job{end_time=ET}) -> ET =< MinEndTime end, Jd),
+  lists:map(fun purge_job/1, dict:keys(Jd2)),
   dict:filter(fun (#job{end_time=ET}) -> ET > MinEndTime end, Jd).
 
 
@@ -141,6 +147,19 @@ find_job(U,Jd) ->
     error   -> not_found
   end.
 
+-spec get_state_int(#job{}|not_found) -> not_found|plist().
 get_state_int(not_found) -> not_found;
 get_state_int(#job{state=S}) -> S.
 
+-spec purge_job_int(uuid()) -> ok.
+purge_job_int(U) ->
+  Wksp = filename:join(configsrv:get_conf(workspace_dir),U),
+  case filesys:file_type(Wksp) of
+    directory -> filesys:delete(Wksp);
+    _         -> ok
+  end,
+  Prod = filename:join(configsrv:get_conf(product_dir),U),
+  case filesys:file_type(Prod) of
+    directory -> filesys:delete(Prod), ok;
+    _         -> ok
+  end.
