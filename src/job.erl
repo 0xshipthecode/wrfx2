@@ -47,7 +47,7 @@ retrieve(Uuid) ->
 
 -spec upsert(#job{}) -> ok|error.
 upsert(J=#job{uuid=U,module=M,args=As,start_time=ST,sim_from=SimF,sim_to=SimT,num_nodes=NN,ppn=PPN,grid_code=GC,state=S}) ->
-  Sql = [U,atom_to_list(M),utils:'term-to-string'(As),ST,SimF,SimT,NN,PPN,GC,utils:'term-to-string'(S)],
+  Sql = [U,atom_to_list(M),encode_for_sql(As),ST,SimF,SimT,NN,PPN,GC,encode_for_sql(S)],
   QryU = "update jobs set module=$2,args=$3,status='live',start_time=$4,sim_from=$5,sim_to=$6,num_nodes=$7,ppn=$8,grid_code=$9,state=$10 where uuid=$1",
   case pgsql_manager:extended_query(QryU,Sql) of
     {{update,1},_}  -> ok;
@@ -68,9 +68,10 @@ upsert(J=#job{uuid=U,module=M,args=As,start_time=ST,sim_from=SimF,sim_to=SimT,nu
 
 -spec update_state(string(),plist()) -> ok|error.
 update_state(Uuid,NewState) ->
-  Enc = utils:'term-to-string'(NewState),
+  Enc = encode_for_sql(NewState),
   case pgsql_manager:extended_query("update jobs set state=$2 where uuid=$1",[Uuid,Enc]) of
     {{update,1},_} -> ok;
+    {{update,0},_} -> utils:log_error("job:update_state(~p,~p): job not in table!", [Uuid,NewState]), ok;
     {error,E} -> utils:log_error("job:update_state(~p,~p) bad return from pgsql ~p~n", [Uuid,NewState,E]), error
   end.
 
@@ -138,4 +139,15 @@ enum_to_status(<<"live">>) -> live;
 enum_to_status(<<"failed">>) -> failed;
 enum_to_status(<<"killed">>) -> killed;
 enum_to_status(<<"completed">>) -> completed.
+
+-spec encode_for_sql(plist()) -> string().
+encode_for_sql(Ps) ->
+  lists:flatten(["[", string:join(lists:map(fun encode_pair/1, Ps), ",\n"), "\n]."]).
+  
+-spec encode_pair({atom(),any()}) -> string().
+encode_pair({history_interval, HI}) -> io_lib:format("{history_interval,~w}", [HI]);
+encode_pair(T) -> io_lib:format("~p",[T]).
+
+
+
 
