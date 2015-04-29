@@ -31,12 +31,17 @@ send_package(Tree,PackFile,RemotePath,RemoteScript,EndPt) ->
   pack_tree(PackFile,Tree),
   send_file(PackFile,RemotePath,EndPt),
   file:delete(PackFile), % this could be optional
-  remote_execute(RemoteScript, EndPt).
+  case RemoteScript of
+    [] -> ok;
+    RealScript -> remote_execute(RealScript, EndPt), ok
+  end.
 
 
 -spec pack_tree(string(),string()) -> ok|error.
 pack_tree(ArchiveP,Tree) ->
-  Cmd = lists:flatten(io_lib:format("tar -cvjf ~s ~s", [ArchiveP,Tree])),
+  ParDir = filename:dirname(Tree),
+  Last = filename:basename(Tree),
+  Cmd = lists:flatten(io_lib:format("tar -cvjf ~s -C ~p ~s", [ArchiveP,ParDir,Last])),
   os:cmd(Cmd).
 
 
