@@ -38,7 +38,7 @@ create_dir(Dir) ->
 -spec delete_dir(string()) -> ok.
 delete_dir(Dir) ->
   {ok,Ns} = file:list_dir(Dir),
-  lists:foreach(fun (X) -> ok = delete(X) end, Ns),
+  lists:foreach(fun (X) -> ok = delete(filename:join(Dir,X)) end, Ns),
   ok = file:del_dir(Dir).
 
 
