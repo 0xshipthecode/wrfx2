@@ -58,7 +58,7 @@ make_exit_check_seq_f(ExitChkFs) ->
 %% @doc Check if a string exists in a file.
 -spec exit_check_string_exists(string(),string()) -> passed|{missing_string,string()}.
 exit_check_string_exists(Path,Msg) ->
-  case utils:'grep-file'(Path,Msg) of
+  case utils:grep_file(Path,Msg) of
     found -> passed;
     _NotF -> {missing_string, Msg}
   end.

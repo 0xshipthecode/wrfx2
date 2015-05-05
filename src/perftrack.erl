@@ -26,7 +26,7 @@
 
 -spec initialize() -> ok.
 initialize() ->
-  true = utils:'table-exists?'("taskinfo"),
+  true = utils:table_exists("taskinfo"),
   utils:log_info("perftrack: initialized, tables available.", []),
   ok.
 
@@ -35,7 +35,7 @@ initialize() ->
 insert_task(JT,U,TN,ST,ET,Res,Info) ->
   Qry = "insert into taskinfo(uuid,job_type,task_name,start_time,end_time,result,info) "
      ++ "values ($1,$2,$3,$4,$5,$6,$7)",
-  Params = [U,atom_to_list(JT),TN,ST,ET,utils:'term-to-string'(Res),utils:'term-to-string'(Info)],
+  Params = [U,atom_to_list(JT),TN,ST,ET,utils:term_to_string(Res),utils:term_to_string(Info)],
   pgsql_manager:extended_query(Qry,Params).
 
 

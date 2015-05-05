@@ -30,7 +30,7 @@
 
 
 start_link() ->
-  true = utils:'table-exists?'("jobs"),
+  true = utils:table_exists("jobs"),
   gen_server:start_link({global,jobmaster},jobmaster,dict:new(),[]),
   gen_server:call(?SERVER, resubmit_live_jobs).
 

@@ -122,9 +122,9 @@ retrieve_jobs_completed_after(DT) ->
 -spec sql_to_record({term()}) -> #job{}.
 sql_to_record({UuidB,ModB,ArgsB,{job_status,StatusE},St,Et,SimFrom,SimTo,NNodes,Ppn,GridCode,StateB}) ->
   #job{uuid=binary_to_list(UuidB),module=list_to_atom(binary_to_list(ModB)),
-       args=utils:'binary-to-term'(ArgsB),status=enum_to_status(StatusE),
+       args=utils:binary_to_term(ArgsB),status=enum_to_status(StatusE),
        start_time=St,end_time=Et,sim_from=SimFrom,sim_to=SimTo,num_nodes=NNodes,
-       ppn=Ppn,grid_code=binary_to_list(GridCode),state=utils:'binary-to-term'(StateB)}.
+       ppn=Ppn,grid_code=binary_to_list(GridCode),state=utils:binary_to_term(StateB)}.
 
 
 -spec status_to_enum(job_status()) -> binary().

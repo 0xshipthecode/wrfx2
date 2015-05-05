@@ -112,7 +112,7 @@ monitor_loop(W=#wms{dev=D,pid=Pid,logf=LogF}) ->
 
 -spec run(string(),calendar:datetime(),calendar:datetime(),calendar:datetime(),uuid(),pid(),fun()) -> {success,term()}|{failure,timeout}.
 run(Path,SF,ST,CS,U,Pid,LogF) ->
-  case utils:'wait-for-file'(Path,120000,500) of
+  case utils:wait_for_file(Path,120000,500) of
     {success,_} ->
       {ok,D} = file:open(Path,[read]),
       monitor_loop(#wms{dev=D,simf=SF,simt=ST,comps=CS,uuid=U,pid=Pid,logf=LogF}),

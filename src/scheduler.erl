@@ -40,7 +40,7 @@ get_schedule() -> gen_server:call(?SERVER, get_schedule).
 
 -spec start_link() -> ok.
 start_link() ->
-  true = utils:'table-exists?'("schedule"),
+  true = utils:table_exists("schedule"),
   {ok,_Pid} = gen_server:start_link({local,?SERVER},scheduler,[calendar:local_time(),[],[]], []),
   utils:log_info("scheduler: pre-init ok, loading schedules ...", []),
   N = reload_schedule(),
