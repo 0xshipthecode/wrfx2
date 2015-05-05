@@ -26,6 +26,7 @@
 
 -define(SERVER,{global,catmaster}).
 
+
 %% -------------------------------------
 %% public API
 %% -------------------------------------
@@ -66,8 +67,10 @@ purge_job(U) -> gen_server:call(?SERVER,{purge_job,U}).
 %% gen_server implementation
 %% -------------------------------------
 
+
 -type job_dict() :: dict:dict(string(),#job{}).
 -record(cms, {jdict :: job_dict(), pdir :: string(), keep_days :: integer()}).
+
 
 -spec start_link(string(), pos_integer()) -> ok.
 start_link(Pdir,KeepDays) -> 
@@ -76,7 +79,9 @@ start_link(Pdir,KeepDays) ->
   Jd = lists:foldl(fun (J=#job{uuid=U},D) -> dict:store(U,J,D) end, dict:new(), Js),
   gen_server:start_link(?SERVER, catmaster, #cms{jdict=Jd,pdir=Pdir,keep_days=KeepDays}, []).
 
+
 init(Args) -> {ok, Args}.
+
 
 handle_call({export_uuid,U}, _From, S=#cms{pdir=D}) -> {reply, export_uuid_int(U,D), S};
 handle_call(purge_stale_jobs, _From, S=#cms{jdict=Jd,keep_days=KD}) -> {reply, ok, S#cms{jdict=purge_stale_jobs_int(Jd,KD,days)}};
@@ -147,12 +152,16 @@ find_job(U,Jd) ->
     error   -> not_found
   end.
 
+
 -spec get_state_int(#job{}|not_found) -> not_found|plist().
 get_state_int(not_found) -> not_found;
 get_state_int(#job{state=S}) -> S.
 
+
 -spec purge_job_int(uuid()) -> ok.
 purge_job_int(U) ->
+  pgsql_manager:extended_query("delete from jobs where uuid = $1", [U]),
+  pgsql_manager:extended_query("delete from taskinfo where uuid = $1", [U]),
   Wksp = filename:join(configsrv:get_conf(workspace_dir),U),
   case filesys:file_type(Wksp) of
     directory -> filesys:delete(Wksp);
@@ -163,3 +172,4 @@ purge_job_int(U) ->
     directory -> filesys:delete(Prod), ok;
     _         -> ok
   end.
+
