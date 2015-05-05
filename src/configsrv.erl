@@ -42,7 +42,7 @@ start_link() ->
 
 -spec reload_config() -> success|term().
 reload_config() ->
-  case utils:execute_file("etc/config") of
+  case file:script("etc/config") of
     {ok,Cfg} -> gen_server:call(configsrv, {reload, [{sysdir,get_system_dir()}|Cfg]});
     Error -> Error
   end.
