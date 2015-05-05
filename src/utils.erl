@@ -146,7 +146,7 @@ log_error(Fmt,As) -> log_error(io_lib:format(Fmt,As)).
 
 -spec table_exists(string()) -> boolean().
 table_exists(Name) ->
-  case pgsql_manager:extended_query("select * from information_schema.tables where table_name = $1", Name) of
+  case pgsql_manager:extended_query("select * from information_schema.tables where table_name = $1", [Name]) of
     {{select,1},_} -> true;
     _              -> false
   end.
