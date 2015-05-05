@@ -26,12 +26,12 @@
 valid_token(",") -> false;
 valid_token("\t") -> false;
 valid_token([]) -> false;
-valid_token(L) when is_list(L) -> not utils:empty(string:strip(L)).
+valid_token(L) when is_list(L) -> not utils:is_empty(string:strip(L)).
 
-process_token("=",Line) -> {$=, Line};
-process_token("&",Line) -> {$&, Line};
-process_token("/",Line) -> {$/, Line};
-process_token(Chars,Line) when is_list(Chars) ->{string,Line,Chars}.
+process_token("=",LineNo) -> {'=', LineNo};
+process_token("&",LineNo) -> {'&', LineNo};
+process_token("/",LineNo) -> {'/', LineNo};
+process_token(Chars,LineNo) when is_list(Chars) ->{string,LineNo,Chars}.
 
 process_all_tokens([],_LineNo,Acc) -> lists:reverse(Acc);
 process_all_tokens([[$!|_]|_Rest],_LineNo,Acc) -> lists:reverse(Acc);
@@ -47,7 +47,7 @@ scan_lines(Ls) ->
   lists:flatten(scan_lines(Ls,[],1,RE)).
 
 mark_key_tokens([],Acc) -> lists:reverse(Acc);
-mark_key_tokens([{string,LineNo1,Key},{$=,_LineNo2}|Rest],Acc) -> mark_key_tokens(Rest,[{key,LineNo1,Key}|Acc]);
+mark_key_tokens([{string,LineNo1,Key},{'=',_LineNo2}|Rest],Acc) -> mark_key_tokens(Rest,[{key,LineNo1,Key}|Acc]);
 mark_key_tokens([Other|Rest],Acc) -> mark_key_tokens(Rest,[Other|Acc]).
 
 scan(Path) ->
